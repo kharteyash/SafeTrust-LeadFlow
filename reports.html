@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Reports — LeadFlow</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <div id="app">
+
+    <!-- Page header -->
+    <div class="flex items-start justify-between mb-6 flex-wrap gap-4">
+      <div>
+        <h1 class="text-[26px] font-bold tracking-tight">Reports</h1>
+        <p class="text-[13.5px] text-muted mt-1">Sales, agent performance, and lead insights.</p>
+      </div>
+      <button class="btn-secondary">
+        <i data-lucide="download" style="width:14px;height:14px;"></i> Export
+      </button>
+    </div>
+
+    <!-- Tabs + body -->
+    <div class="panel">
+      <div class="p-4 flex items-center gap-5 flex-wrap" style="border-bottom:1px solid #ECECF2;">
+        <div id="rep-tabs" class="flex items-center gap-5"></div>
+      </div>
+      <div id="rep-body" class="p-5"></div>
+    </div>
+
+  </div>
+
+  <script src="js/data.js"></script>
+  <script src="js/layout.js"></script>
+  <script src="js/reports.js"></script>
+</body>
+</html>

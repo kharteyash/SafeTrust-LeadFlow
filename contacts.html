@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Contacts — LeadFlow</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <div id="app">
+
+    <!-- Page header -->
+    <div class="flex items-start justify-between mb-6 flex-wrap gap-4">
+      <div>
+        <h1 class="text-[26px] font-bold tracking-tight">Contacts</h1>
+        <p class="text-[13.5px] text-muted mt-1">Your buyers, sellers, and investors.</p>
+      </div>
+      <button id="add-contact-btn" class="btn-primary">
+        <i data-lucide="plus" style="width:14px;height:14px;"></i> Add Contact
+      </button>
+    </div>
+
+    <div class="panel">
+      <div class="p-5 pb-3 flex items-center justify-between flex-wrap gap-3">
+        <h3 class="text-[15px] font-semibold">All Contacts <span id="contact-count" class="text-muted font-normal"></span></h3>
+        <div class="relative">
+          <i data-lucide="search" style="width:14px;height:14px;color:#8A8AA0;position:absolute;left:12px;top:50%;transform:translateY(-50%);"></i>
+          <input id="contact-search" class="input pl-9" style="padding-top:7px;padding-bottom:7px;font-size:12.5px;width:240px;" placeholder="Search contacts..." />
+        </div>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="lf-table" id="contacts-table"></table>
+      </div>
+    </div>
+
+    <!-- Add contact modal -->
+    <div id="contact-modal" class="hidden" style="position:fixed;inset:0;z-index:50;">
+      <div id="contact-modal-backdrop" style="position:absolute;inset:0;background:rgba(14,14,27,.45);"></div>
+      <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:100%;max-width:480px;" class="px-4">
+        <div class="bg-white rounded-2xl p-6 shadow-2xl">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-[17px] font-bold">Add contact</h3>
+            <button id="contact-modal-close" class="btn-icon" style="width:32px;height:32px;border:none;">
+              <i data-lucide="x" style="width:16px;height:16px;color:#6A6A82;"></i>
+            </button>
+          </div>
+          <form id="contact-form" class="flex flex-col gap-3">
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="text-[12px] font-semibold text-muted">Name</label>
+                <input name="name" required maxlength="80" class="input mt-1" placeholder="Full name" />
+              </div>
+              <div>
+                <label class="text-[12px] font-semibold text-muted">Email</label>
+                <input name="email" type="email" maxlength="120" class="input mt-1" placeholder="name@email.com" />
+              </div>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="text-[12px] font-semibold text-muted">Phone</label>
+                <input name="phone" maxlength="40" class="input mt-1" placeholder="(555) 123-4567" />
+              </div>
+              <div>
+                <label class="text-[12px] font-semibold text-muted">Company</label>
+                <input name="company" maxlength="80" class="input mt-1" placeholder="Company" />
+              </div>
+            </div>
+            <div>
+              <label class="text-[12px] font-semibold text-muted">Type</label>
+              <select name="tag" class="input mt-1" style="cursor:pointer;">
+                <option value="Buyer">Buyer</option>
+                <option value="Seller">Seller</option>
+                <option value="Investor">Investor</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+            <div id="contact-form-msg" class="text-[12.5px] font-medium" style="color:#D63333;"></div>
+            <div class="flex items-center justify-end gap-2 mt-2">
+              <button type="button" id="contact-cancel" class="btn-secondary">Cancel</button>
+              <button type="submit" class="btn-primary">Add contact</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="js/data.js"></script>
+  <script src="js/layout.js"></script>
+  <script src="js/contacts.js"></script>
+</body>
+</html>

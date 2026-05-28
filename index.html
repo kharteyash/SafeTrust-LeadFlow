@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard — LeadFlow</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- Dashboard page content (will be wrapped by sidebar/topbar via LF.renderLayout) -->
+
+    <!-- Page header -->
+    <div class="flex items-start justify-between mb-6">
+      <div>
+        <h1 class="text-[26px] font-bold tracking-tight">Dashboard</h1>
+        <p id="welcome-msg" class="text-[13.5px] text-muted mt-1">Welcome back! Here's what's happening with your leads.</p>
+      </div>
+      <button class="btn-secondary">
+        <span>May 24 – May 30, 2026</span>
+        <i data-lucide="calendar" style="width:14px;height:14px;"></i>
+      </button>
+    </div>
+
+    <!-- Stat cards row -->
+    <div id="stat-cards" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-5"></div>
+
+    <!-- Charts row: donut + trend + high priority -->
+    <div class="grid grid-cols-12 gap-5 mb-5">
+      <!-- Donut -->
+      <div class="panel p-5 col-span-12 lg:col-span-4">
+        <h3 class="text-[15px] font-semibold mb-4">Leads by Buying Timeline</h3>
+        <div id="buying-donut" class="flex items-center gap-5"></div>
+      </div>
+      <!-- Trend -->
+      <div class="panel p-5 col-span-12 lg:col-span-5">
+        <div class="flex items-center justify-between mb-2">
+          <h3 class="text-[15px] font-semibold">Leads Trend</h3>
+          <select id="trend-week" class="btn-secondary" style="padding:6px 12px;font-size:12px;cursor:pointer;"></select>
+        </div>
+        <div id="trend-chart"></div>
+      </div>
+      <!-- High priority -->
+      <div class="panel p-5 col-span-12 lg:col-span-3">
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <h3 class="text-[15px] font-semibold inline">High Priority</h3>
+            <span class="text-[12px] text-soft ml-1">(Haven't contacted)</span>
+          </div>
+          <a href="calls.html" class="text-[12.5px] font-semibold" style="color:#6D5BFF;">View all</a>
+        </div>
+        <div id="high-priority" class="flex flex-col gap-3"></div>
+      </div>
+    </div>
+
+    <!-- Bottom row: lead table + tasks overview -->
+    <div class="grid grid-cols-12 gap-5 mb-5">
+      <!-- Lead table -->
+      <div class="panel col-span-12 lg:col-span-9">
+        <div class="p-5 pb-3 flex items-center gap-6 flex-wrap">
+          <h3 class="text-[15px] font-semibold">Lead Table</h3>
+          <div class="flex items-center gap-5 flex-wrap" id="dash-lead-tabs"></div>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="lf-table" id="leads-table"></table>
+        </div>
+        <div class="p-4 flex items-center justify-between border-t flex-wrap gap-3" style="border-color:#ECECF2;">
+          <span id="lead-summary" class="text-[12.5px] text-muted"></span>
+          <div class="flex items-center gap-4">
+            <div id="pager" class="flex items-center gap-1"></div>
+            <div class="flex items-center gap-2 text-[12.5px] text-muted">
+              <span>Rows per page:</span>
+              <select id="rows-per-page" class="btn-secondary" style="padding:4px 8px;font-size:12px;cursor:pointer;">
+                <option value="5">5</option>
+                <option value="10">10</option>
+                <option value="25">25</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tasks overview -->
+      <div class="panel col-span-12 lg:col-span-3 p-5">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-[15px] font-semibold">Tasks Overview</h3>
+          <a href="tasks.html" class="text-[12.5px] font-semibold" style="color:#6D5BFF;">View all</a>
+        </div>
+        <div id="tasks-overview" class="flex flex-col gap-2"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/data.js"></script>
+  <script src="js/layout.js"></script>
+  <script src="js/dashboard.js"></script>
+</body>
+</html>

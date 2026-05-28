@@ -1,0 +1,19 @@
+{
+  "name": "leadflow",
+  "version": "1.0.0",
+  "description": "LeadFlow CRM with email/password auth backed by Postgres.",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "cookie-parser": "^1.4.7",
+    "bcryptjs": "^2.4.3",
+    "pg": "^8.13.1"
+  }
+}

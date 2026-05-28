@@ -1,0 +1,24 @@
+# Render Blueprint — deploys the Node web service.
+# In Render: New → Blueprint → connect this repo. It reads this file and will
+# prompt for the env vars marked `sync: false`.
+services:
+  - type: web
+    name: leadflow
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Your Postgres connection string (use your Neon URL, ideally a separate
+      # Neon project/branch for production). Paste it when prompted.
+      - key: DATABASE_URL
+        sync: false
+      # Only needed for the Gmail integration — leave blank otherwise:
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REDIRECT_URI
+        sync: false

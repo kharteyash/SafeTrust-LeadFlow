@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Settings — LeadFlow</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <div id="app">
+
+    <!-- Page header -->
+    <div class="mb-6">
+      <h1 class="text-[26px] font-bold tracking-tight">Settings</h1>
+      <p class="text-[13.5px] text-muted mt-1">Manage your profile, integrations, team access, notifications, and security.</p>
+    </div>
+
+    <!-- Two-column settings layout -->
+    <div class="grid grid-cols-12 gap-5">
+      <!-- Left section nav -->
+      <aside class="col-span-12 lg:col-span-3">
+        <div class="panel p-3">
+          <nav id="settings-nav" class="flex flex-col gap-1"></nav>
+        </div>
+      </aside>
+
+      <!-- Right content -->
+      <div class="col-span-12 lg:col-span-9">
+        <div id="settings-content" class="panel p-6"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="js/data.js"></script>
+  <script src="js/layout.js"></script>
+  <script src="js/settings.js"></script>
+</body>
+</html>

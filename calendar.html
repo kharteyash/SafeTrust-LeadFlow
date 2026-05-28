@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Calendar — LeadFlow</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <div id="app">
+
+    <!-- Page header -->
+    <div class="flex items-start justify-between mb-6 flex-wrap gap-4">
+      <div>
+        <h1 class="text-[26px] font-bold tracking-tight">Calendar</h1>
+        <p class="text-[13.5px] text-muted mt-1">Your schedule, meetings, calls, and follow-ups.</p>
+      </div>
+      <button id="new-event-btn" class="btn-primary">
+        <i data-lucide="plus" style="width:14px;height:14px;"></i> New event
+      </button>
+    </div>
+
+    <!-- Tabs + toolbar -->
+    <div class="panel">
+      <div class="p-4 flex items-center justify-between flex-wrap gap-3" style="border-bottom:1px solid #ECECF2;">
+        <div id="cal-tabs" class="flex items-center gap-5"></div>
+        <div id="cal-toolbar" class="flex items-center gap-2"></div>
+      </div>
+      <div id="cal-body" class="p-4"></div>
+    </div>
+
+    <!-- New event modal -->
+    <div id="event-modal" class="hidden" style="position:fixed;inset:0;z-index:50;">
+      <div id="event-modal-backdrop" style="position:absolute;inset:0;background:rgba(14,14,27,.45);"></div>
+      <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:100%;max-width:480px;" class="px-4">
+        <div class="bg-white rounded-2xl p-6 shadow-2xl">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-[17px] font-bold">New event</h3>
+            <button id="event-modal-close" class="btn-icon" style="width:32px;height:32px;border:none;">
+              <i data-lucide="x" style="width:16px;height:16px;color:#6A6A82;"></i>
+            </button>
+          </div>
+          <form id="event-form" class="flex flex-col gap-3">
+            <div>
+              <label class="text-[12px] font-semibold text-muted">Title</label>
+              <input name="title" required maxlength="120" class="input mt-1" placeholder="e.g. Showing — Michael Brown" />
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="text-[12px] font-semibold text-muted">Type</label>
+                <select name="type" class="input mt-1" style="cursor:pointer;">
+                  <option value="meeting">Customer Meeting</option>
+                  <option value="call">Call</option>
+                  <option value="followup">Follow-up</option>
+                </select>
+              </div>
+              <div>
+                <label class="text-[12px] font-semibold text-muted">With</label>
+                <input name="with" maxlength="80" class="input mt-1" placeholder="Attendee / lead" />
+              </div>
+            </div>
+            <div class="grid grid-cols-3 gap-3">
+              <div>
+                <label class="text-[12px] font-semibold text-muted">Date</label>
+                <input name="date" type="date" required class="input mt-1" />
+              </div>
+              <div>
+                <label class="text-[12px] font-semibold text-muted">Start</label>
+                <input name="start" type="time" required class="input mt-1" value="09:00" />
+              </div>
+              <div>
+                <label class="text-[12px] font-semibold text-muted">End</label>
+                <input name="end" type="time" required class="input mt-1" value="10:00" />
+              </div>
+            </div>
+            <div id="event-form-msg" class="text-[12.5px] font-medium" style="color:#D63333;"></div>
+            <div class="flex items-center justify-end gap-2 mt-2">
+              <button type="button" id="event-cancel" class="btn-secondary">Cancel</button>
+              <button type="submit" class="btn-primary">Add event</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="js/data.js"></script>
+  <script src="js/layout.js"></script>
+  <script src="js/calendar.js"></script>
+</body>
+</html>

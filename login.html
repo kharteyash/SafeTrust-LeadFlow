@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sign in — LeadFlow</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body class="min-h-screen flex items-center justify-center p-4" style="background:radial-gradient(circle at 30% 20%, #2A2745 0%, #0E0E1B 60%);">
+
+  <div class="w-full max-w-[420px] bg-white rounded-2xl p-8 shadow-2xl">
+    <!-- Brand -->
+    <div class="flex items-center gap-3 mb-2">
+      <div class="brand-logo">
+        <i data-lucide="zap" style="color:white;width:18px;height:18px;"></i>
+      </div>
+      <span class="text-[20px] font-bold tracking-tight">LeadFlow</span>
+    </div>
+    <p id="auth-subtitle" class="text-[13.5px] text-muted mb-6">Sign in to continue to your dashboard.</p>
+
+    <!-- Tabs -->
+    <div class="flex gap-1 mb-5 p-1 rounded-xl" style="background:#F5F5FA;">
+      <button class="auth-tab active flex-1" data-tab="login">Sign In</button>
+      <button class="auth-tab flex-1" data-tab="register">Create Account</button>
+    </div>
+
+    <!-- Login form -->
+    <form id="login-form" class="flex flex-col gap-3">
+      <div>
+        <label class="text-[12px] font-semibold text-muted">Email</label>
+        <input name="email" type="email" required autocomplete="email" class="input mt-1" placeholder="you@example.com" />
+      </div>
+      <div>
+        <label class="text-[12px] font-semibold text-muted">Password</label>
+        <input name="password" type="password" required autocomplete="current-password" class="input mt-1" placeholder="••••••••" />
+      </div>
+      <div id="login-error" class="text-[12.5px] font-medium" style="color:#D63333;"></div>
+      <button type="submit" class="btn-primary mt-1" style="justify-content:center;padding:11px;font-size:14px;">Sign In</button>
+    </form>
+
+    <!-- Register form -->
+    <form id="register-form" class="flex-col gap-3 hidden">
+      <div>
+        <label class="text-[12px] font-semibold text-muted">Full name</label>
+        <input name="name" required autocomplete="name" class="input mt-1" placeholder="Jane Doe" />
+      </div>
+      <div>
+        <label class="text-[12px] font-semibold text-muted">Email</label>
+        <input name="email" type="email" required autocomplete="email" class="input mt-1" placeholder="you@example.com" />
+      </div>
+      <div>
+        <label class="text-[12px] font-semibold text-muted">Password</label>
+        <input name="password" type="password" required minlength="6" autocomplete="new-password" class="input mt-1" placeholder="At least 6 characters" />
+      </div>
+      <div id="register-error" class="text-[12.5px] font-medium" style="color:#D63333;"></div>
+      <button type="submit" class="btn-primary mt-1" style="justify-content:center;padding:11px;font-size:14px;">Create Account</button>
+    </form>
+  </div>
+
+  <script src="js/auth.js"></script>
+</body>
+</html>
