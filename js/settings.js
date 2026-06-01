@@ -403,7 +403,9 @@
           <div class="flex items-center gap-2">
             <div class="avatar avatar-sm">${(u.name || '?').trim().split(/\s+/).map(s => s[0]).slice(0,2).join('').toUpperCase()}</div>
             <div>
-              <div class="font-semibold text-[13px]">${escAttr(u.name)}</div>
+              ${u.role === 'team_leader'
+                ? `<button data-view-team="${u.id}" class="font-semibold text-[13px]" style="color:var(--accent);cursor:pointer;display:inline-flex;align-items:center;gap:4px;">${escAttr(u.name)} <i data-lucide="chevron-right" style="width:12px;height:12px;pointer-events:none;"></i></button>`
+                : `<div class="font-semibold text-[13px]">${escAttr(u.name)}</div>`}
               <div class="text-[11.5px] text-muted">${escAttr(u.email)}</div>
             </div>
           </div>
@@ -419,14 +421,16 @@
         </td>
       </tr>`).join('');
     return `
-      <h3 class="text-[15px] font-semibold mb-3">All users (${users.length})</h3>
+      <h3 class="text-[15px] font-semibold mb-1">All users (${users.length})</h3>
+      <p class="text-[12px] text-soft mb-3">Click a team leader to see who's on their team.</p>
       <div class="rounded-xl overflow-hidden" style="border:1px solid var(--border);">
         <table class="lf-table">
           <thead><tr><th>User</th><th>Team leader</th><th>Role</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
       </div>
-      <div id="roles-msg" class="text-[12.5px] mt-3"></div>`;
+      <div id="roles-msg" class="text-[12.5px] mt-3"></div>
+      <div id="admin-team-detail" class="mt-5"></div>`;
   }
 
   // Team leader: members + invite + pending.
@@ -487,6 +491,36 @@
   }
 
   function wireRoles() {
+    // Admin: click a team leader to view their members (toggles open/closed).
+    document.querySelectorAll('[data-view-team]').forEach(btn => btn.addEventListener('click', async () => {
+      const id = btn.getAttribute('data-view-team');
+      const host = document.getElementById('admin-team-detail');
+      if (!host) return;
+      if (host.getAttribute('data-leader') === id) { host.innerHTML = ''; host.removeAttribute('data-leader'); return; }
+      host.setAttribute('data-leader', id);
+      host.innerHTML = '<div class="text-[13px] text-muted py-3">Loading team…</div>';
+      try {
+        const res = await fetch('/api/admin/users/' + id + '/team', { credentials: 'same-origin' });
+        const t = res.ok ? await res.json() : { leaderName: '', members: [] };
+        const memberRows = t.members.length ? t.members.map(m => `
+          <div class="flex items-center gap-2 px-4 py-3" style="border-bottom:1px solid var(--border-soft);">
+            <div class="avatar avatar-sm">${(m.name || '?').trim().split(/\s+/).map(s => s[0]).slice(0,2).join('').toUpperCase()}</div>
+            <div><div class="font-semibold text-[13px]">${escAttr(m.name)}</div><div class="text-[11.5px] text-muted">${escAttr(m.email)}</div></div>
+          </div>`).join('') : '<div class="text-[12.5px] text-muted px-4 py-4">No members on this team yet.</div>';
+        host.innerHTML = `
+          <div class="rounded-xl overflow-hidden" style="border:1px solid var(--border);">
+            <div class="px-4 py-3 flex items-center justify-between" style="border-bottom:1px solid var(--border);background:var(--surface-2);">
+              <div class="text-[14px] font-semibold">${escAttr(t.leaderName)}'s team (${t.members.length})</div>
+              <button data-close-team class="btn-icon" style="width:28px;height:28px;border:none;"><i data-lucide="x" style="width:14px;height:14px;color:var(--text-muted);"></i></button>
+            </div>
+            ${memberRows}
+          </div>`;
+        if (window.lucide) lucide.createIcons();
+        const closeBtn = host.querySelector('[data-close-team]');
+        if (closeBtn) closeBtn.addEventListener('click', () => { host.innerHTML = ''; host.removeAttribute('data-leader'); });
+      } catch (e) { host.innerHTML = '<div class="text-[13px]" style="color:#D63333;">Could not load the team.</div>'; }
+    }));
+
     // Admin: change a role.
     document.querySelectorAll('[data-role-user]').forEach(sel => sel.addEventListener('change', async () => {
       const id = sel.getAttribute('data-role-user');

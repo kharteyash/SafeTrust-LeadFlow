@@ -449,6 +449,18 @@ app.patch('/api/admin/users/:id/role', safe(async (req, res) => {
   res.json({ ok: true, role });
 }));
 
+// Admin: view the members under any team leader.
+app.get('/api/admin/users/:id/team', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin only.' });
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid user id.' });
+  const leader = await one('SELECT id, name FROM users WHERE id = $1', [id]);
+  if (!leader) return res.status(404).json({ error: 'User not found.' });
+  const members = await q('SELECT id, name, email FROM users WHERE leader_id = $1 ORDER BY lower(name)', [id]);
+  res.json({ leaderName: leader.name, members: members.map(m => ({ id: m.id, name: m.name, email: m.email })) });
+}));
+
 // Leader: my team (members + pending invites) and users I can still invite.
 app.get('/api/team', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
