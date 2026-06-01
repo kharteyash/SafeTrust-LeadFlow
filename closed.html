@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Previously Closed — LeadFlow</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  <script>try{if(localStorage.getItem('lf-theme')==='dark')document.documentElement.classList.add('dark')}catch(e){}</script>
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <div id="app">
+
+    <!-- Page header -->
+    <div class="flex items-start justify-between mb-6 flex-wrap gap-4">
+      <div>
+        <h1 class="text-[26px] font-bold tracking-tight">Previously Closed</h1>
+        <p class="text-[13.5px] text-muted mt-1">Closed leads imported from a CSV file. Duplicates are skipped automatically.</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <span id="closed-count" class="text-[12.5px] text-muted"></span>
+        <input id="closed-file" type="file" accept=".csv,text/csv" class="hidden" />
+        <button id="closed-import-btn" class="btn-primary">
+          <i data-lucide="upload" style="width:14px;height:14px;"></i> Import CSV
+        </button>
+      </div>
+    </div>
+
+    <!-- Import status -->
+    <div id="closed-msg" class="text-[12.5px] font-medium mb-3"></div>
+
+    <!-- Table -->
+    <div class="panel">
+      <div class="overflow-x-auto">
+        <table class="lf-table" id="closed-table"></table>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="js/data.js"></script>
+  <script src="js/layout.js"></script>
+  <script src="js/closed.js"></script>
+</body>
+</html>

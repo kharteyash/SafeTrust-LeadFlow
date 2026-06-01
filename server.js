@@ -179,6 +179,17 @@ const SCHEMA = `
     created_at   TIMESTAMPTZ DEFAULT now()
   );
 
+  -- Previously-closed leads, imported from CSV. Flexible schema (whole row as
+  -- JSON) with a per-user dedupe key so re-imports skip duplicates.
+  CREATE TABLE IF NOT EXISTS closed_leads (
+    id         SERIAL PRIMARY KEY,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    data       JSON NOT NULL,
+    dedupe_key TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT now()
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS closed_leads_user_key ON closed_leads (user_id, dedupe_key);
+
   CREATE TABLE IF NOT EXISTS contacts (
     id         SERIAL PRIMARY KEY,
     user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -1128,6 +1139,55 @@ app.post('/api/assignments/outcomes/:id/seen', safe(async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id.' });
   await q(`UPDATE lead_assignments SET leader_seen=true WHERE id=$1 AND from_user_id=$2`, [id, req.user.id]);
+  res.json({ ok: true });
+}));
+
+// ----- Previously closed leads (CSV import) -----
+// Dedupe by email when present, else by a hash of the whole normalized row.
+function closedDedupeKey(row) {
+  for (const [k, v] of Object.entries(row)) {
+    if (/e-?mail/i.test(k) && v != null && String(v).trim()) return 'email:' + String(v).trim().toLowerCase();
+  }
+  const norm = Object.entries(row)
+    .map(([k, v]) => String(k).toLowerCase() + '=' + String(v == null ? '' : v).trim().toLowerCase())
+    .join('|');
+  return 'row:' + crypto.createHash('sha1').update(norm).digest('hex');
+}
+
+app.get('/api/closed', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  const rows = await q('SELECT id, data FROM closed_leads WHERE user_id = $1 ORDER BY id DESC', [req.user.id]);
+  res.json(rows.map(r => ({ id: r.id, data: r.data })));
+}));
+
+app.post('/api/closed/import', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  const rows = (req.body || {}).rows;
+  if (!Array.isArray(rows) || rows.length === 0) return res.status(400).json({ error: 'No rows to import.' });
+  if (rows.length > 5000) return res.status(400).json({ error: 'Too many rows (max 5000 per import).' });
+
+  let imported = 0, skipped = 0;
+  for (const row of rows) {
+    if (!row || typeof row !== 'object' || Array.isArray(row)) { skipped++; continue; }
+    const vals = Object.values(row).map(v => String(v == null ? '' : v).trim());
+    if (vals.every(v => v === '')) { skipped++; continue; } // blank row
+    const key = closedDedupeKey(row);
+    const r = await pool.query(
+      `INSERT INTO closed_leads (user_id, data, dedupe_key) VALUES ($1, $2, $3)
+       ON CONFLICT (user_id, dedupe_key) DO NOTHING`,
+      [req.user.id, JSON.stringify(row), key]
+    );
+    if (r.rowCount > 0) imported++; else skipped++;
+  }
+  res.json({ ok: true, imported, skipped });
+}));
+
+app.delete('/api/closed/:id', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id.' });
+  const r = await pool.query('DELETE FROM closed_leads WHERE id = $1 AND user_id = $2', [id, req.user.id]);
+  if (r.rowCount === 0) return res.status(404).json({ error: 'Record not found.' });
   res.json({ ok: true });
 }));
 
