@@ -150,7 +150,7 @@
               <label class="text-[12px] font-semibold text-muted">Refinance type</label>
               <select name="refi_type" class="input mt-1" style="cursor:pointer;">
                 <option value="Rate &amp; Term">Rate &amp; Term</option>
-                <option value="Cash Out">Cash Out (higher score)</option>
+                <option value="Cash Out">Cash Out</option>
               </select>
             </div>
 
@@ -190,6 +190,28 @@
               <button type="submit" id="lead-submit" class="btn-primary">Add lead</button>
             </div>
           </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- Lead details modal -->
+    <div id="lead-detail-modal" class="hidden" style="position:fixed;inset:0;z-index:50;">
+      <div id="lead-detail-backdrop" style="position:absolute;inset:0;background:rgba(14,14,27,.45);"></div>
+      <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:100%;max-width:480px;" class="px-4">
+        <div class="bg-white rounded-2xl p-6 shadow-2xl">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-[17px] font-bold">Lead details</h3>
+            <button id="lead-detail-close" class="btn-icon" style="width:32px;height:32px;border:none;">
+              <i data-lucide="x" style="width:16px;height:16px;color:var(--text-muted);"></i>
+            </button>
+          </div>
+          <div id="lead-detail-body"></div>
+          <div class="flex items-center justify-end gap-2 mt-4">
+            <button type="button" id="lead-detail-edit" class="btn-secondary">
+              <i data-lucide="pencil" style="width:13px;height:13px;"></i> Edit
+            </button>
+            <button type="button" id="lead-detail-done" class="btn-primary">Close</button>
+          </div>
         </div>
       </div>
     </div>

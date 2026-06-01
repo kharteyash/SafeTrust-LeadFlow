@@ -23,6 +23,8 @@
   function withUid(l) { return Object.assign({ _uid: ++leadUid }, l); }
   let leads = [];
 
+  function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
   // ----- Header stats -----
   function renderLeadStats() {
     const all = leads;
@@ -124,7 +126,7 @@
         <tbody>
           ${pageRows.map(l => `
             <tr>
-              <td><span class="font-semibold">${l.name}</span>${l.preapproved ? ' <span class="pill pill-green" style="font-size:10px;">Pre-approved</span>' : ''}</td>
+              <td><span class="font-semibold" data-view-uid="${l._uid}" style="cursor:pointer;color:var(--accent);">${l.name}</span>${l.preapproved ? ' <span class="pill pill-green" style="font-size:10px;">Pre-approved</span>' : ''}</td>
               <td class="text-muted">${l.email}</td>
               <td>${l.phone}</td>
               <td><span class="pill ${LF.timelinePill(l.timeline)}">${l.timeline}</span></td>
@@ -302,6 +304,58 @@
   }
   function closeLeadModal() { document.getElementById('lead-modal').classList.add('hidden'); editingLeadUid = null; }
 
+  // ----- Lead details (read-only view, opened by clicking the name) -----
+  let detailViewUid = null;
+  function realtorLabel(s) { return s === 'has' ? 'Has a realtor' : s === 'unavailable' ? 'Not available' : 'None'; }
+  function leadInitials(name) { return (name || '?').trim().split(/\s+/).map(s => s[0]).slice(0, 2).join('').toUpperCase() || '?'; }
+  function detailRow(label, value) {
+    return `<div class="flex justify-between gap-4 py-2" style="border-bottom:1px solid var(--border-soft);">
+      <span class="text-[12.5px] text-muted flex-shrink-0">${label}</span>
+      <span class="text-[13px] font-medium text-right" style="word-break:break-word;">${value}</span>
+    </div>`;
+  }
+  function openLeadDetail(lead) {
+    const type = lead.leadType || 'Purchase';
+    const rows = [];
+    rows.push(detailRow('Email', esc(lead.email) || '—'));
+    rows.push(detailRow('Phone', esc(lead.phone) || '—'));
+    rows.push(detailRow('Buying timeline', `<span class="pill ${LF.timelinePill(lead.timeline)}">${esc(lead.timeline)}</span>`));
+    rows.push(detailRow('Lead score', `<span class="pill ${LF.scorePill(lead.score)}">${lead.score}</span>`));
+    rows.push(detailRow('Preapproved', lead.preapproved ? 'Yes' : 'No'));
+    rows.push(detailRow('Lead type', esc(type)));
+    if (type === 'Refinance') {
+      rows.push(detailRow('Refinance type', esc(lead.refiType) || '—'));
+    } else {
+      rows.push(detailRow('Realtor', realtorLabel(lead.realtorStatus)));
+      if (lead.realtorStatus === 'has') {
+        rows.push(detailRow('Realtor name', esc(lead.realtorName) || '—'));
+        rows.push(detailRow('Realtor email', esc(lead.realtorEmail) || '—'));
+        rows.push(detailRow('Realtor phone', esc(lead.realtorPhone) || '—'));
+      }
+    }
+    rows.push(detailRow('Owner', esc(lead.owner) || '—'));
+
+    const notesBlock = lead.notes
+      ? `<div class="mt-3"><div class="text-[12.5px] text-muted mb-1">Notes</div><div class="text-[13px]" style="white-space:pre-wrap;">${esc(lead.notes)}</div></div>`
+      : '';
+
+    document.getElementById('lead-detail-body').innerHTML = `
+      <div class="flex items-center gap-3 mb-3">
+        <div class="avatar avatar-lg">${esc(leadInitials(lead.name))}</div>
+        <div>
+          <div class="text-[16px] font-bold">${esc(lead.name)}</div>
+          ${lead.preapproved ? '<span class="pill pill-green" style="font-size:10.5px;">Pre-approved</span>' : ''}
+        </div>
+      </div>
+      ${rows.join('')}
+      ${notesBlock}`;
+
+    detailViewUid = lead._uid;
+    document.getElementById('lead-detail-modal').classList.remove('hidden');
+    if (window.lucide) lucide.createIcons();
+  }
+  function closeLeadDetail() { document.getElementById('lead-detail-modal').classList.add('hidden'); }
+
   function bindAddLead() {
     document.getElementById('add-lead-btn').addEventListener('click', () => openLeadModal(null));
     document.getElementById('lead-type-select').addEventListener('change', syncLeadForm);
@@ -309,6 +363,16 @@
     document.getElementById('lead-modal-close').addEventListener('click', closeLeadModal);
     document.getElementById('lead-cancel').addEventListener('click', closeLeadModal);
     document.getElementById('lead-modal-backdrop').addEventListener('click', closeLeadModal);
+
+    // Lead detail modal controls.
+    document.getElementById('lead-detail-close').addEventListener('click', closeLeadDetail);
+    document.getElementById('lead-detail-done').addEventListener('click', closeLeadDetail);
+    document.getElementById('lead-detail-backdrop').addEventListener('click', closeLeadDetail);
+    document.getElementById('lead-detail-edit').addEventListener('click', () => {
+      const lead = leads.find(l => String(l._uid) === String(detailViewUid));
+      closeLeadDetail();
+      if (lead) openLeadModal(lead);
+    });
 
     const form = document.getElementById('lead-form');
     const msg = document.getElementById('lead-form-msg');
@@ -408,6 +472,12 @@
   function bindDeleteLead() {
     // Delegated — #leads-table persists while its body re-renders.
     document.getElementById('leads-table').addEventListener('click', e => {
+      const viewEl = e.target.closest('[data-view-uid]');
+      if (viewEl) {
+        const lead = leads.find(l => String(l._uid) === viewEl.getAttribute('data-view-uid'));
+        if (lead) openLeadDetail(lead);
+        return;
+      }
       const editBtn = e.target.closest('[data-edit-uid]');
       if (editBtn) {
         const lead = leads.find(l => String(l._uid) === editBtn.getAttribute('data-edit-uid'));
