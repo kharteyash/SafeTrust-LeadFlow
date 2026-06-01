@@ -481,14 +481,20 @@ app.patch('/api/call-queue/:id', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid queue id.' });
-  if (!req.body || req.body.time == null) return res.status(400).json({ error: 'Nothing to update.' });
-  const time = String(req.body.time).trim();
+  const b = req.body || {};
+  const sets = [];
+  const params = [];
+  const out = {};
+  if (b.time != null)   { params.push(String(b.time).trim());   sets.push(`call_time = $${params.length}`); out.time = String(b.time).trim(); }
+  if (b.reason != null) { params.push(String(b.reason).trim()); sets.push(`reason = $${params.length}`);    out.reason = String(b.reason).trim(); }
+  if (!sets.length) return res.status(400).json({ error: 'Nothing to update.' });
+  params.push(id, req.user.id);
   const r = await pool.query(
-    'UPDATE call_queue SET call_time = $1 WHERE id = $2 AND user_id = $3',
-    [time, id, req.user.id]
+    `UPDATE call_queue SET ${sets.join(', ')} WHERE id = $${params.length - 1} AND user_id = $${params.length}`,
+    params
   );
   if (r.rowCount === 0) return res.status(404).json({ error: 'Queue item not found.' });
-  res.json({ ok: true, time });
+  res.json({ ok: true, ...out });
 }));
 
 app.delete('/api/call-queue/:id', safe(async (req, res) => {

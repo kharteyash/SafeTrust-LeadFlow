@@ -413,6 +413,7 @@
     form.reset();
     document.getElementById('reschedule-name').textContent = item.name;
     form.elements['time'].value = labelToInputValue(item.time);
+    form.elements['reason'].value = item.reason || '';
     document.getElementById('reschedule-form-msg').textContent = '';
     document.getElementById('reschedule-modal').classList.remove('hidden');
     form.elements['time'].focus();
@@ -541,19 +542,20 @@
       const data = Object.fromEntries(new FormData(reschedForm));
       if (!data.time) { reschedMsg.textContent = 'Pick a time.'; return; }
       const timeLabel = formatTimeLabel(data.time);
+      const reason = (data.reason || '').trim();
       const id = reschedulingId;
       const btn = reschedForm.querySelector('button[type="submit"]');
       btn.disabled = true; btn.style.opacity = '0.7';
       try {
         const res = await fetch('/api/call-queue/' + id, {
           method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
-          body: JSON.stringify({ time: timeLabel })
+          body: JSON.stringify({ time: timeLabel, reason })
         });
         const raw = await res.text();
         let body = {}; try { body = raw ? JSON.parse(raw) : {}; } catch (err) {}
         if (!res.ok) { reschedMsg.textContent = body.error || `Request failed (HTTP ${res.status}).`; return; }
         const item = callQueue.find(c => String(c.id) === String(id));
-        if (item) item.time = timeLabel;
+        if (item) { item.time = timeLabel; item.reason = reason; }
         closeRescheduleModal();
         render();
       } catch (err) {
