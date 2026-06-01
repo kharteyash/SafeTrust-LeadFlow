@@ -48,6 +48,14 @@
     });
   }
 
+  // A tel: dial button (opens the device dialer).
+  function callBtn(phone, size) {
+    size = size || 32;
+    return `<button class="btn-icon" title="Call" data-call="${escAttr(phone || '')}" style="width:${size}px;height:${size}px;" ${phone ? '' : 'disabled'}>
+      <i data-lucide="phone" style="width:14px;height:14px;color:#6D5BFF;pointer-events:none;"></i>
+    </button>`;
+  }
+
   // A WhatsApp + log trigger button.
   function logBtn(name, phone, queueId) {
     return `<button class="btn-icon" title="Call or text on WhatsApp"
@@ -70,6 +78,7 @@
           <div class="text-[12px] text-muted">${esc(phone) || '—'}</div>
         </div>
         ${rightHTML || ''}
+        ${callBtn(phone)}
         ${logBtn(name, phone, null)}
       </div>`;
   }
@@ -187,6 +196,7 @@
         <td class="text-muted">${esc(c.reason) || '—'}</td>
         <td>
           <div class="flex items-center gap-1">
+            ${callBtn(c.phone, 30)}
             ${logBtn(c.name, c.phone, c.id)}
             <button data-resched="${c.id}" class="btn-icon" title="Reschedule" style="width:30px;height:30px;">
               <i data-lucide="clock" style="width:14px;height:14px;color:var(--text-muted);pointer-events:none;"></i>
@@ -436,6 +446,13 @@
 
     // Delegated clicks inside the body (log triggers, log-new, reschedule, queue removal).
     document.getElementById('calls-body').addEventListener('click', async e => {
+      const callT = e.target.closest('[data-call]');
+      if (callT) {
+        const tel = LF.telLink(callT.getAttribute('data-call'));
+        if (tel) window.location.href = tel;
+        return;
+      }
+
       const newBtn = e.target.closest('[data-log-new]');
       if (newBtn) { openLogModal(null, null); return; }
 

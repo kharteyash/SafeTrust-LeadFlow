@@ -81,6 +81,9 @@
             <td><span class="pill ${tagPill(c.tag)}">${esc(c.tag)}</span></td>
             <td>
               <div class="flex items-center gap-1">
+                <button class="btn-icon" title="Call" data-call="${escAttr(c.phone)}" style="width:30px;height:30px;" ${c.phone ? '' : 'disabled'}>
+                  <i data-lucide="phone" style="width:13px;height:13px;color:#6D5BFF;pointer-events:none;"></i>
+                </button>
                 <button class="btn-icon" title="Send email" data-email="${escAttr(c.email)}" style="width:30px;height:30px;" ${c.email ? '' : 'disabled'}>
                   <i data-lucide="mail" style="width:13px;height:13px;color:#6D5BFF;pointer-events:none;"></i>
                 </button>
@@ -119,6 +122,12 @@
 
     // Delegated table actions: email + delete.
     document.getElementById('contacts-table').addEventListener('click', async e => {
+      const callBtn = e.target.closest('[data-call]');
+      if (callBtn) {
+        const tel = LF.telLink(callBtn.getAttribute('data-call'));
+        if (tel) window.location.href = tel;
+        return;
+      }
       const emailBtn = e.target.closest('[data-email]');
       if (emailBtn && emailBtn.getAttribute('data-email')) {
         // Open Google's account chooser, then compose under the chosen account.

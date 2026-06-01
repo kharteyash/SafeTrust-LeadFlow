@@ -179,6 +179,14 @@ LF.renderLayout = async function ({ active }) {
 // Tiny helper used by pages.
 LF.fmtNum = (n) => n.toLocaleString('en-US');
 
+// Build a tel: URI from a phone number (US default: prefix 1 for 10 digits).
+// Returns '' when there are no digits, so callers can disable the button.
+LF.telLink = function (phone) {
+  let d = String(phone || '').replace(/\D/g, '');
+  if (d.length === 10) d = '1' + d;
+  return d ? 'tel:+' + d : '';
+};
+
 // Refreshes the topbar avatar + name after profile changes save.
 LF.refreshUserDisplay = function (user) {
   LF_DATA.user = {

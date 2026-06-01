@@ -138,8 +138,8 @@
               </td>
               <td>
                 <div class="flex items-center gap-1">
-                  <button class="btn-icon" style="width:30px;height:30px;">
-                    <i data-lucide="phone" style="width:13px;height:13px;color:#6D5BFF;"></i>
+                  <button class="btn-icon" title="Call" data-call="${l.phone}" style="width:30px;height:30px;" ${l.phone ? '' : 'disabled'}>
+                    <i data-lucide="phone" style="width:13px;height:13px;color:#6D5BFF;pointer-events:none;"></i>
                   </button>
                   <button class="btn-icon" title="Send email" data-email="${l.email}" style="width:30px;height:30px;">
                     <i data-lucide="mail" style="width:13px;height:13px;color:#6D5BFF;pointer-events:none;"></i>
@@ -229,6 +229,12 @@
   function bindEmail() {
     // Delegated — the table body re-renders, but #leads-table persists.
     document.getElementById('leads-table').addEventListener('click', e => {
+      const callBtn = e.target.closest('[data-call]');
+      if (callBtn) {
+        const tel = LF.telLink(callBtn.getAttribute('data-call'));
+        if (tel) window.location.href = tel;
+        return;
+      }
       const btn = e.target.closest('[data-email]');
       if (!btn) return;
       window.open(gmailComposeViaChooser(btn.getAttribute('data-email')), '_blank');

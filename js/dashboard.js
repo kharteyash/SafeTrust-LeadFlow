@@ -148,10 +148,16 @@
           <div class="text-[12px] text-muted">${esc(p.phone) || '—'}</div>
         </div>
         <span class="pill ${scorePill(p.score)} mr-1" style="font-size:11px;">${p.score}</span>
-        <button class="btn-icon" data-wa="${esc(p.phone)}" style="width:32px;height:32px;" ${p.phone ? '' : 'disabled'}>
+        <button class="btn-icon" title="Call" data-call="${esc(p.phone)}" style="width:32px;height:32px;" ${p.phone ? '' : 'disabled'}>
+          <i data-lucide="phone" style="width:14px;height:14px;color:#6D5BFF;pointer-events:none;"></i>
+        </button>
+        <button class="btn-icon" title="WhatsApp" data-wa="${esc(p.phone)}" style="width:32px;height:32px;" ${p.phone ? '' : 'disabled'}>
           <i data-lucide="message-circle" style="width:14px;height:14px;color:#138A4B;pointer-events:none;"></i>
         </button>
       </div>`).join('');
+    host.querySelectorAll('[data-call]').forEach(b => b.addEventListener('click', () => {
+      const tel = LF.telLink(b.getAttribute('data-call')); if (tel) window.location.href = tel;
+    }));
     host.querySelectorAll('[data-wa]').forEach(b => b.addEventListener('click', () => {
       const ph = b.getAttribute('data-wa'); if (ph) window.open(waLink(ph), '_blank');
     }));
