@@ -194,6 +194,29 @@
       </div>
     </div>
 
+    <!-- Assign lead modal (team leaders) -->
+    <div id="assign-modal" class="hidden" style="position:fixed;inset:0;z-index:50;">
+      <div id="assign-backdrop" style="position:absolute;inset:0;background:rgba(14,14,27,.45);"></div>
+      <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:100%;max-width:420px;" class="px-4">
+        <div class="bg-white rounded-2xl p-6 shadow-2xl">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-[17px] font-bold">Assign lead</h3>
+            <button id="assign-close" class="btn-icon" style="width:32px;height:32px;border:none;">
+              <i data-lucide="x" style="width:16px;height:16px;color:var(--text-muted);"></i>
+            </button>
+          </div>
+          <p class="text-[13px] text-muted mb-3">Assign <span id="assign-lead-name" class="font-semibold" style="color:var(--text);"></span> to:</p>
+          <select id="assign-target" class="input" style="cursor:pointer;"></select>
+          <p class="text-[11.5px] text-soft mt-2">They'll be notified and can accept or decline. For "Everyone", the first to accept gets the lead.</p>
+          <div id="assign-msg" class="text-[12.5px] font-medium mt-2" style="color:#D63333;"></div>
+          <div class="flex items-center justify-end gap-2 mt-4">
+            <button type="button" id="assign-cancel" class="btn-secondary">Cancel</button>
+            <button type="button" id="assign-go" class="btn-primary"><i data-lucide="user-check" style="width:14px;height:14px;"></i> Assign</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Lead details modal -->
     <div id="lead-detail-modal" class="hidden" style="position:fixed;inset:0;z-index:50;">
       <div id="lead-detail-backdrop" style="position:absolute;inset:0;background:rgba(14,14,27,.45);"></div>

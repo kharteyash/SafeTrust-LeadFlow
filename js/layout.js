@@ -254,8 +254,9 @@ function notifSaveRead(set) {
 
 async function loadNotifications() {
   const get = async (u) => { try { const r = await fetch(u, { credentials: 'same-origin' }); return r.ok ? await r.json() : []; } catch (e) { return []; } };
-  const [queue, tasks, events, leads, calls, invites] = await Promise.all([
-    get('/api/call-queue'), get('/api/tasks'), get('/api/events'), get('/api/leads'), get('/api/call-log'), get('/api/invites')
+  const [queue, tasks, events, leads, calls, invites, assignments, outcomes] = await Promise.all([
+    get('/api/call-queue'), get('/api/tasks'), get('/api/events'), get('/api/leads'), get('/api/call-log'),
+    get('/api/invites'), get('/api/assignments'), get('/api/assignments/outcomes')
   ]);
 
   const todayKey = notifTodayKey();
@@ -264,8 +265,22 @@ async function loadNotifications() {
 
   // 0) Team invitations — actionable (Accept / Decline).
   invites.forEach(inv => {
-    items.push({ key: `invite-${inv.id}`, sort: -1, type: 'invite', actionId: inv.id, icon: 'users', color: '#6D5BFF',
+    items.push({ key: `invite-${inv.id}`, sort: -2, type: 'invite', actionId: inv.id, icon: 'users', color: '#6D5BFF',
       text: `${notifEsc(inv.leaderName)} invited you to their team`, sub: 'Accept or decline below' });
+  });
+
+  // 0b) Incoming lead assignments — actionable (Accept / Decline).
+  assignments.forEach(a => {
+    items.push({ key: `assign-${a.id}`, sort: -1.5, type: 'assignment', actionId: a.id, icon: 'user-check', color: '#2B57D9',
+      text: `${notifEsc(a.fromName)} assigned you a lead: ${notifEsc(a.leadName)}`, sub: 'Accept or decline below' });
+  });
+
+  // 0c) Assignment outcomes for a team leader (member accepted/declined).
+  outcomes.forEach(o => {
+    const acc = o.status === 'accepted';
+    items.push({ key: `outcome-${o.id}`, sort: -1, type: 'outcome', actionId: o.id,
+      icon: acc ? 'check-circle-2' : 'x-circle', color: acc ? '#138A4B' : '#D63333',
+      text: `${notifEsc(o.memberName)} ${acc ? 'accepted' : 'declined'} the lead: ${notifEsc(o.leadName)}`, sub: '' });
   });
 
   // 1) Call queue — overdue + due soon (date-aware; future-dated calls are skipped).
@@ -339,6 +354,34 @@ async function respondInvite(id, action, btn) {
   loadNotifications();
 }
 
+// Member responds to a lead assignment. On accept, reload the Leads page so the
+// newly received lead shows up; otherwise just refresh the bell.
+async function respondAssignment(id, action, btn) {
+  if (btn) btn.disabled = true;
+  try {
+    const res = await fetch('/api/assignments/' + id + '/respond', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+      body: JSON.stringify({ action })
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      if (btn) btn.disabled = false;
+      window.alert(body.error || 'Could not respond to the assignment.');
+      loadNotifications();
+      return;
+    }
+  } catch (e) { if (btn) btn.disabled = false; window.alert('Network error.'); return; }
+  if (action === 'accept' && /leads\.html$/.test(window.location.pathname)) { window.location.reload(); return; }
+  loadNotifications();
+}
+
+// Leader dismisses an accept/decline outcome notification.
+async function dismissOutcome(id, btn) {
+  if (btn) btn.disabled = true;
+  try { await fetch('/api/assignments/outcomes/' + id + '/seen', { method: 'POST', credentials: 'same-origin' }); } catch (e) {}
+  loadNotifications();
+}
+
 function renderNotifications(items, read) {
   const list = document.getElementById('lf-notif-list');
   const badge = document.getElementById('lf-notif-badge');
@@ -388,6 +431,18 @@ function renderNotifications(items, read) {
           </div>
         </div>`;
     }
+    if (i.type === 'outcome') {
+      return `
+        <div class="px-4 py-3" style="border-bottom:1px solid var(--border-soft);${bg}">
+          <div class="flex items-start gap-3">
+            ${iconChip(i)}
+            <div class="flex-1 min-w-0">
+              <div class="text-[13px] font-medium leading-snug">${i.text}</div>
+              <div class="mt-2"><button data-outcome-seen="${i.actionId}" class="btn-secondary" style="padding:5px 12px;font-size:12px;">Dismiss</button></div>
+            </div>
+          </div>
+        </div>`;
+    }
     return `
       <a href="${i.href}" data-notif-key="${i.key}" class="flex items-start gap-3 px-4 py-3 hover:bg-[#FAFAFC]"
          style="border-bottom:1px solid var(--border-soft);${bg}">
@@ -411,6 +466,17 @@ function renderNotifications(items, read) {
   }));
   list.querySelectorAll('[data-invite-reject]').forEach(b => b.addEventListener('click', e => {
     e.preventDefault(); e.stopPropagation(); respondInvite(b.getAttribute('data-invite-reject'), 'reject', b);
+  }));
+  // Lead-assignment Accept / Decline.
+  list.querySelectorAll('[data-assign-accept]').forEach(b => b.addEventListener('click', e => {
+    e.preventDefault(); e.stopPropagation(); respondAssignment(b.getAttribute('data-assign-accept'), 'accept', b);
+  }));
+  list.querySelectorAll('[data-assign-reject]').forEach(b => b.addEventListener('click', e => {
+    e.preventDefault(); e.stopPropagation(); respondAssignment(b.getAttribute('data-assign-reject'), 'reject', b);
+  }));
+  // Leader outcome dismiss.
+  list.querySelectorAll('[data-outcome-seen]').forEach(b => b.addEventListener('click', e => {
+    e.preventDefault(); e.stopPropagation(); dismissOutcome(b.getAttribute('data-outcome-seen'), b);
   }));
 
   // Mark all read.

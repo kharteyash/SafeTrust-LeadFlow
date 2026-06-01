@@ -165,6 +165,19 @@ const SCHEMA = `
   ALTER TABLE leads ADD COLUMN IF NOT EXISTS realtor_name TEXT;
   ALTER TABLE leads ADD COLUMN IF NOT EXISTS realtor_email TEXT;
   ALTER TABLE leads ADD COLUMN IF NOT EXISTS realtor_phone TEXT;
+  ALTER TABLE leads ADD COLUMN IF NOT EXISTS assigned_by INTEGER REFERENCES users(id) ON DELETE SET NULL;
+
+  -- Lead assignments from a team leader to members (one or all), with accept/reject.
+  CREATE TABLE IF NOT EXISTS lead_assignments (
+    id           SERIAL PRIMARY KEY,
+    lead_id      INTEGER NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+    from_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    to_user_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    group_id     TEXT NOT NULL,
+    status       TEXT NOT NULL DEFAULT 'pending',
+    leader_seen  BOOLEAN DEFAULT false,
+    created_at   TIMESTAMPTZ DEFAULT now()
+  );
 
   CREATE TABLE IF NOT EXISTS contacts (
     id         SERIAL PRIMARY KEY,
@@ -898,6 +911,7 @@ function leadRowToJson(r) {
     preapproved: !!r.preapproved, leadType: r.lead_type || 'Purchase', refiType: r.refi_type || '',
     realtorStatus: r.realtor_status || 'none', realtorName: r.realtor_name || '',
     realtorEmail: r.realtor_email || '', realtorPhone: r.realtor_phone || '',
+    assignedByName: r.assigned_by_name || '',
     last: 'Just now', created: r.created_at
   };
 }
@@ -905,9 +919,11 @@ function leadRowToJson(r) {
 app.get('/api/leads', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
   const rows = await q(`
-    SELECT id, name, email, phone, timeline, score, owner, notes,
-           preapproved, lead_type, refi_type, realtor_status, realtor_name, realtor_email, realtor_phone, created_at
-    FROM leads WHERE user_id = $1 ORDER BY id DESC
+    SELECT le.id, le.name, le.email, le.phone, le.timeline, le.score, le.owner, le.notes,
+           le.preapproved, le.lead_type, le.refi_type, le.realtor_status, le.realtor_name, le.realtor_email, le.realtor_phone,
+           le.created_at, ab.name AS assigned_by_name
+    FROM leads le LEFT JOIN users ab ON ab.id = le.assigned_by
+    WHERE le.user_id = $1 ORDER BY le.id DESC
   `, [req.user.id]);
   res.json(rows.map(leadRowToJson));
 }));
@@ -986,6 +1002,93 @@ app.delete('/api/leads/:id', safe(async (req, res) => {
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid lead id.' });
   const r = await pool.query('DELETE FROM leads WHERE id = $1 AND user_id = $2', [id, req.user.id]);
   if (r.rowCount === 0) return res.status(404).json({ error: 'Lead not found.' });
+  res.json({ ok: true });
+}));
+
+// ----- Lead assignments (team leader -> member(s)) -----
+// Leader assigns one of their leads to a member or to everyone on the team.
+app.post('/api/leads/:id/assign', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  if (req.user.role !== 'team_leader') return res.status(403).json({ error: 'Only team leaders can assign leads.' });
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid lead id.' });
+  const lead = await one('SELECT id FROM leads WHERE id = $1 AND user_id = $2', [id, req.user.id]);
+  if (!lead) return res.status(404).json({ error: 'Lead not found.' });
+
+  const members = await q('SELECT id FROM users WHERE leader_id = $1', [req.user.id]);
+  if (members.length === 0) return res.status(400).json({ error: 'You have no team members yet.' });
+
+  const target = (req.body || {}).target;
+  let targetIds;
+  if (target === 'all') targetIds = members.map(m => m.id);
+  else {
+    const tid = Number(target);
+    if (!members.some(m => m.id === tid)) return res.status(400).json({ error: 'That user is not on your team.' });
+    targetIds = [tid];
+  }
+
+  // Replace any in-flight assignment for this lead with a fresh batch.
+  await q(`UPDATE lead_assignments SET status='cancelled' WHERE lead_id=$1 AND status='pending'`, [id]);
+  const groupId = crypto.randomBytes(8).toString('hex');
+  for (const tid of targetIds) {
+    await q(`INSERT INTO lead_assignments (lead_id, from_user_id, to_user_id, group_id, status) VALUES ($1,$2,$3,$4,'pending')`,
+      [id, req.user.id, tid, groupId]);
+  }
+  res.json({ ok: true, assigned: targetIds.length });
+}));
+
+// Member: my incoming pending lead assignments (for notifications).
+app.get('/api/assignments', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  const rows = await q(`
+    SELECT a.id, l.name AS lead_name, u.name AS from_name
+    FROM lead_assignments a JOIN leads l ON l.id = a.lead_id JOIN users u ON u.id = a.from_user_id
+    WHERE a.to_user_id = $1 AND a.status = 'pending' ORDER BY a.id DESC
+  `, [req.user.id]);
+  res.json(rows.map(r => ({ id: r.id, leadName: r.lead_name, fromName: r.from_name })));
+}));
+
+// Member: accept or reject a lead assignment. Accept atomically claims the lead.
+app.post('/api/assignments/:id/respond', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid assignment id.' });
+  const action = (req.body || {}).action;
+  if (!['accept', 'reject'].includes(action)) return res.status(400).json({ error: 'Invalid action.' });
+
+  if (action === 'reject') {
+    const r = await pool.query(`UPDATE lead_assignments SET status='rejected', leader_seen=false WHERE id=$1 AND to_user_id=$2 AND status='pending'`, [id, req.user.id]);
+    if (r.rowCount === 0) return res.status(404).json({ error: 'Assignment not found.' });
+    return res.json({ ok: true, status: 'rejected' });
+  }
+  // Accept: claim only if still pending (someone else may have taken an "all" lead first).
+  const claimed = await one(`UPDATE lead_assignments SET status='accepted', leader_seen=false
+    WHERE id=$1 AND to_user_id=$2 AND status='pending' RETURNING lead_id, from_user_id, group_id`, [id, req.user.id]);
+  if (!claimed) return res.status(409).json({ error: 'This lead was already taken.' });
+
+  await q('UPDATE leads SET user_id=$1, owner=$2, assigned_by=$3 WHERE id=$4',
+    [req.user.id, req.user.name, claimed.from_user_id, claimed.lead_id]);
+  await q(`UPDATE lead_assignments SET status='cancelled' WHERE group_id=$1 AND status='pending' AND id<>$2`, [claimed.group_id, id]);
+  res.json({ ok: true, status: 'accepted' });
+}));
+
+// Leader: unseen accept/reject outcomes (conveyed back), and dismissing them.
+app.get('/api/assignments/outcomes', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  if (req.user.role !== 'team_leader') return res.json([]);
+  const rows = await q(`
+    SELECT a.id, a.status, u.name AS member_name, l.name AS lead_name
+    FROM lead_assignments a JOIN users u ON u.id = a.to_user_id JOIN leads l ON l.id = a.lead_id
+    WHERE a.from_user_id = $1 AND a.status IN ('accepted','rejected') AND a.leader_seen = false
+    ORDER BY a.id DESC
+  `, [req.user.id]);
+  res.json(rows.map(r => ({ id: r.id, status: r.status, memberName: r.member_name, leadName: r.lead_name })));
+}));
+app.post('/api/assignments/outcomes/:id/seen', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id.' });
+  await q(`UPDATE lead_assignments SET leader_seen=true WHERE id=$1 AND from_user_id=$2`, [id, req.user.id]);
   res.json({ ok: true });
 }));
 

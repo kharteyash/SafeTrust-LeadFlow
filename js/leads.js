@@ -25,6 +25,15 @@
 
   function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 
+  // Team-leader assignment state.
+  let isLeader = false;
+  let teamMembers = [];
+  let assigningLeadId = null;
+  async function loadTeam() {
+    try { const r = await fetch('/api/team', { credentials: 'same-origin' }); if (r.ok) { const t = await r.json(); teamMembers = t.members || []; } }
+    catch (e) { teamMembers = []; }
+  }
+
   // ----- Header stats -----
   function renderLeadStats() {
     const all = leads;
@@ -126,7 +135,7 @@
         <tbody>
           ${pageRows.map(l => `
             <tr>
-              <td><span class="font-semibold" data-view-uid="${l._uid}" style="cursor:pointer;color:var(--accent);">${l.name}</span>${l.preapproved ? ' <span class="pill pill-green" style="font-size:10px;">Pre-approved</span>' : ''}</td>
+              <td><span class="font-semibold" data-view-uid="${l._uid}" style="cursor:pointer;color:var(--accent);">${l.name}</span>${l.preapproved ? ' <span class="pill pill-green" style="font-size:10px;">Pre-approved</span>' : ''}${l.assignedByName ? ` <span class="pill pill-blue" style="font-size:10px;">From ${esc(l.assignedByName)}</span>` : ''}</td>
               <td class="text-muted">${l.email}</td>
               <td>${l.phone}</td>
               <td><span class="pill ${LF.timelinePill(l.timeline)}">${l.timeline}</span></td>
@@ -146,6 +155,9 @@
                   <button class="btn-icon" title="Send email" data-email="${l.email}" style="width:30px;height:30px;">
                     <i data-lucide="mail" style="width:13px;height:13px;color:#6D5BFF;pointer-events:none;"></i>
                   </button>
+                  ${isLeader ? `<button class="btn-icon" title="Assign to team" data-assign-uid="${l._uid}" style="width:30px;height:30px;">
+                    <i data-lucide="user-plus" style="width:13px;height:13px;color:#2B57D9;pointer-events:none;"></i>
+                  </button>` : ''}
                   <button class="btn-icon" title="Edit lead" data-edit-uid="${l._uid}" style="width:30px;height:30px;">
                     <i data-lucide="pencil" style="width:13px;height:13px;color:var(--text-muted);pointer-events:none;"></i>
                   </button>
@@ -478,6 +490,12 @@
         if (lead) openLeadDetail(lead);
         return;
       }
+      const assignBtn = e.target.closest('[data-assign-uid]');
+      if (assignBtn) {
+        const lead = leads.find(l => String(l._uid) === assignBtn.getAttribute('data-assign-uid'));
+        if (lead) openAssignModal(lead);
+        return;
+      }
       const editBtn = e.target.closest('[data-edit-uid]');
       if (editBtn) {
         const lead = leads.find(l => String(l._uid) === editBtn.getAttribute('data-edit-uid'));
@@ -538,6 +556,45 @@
     closeExportModal();
   }
 
+  // ----- Assign lead to team (leaders) -----
+  function openAssignModal(lead) {
+    assigningLeadId = lead.id;
+    document.getElementById('assign-lead-name').textContent = lead.name;
+    const sel = document.getElementById('assign-target');
+    if (teamMembers.length === 0) {
+      sel.innerHTML = '<option value="">No team members — invite people in Settings</option>';
+    } else {
+      sel.innerHTML = '<option value="all">Everyone on my team</option>' +
+        teamMembers.map(m => `<option value="${m.id}">${esc(m.name)}</option>`).join('');
+    }
+    document.getElementById('assign-msg').textContent = '';
+    document.getElementById('assign-modal').classList.remove('hidden');
+  }
+  function closeAssignModal() { document.getElementById('assign-modal').classList.add('hidden'); assigningLeadId = null; }
+  function bindAssign() {
+    document.getElementById('assign-close').addEventListener('click', closeAssignModal);
+    document.getElementById('assign-cancel').addEventListener('click', closeAssignModal);
+    document.getElementById('assign-backdrop').addEventListener('click', closeAssignModal);
+    document.getElementById('assign-go').addEventListener('click', async () => {
+      const sel = document.getElementById('assign-target');
+      const msg = document.getElementById('assign-msg');
+      if (!sel.value) { msg.textContent = 'No team members to assign to. Invite people in Settings first.'; return; }
+      const btn = document.getElementById('assign-go');
+      btn.disabled = true; btn.style.opacity = '0.7';
+      try {
+        const res = await fetch('/api/leads/' + assigningLeadId + '/assign', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+          body: JSON.stringify({ target: sel.value === 'all' ? 'all' : Number(sel.value) })
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) { msg.textContent = body.error || `Request failed (HTTP ${res.status}).`; return; }
+        closeAssignModal();
+        window.alert('Lead assigned. The team member(s) will be notified to accept or decline.');
+      } catch (e) { msg.textContent = 'Network error.'; }
+      finally { btn.disabled = false; btn.style.opacity = ''; }
+    });
+  }
+
   function bindExport() {
     document.getElementById('export-btn').addEventListener('click', openExportModal);
     document.getElementById('export-modal-close').addEventListener('click', closeExportModal);
@@ -551,7 +608,9 @@
     // Layout must render first — it rebuilds #app's innerHTML, which wipes
     // any event listeners attached to elements inside it.
     await LF.renderLayout({ active: 'leads' });
+    isLeader = (D.user && D.user.rawRole) === 'team_leader';
     await loadLeads();
+    if (isLeader) await loadTeam();
     renderLeadStats();
     renderTabs();
     renderTable();
@@ -560,6 +619,7 @@
     bindEmail();
     bindAddLead();
     bindDeleteLead();
+    bindAssign();
     bindExport();
     if (window.lucide) lucide.createIcons();
   });
