@@ -100,10 +100,21 @@ LF.renderLayout = async function ({ active }) {
           <button id="lf-theme-toggle" class="theme-toggle" title="Toggle dark mode">
             <i data-lucide="${document.documentElement.classList.contains('dark') ? 'sun' : 'moon'}" style="width:16px;height:16px;color:var(--text-muted);"></i>
           </button>
-          <button class="btn-icon relative">
-            <i data-lucide="bell" style="width:16px;height:16px;color:var(--text-muted);"></i>
-            <span class="absolute -top-1 -right-1 bg-[#E64B4B] text-white text-[10px] font-bold rounded-full w-[16px] h-[16px] flex items-center justify-center">3</span>
-          </button>
+          <div class="relative" id="lf-notif-menu">
+            <button id="lf-notif-btn" class="btn-icon relative" title="Notifications">
+              <i data-lucide="bell" style="width:16px;height:16px;color:var(--text-muted);"></i>
+              <span id="lf-notif-badge" class="absolute -top-1 -right-1 bg-[#E64B4B] text-white text-[10px] font-bold rounded-full hidden items-center justify-center" style="min-width:16px;height:16px;padding:0 3px;"></span>
+            </button>
+            <div id="lf-notif-dropdown" class="hidden absolute right-0 mt-2 panel" style="top:100%;width:340px;max-width:90vw;z-index:30;box-shadow:0 8px 28px var(--shadow);">
+              <div class="flex items-center justify-between px-4 py-3" style="border-bottom:1px solid var(--border);">
+                <span class="text-[13px] font-semibold">Notifications</span>
+                <button id="lf-notif-readall" class="text-[12px] font-semibold" style="color:var(--accent);cursor:pointer;">Mark all read</button>
+              </div>
+              <div id="lf-notif-list" style="max-height:360px;overflow-y:auto;">
+                <div class="px-4 py-8 text-center text-[12.5px] text-muted">Loading…</div>
+              </div>
+            </div>
+          </div>
           <div class="relative" id="lf-user-menu">
             <button id="lf-user-btn" class="flex items-center gap-2 pl-2 pr-3 py-1 rounded-lg hover:bg-[#FAFAFC]" style="cursor:pointer;">
               <div id="lf-user-avatar" class="avatar">${LF_DATA.user.initials}</div>
@@ -173,8 +184,182 @@ LF.renderLayout = async function ({ active }) {
     window.location.href = '/login.html';
   });
 
+  // Notifications menu (dropdown toggle + outside-click close).
+  const notifBtn = document.getElementById('lf-notif-btn');
+  const notifDropdown = document.getElementById('lf-notif-dropdown');
+  notifBtn.addEventListener('click', e => {
+    e.stopPropagation();
+    notifDropdown.classList.toggle('hidden');
+    userDropdown.classList.add('hidden');
+  });
+  document.addEventListener('click', e => {
+    if (!document.getElementById('lf-notif-menu').contains(e.target)) {
+      notifDropdown.classList.add('hidden');
+    }
+  });
+
   if (window.lucide) lucide.createIcons();
+
+  // Populate notifications from real data (non-blocking).
+  loadNotifications();
 };
+
+// ---------------------------------------------------------------------------
+// Notifications: computed live from the user's real data (no stored events).
+//   Tier 1 — overdue calls, calls due soon, tasks due/overdue, meetings soon
+//   Tier 2 — hot leads (80+) with no call logged yet
+// "Read" state is just a set of notification keys kept in localStorage, pruned
+// to whatever currently exists so it can't grow unbounded.
+// ---------------------------------------------------------------------------
+const NOTIF_SOON_MIN = 60; // "due soon" / "starting soon" window, in minutes
+
+function notifEsc(s) {
+  return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+function notifTodayKey() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+function notifNowMin() { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); }
+// "2:30 PM" -> minutes since midnight, or null.
+function notifLabelMin(label) {
+  const m = /(\d{1,2}):(\d{2})\s*(AM|PM)/i.exec(label || '');
+  if (!m) return null;
+  let h = parseInt(m[1], 10) % 12;
+  if (/PM/i.test(m[3])) h += 12;
+  return h * 60 + parseInt(m[2], 10);
+}
+// "14:30" -> minutes; and a 12-hour display helper.
+function notifHHMMtoMin(s) { const m = /(\d{1,2}):(\d{2})/.exec(s || ''); return m ? +m[1] * 60 + +m[2] : null; }
+function notifFmtMin(min) {
+  let h = Math.floor(min / 60), m = min % 60;
+  const ap = h >= 12 ? 'PM' : 'AM';
+  h = h % 12 || 12;
+  return `${h}:${String(m).padStart(2, '0')} ${ap}`;
+}
+function notifReadSet() {
+  try { return new Set(JSON.parse(localStorage.getItem('lf-notifs-read') || '[]')); } catch (e) { return new Set(); }
+}
+function notifSaveRead(set) {
+  try { localStorage.setItem('lf-notifs-read', JSON.stringify([...set])); } catch (e) {}
+}
+
+async function loadNotifications() {
+  const get = async (u) => { try { const r = await fetch(u, { credentials: 'same-origin' }); return r.ok ? await r.json() : []; } catch (e) { return []; } };
+  const [queue, tasks, events, leads, calls] = await Promise.all([
+    get('/api/call-queue'), get('/api/tasks'), get('/api/events'), get('/api/leads'), get('/api/call-log')
+  ]);
+
+  const todayKey = notifTodayKey();
+  const nowMin = notifNowMin();
+  const items = [];
+
+  // 1) Call queue — overdue + due soon.
+  queue.forEach(c => {
+    const t = notifLabelMin(c.time);
+    if (t == null) return;
+    if (t < nowMin) {
+      items.push({ key: `call-overdue-${c.id}`, sort: 0, icon: 'phone-missed', color: '#D63333',
+        text: `Overdue call: ${notifEsc(c.name)}`, sub: `Was due ${notifEsc(c.time)}`, href: 'calls.html' });
+    } else if (t - nowMin <= NOTIF_SOON_MIN) {
+      items.push({ key: `call-soon-${c.id}`, sort: 2, icon: 'phone', color: '#6D5BFF',
+        text: `Call ${notifEsc(c.name)} soon`, sub: `${notifEsc(c.time)} · in ${t - nowMin} min`, href: 'calls.html' });
+    }
+  });
+
+  // 2) Tasks — due today or overdue, not done.
+  tasks.forEach(t => {
+    if (t.status === 'done' || !t.due) return;
+    if (t.due < todayKey) {
+      items.push({ key: `task-${t.id}`, sort: 1, icon: 'check-square', color: '#D63333',
+        text: notifEsc(t.title), sub: `Task overdue · was due ${notifEsc(t.due)}`, href: 'tasks.html' });
+    } else if (t.due === todayKey) {
+      items.push({ key: `task-${t.id}`, sort: 3, icon: 'check-square', color: '#B07A00',
+        text: notifEsc(t.title), sub: 'Task due today', href: 'tasks.html' });
+    }
+  });
+
+  // 3) Calendar — meetings starting within the next hour today.
+  events.forEach(ev => {
+    if (ev.date !== todayKey) return;
+    const s = notifHHMMtoMin(ev.start);
+    if (s == null || s < nowMin || s - nowMin > NOTIF_SOON_MIN) return;
+    items.push({ key: `event-${ev.id}`, sort: 4, icon: 'calendar', color: '#2B57D9',
+      text: notifEsc(ev.title), sub: `${notifFmtMin(s)} · in ${s - nowMin} min`, href: 'calendar.html' });
+  });
+
+  // 4) Hot leads (80+) with no call logged yet.
+  const calledNames = new Set(calls.map(c => (c.name || '').toLowerCase()));
+  leads.filter(l => l.score >= 80 && !calledNames.has((l.name || '').toLowerCase()))
+    .slice(0, 5)
+    .forEach(l => {
+      items.push({ key: `lead-hot-${l.id}`, sort: 5, icon: 'flame', color: '#E0721B',
+        text: `Hot lead: ${notifEsc(l.name)}`, sub: `Score ${l.score} · no call logged yet`, href: 'leads.html' });
+    });
+
+  items.sort((a, b) => a.sort - b.sort);
+
+  // Prune the read set to current keys, then count unread.
+  const currentKeys = new Set(items.map(i => i.key));
+  let read = notifReadSet();
+  read = new Set([...read].filter(k => currentKeys.has(k)));
+  notifSaveRead(read);
+  renderNotifications(items, read);
+}
+
+function renderNotifications(items, read) {
+  const list = document.getElementById('lf-notif-list');
+  const badge = document.getElementById('lf-notif-badge');
+  const readAll = document.getElementById('lf-notif-readall');
+  if (!list || !badge) return;
+
+  const unread = items.filter(i => !read.has(i.key)).length;
+  if (unread > 0) {
+    badge.textContent = unread > 9 ? '9+' : String(unread);
+    badge.classList.remove('hidden');
+    badge.classList.add('flex');
+  } else {
+    badge.classList.add('hidden');
+    badge.classList.remove('flex');
+  }
+
+  if (items.length === 0) {
+    list.innerHTML = `<div class="px-4 py-10 text-center text-[12.5px] text-muted">You're all caught up. 🎉</div>`;
+    if (readAll) readAll.style.visibility = 'hidden';
+    return;
+  }
+  if (readAll) readAll.style.visibility = 'visible';
+
+  list.innerHTML = items.map(i => {
+    const isUnread = !read.has(i.key);
+    return `
+      <a href="${i.href}" data-notif-key="${i.key}" class="flex items-start gap-3 px-4 py-3 hover:bg-[#FAFAFC]"
+         style="border-bottom:1px solid var(--border-soft);${isUnread ? 'background:rgba(109,91,255,.05);' : ''}">
+        <span class="stat-icon flex-shrink-0" style="width:30px;height:30px;border-radius:8px;background:${i.color}1A;">
+          <i data-lucide="${i.icon}" style="width:15px;height:15px;color:${i.color};"></i>
+        </span>
+        <div class="flex-1 min-w-0">
+          <div class="text-[13px] font-medium leading-snug">${i.text}</div>
+          <div class="text-[11.5px] text-muted mt-0.5">${i.sub}</div>
+        </div>
+        ${isUnread ? '<span class="flex-shrink-0 rounded-full" style="width:7px;height:7px;background:#6D5BFF;margin-top:5px;"></span>' : ''}
+      </a>`;
+  }).join('');
+
+  // Clicking a row marks just that one read (navigation proceeds via the <a>).
+  list.querySelectorAll('[data-notif-key]').forEach(a => a.addEventListener('click', () => {
+    const r = notifReadSet(); r.add(a.getAttribute('data-notif-key')); notifSaveRead(r);
+  }));
+
+  // Mark all read.
+  if (readAll) readAll.onclick = () => {
+    const r = notifReadSet(); items.forEach(i => r.add(i.key)); notifSaveRead(r);
+    renderNotifications(items, r);
+    if (window.lucide) lucide.createIcons();
+  };
+
+  if (window.lucide) lucide.createIcons();
+}
 
 // Tiny helper used by pages.
 LF.fmtNum = (n) => n.toLocaleString('en-US');
