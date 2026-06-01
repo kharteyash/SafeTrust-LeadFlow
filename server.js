@@ -46,6 +46,11 @@ const pool = new Pool({
 });
 const q   = async (text, params) => (await pool.query(text, params)).rows;
 const one = async (text, params) => { const r = await pool.query(text, params); return r.rows[0] || null; };
+// Today's date as YYYY-MM-DD (server-local fallback when the client omits a date).
+const serverToday = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS users (
@@ -152,9 +157,11 @@ const SCHEMA = `
     phone      TEXT,
     priority   TEXT,
     call_time  TEXT,
+    call_date  TEXT,
     reason     TEXT,
     created_at TIMESTAMPTZ DEFAULT now()
   );
+  ALTER TABLE call_queue ADD COLUMN IF NOT EXISTS call_date TEXT;
 
   CREATE TABLE IF NOT EXISTS campaigns (
     id         SERIAL PRIMARY KEY,
@@ -451,29 +458,31 @@ const CALL_PRIORITIES = ['High', 'Medium', 'Low'];
 app.get('/api/call-queue', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
   const rows = await q(`
-    SELECT id, name, phone, priority, call_time, reason
+    SELECT id, name, phone, priority, call_time, call_date, reason
     FROM call_queue WHERE user_id = $1 ORDER BY id DESC
   `, [req.user.id]);
   res.json(rows.map(r => ({
     id: r.id, name: r.name, phone: r.phone || '', priority: r.priority || 'Medium',
-    time: r.call_time || '', reason: r.reason || ''
+    time: r.call_time || '', date: r.call_date || '', reason: r.reason || ''
   })));
 }));
 
 app.post('/api/call-queue', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
-  const { name, phone, time, reason } = req.body || {};
+  const { name, phone, time, date, reason } = req.body || {};
   const priority = CALL_PRIORITIES.includes(req.body && req.body.priority) ? req.body.priority : 'Medium';
   if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required.' });
+  // Default to today (caller's date if sent, else the server's) so the queue is per-day.
+  const callDate = (date && String(date).trim()) || serverToday();
 
   const row = await one(`
-    INSERT INTO call_queue (user_id, name, phone, priority, call_time, reason)
-    VALUES ($1, $2, $3, $4, $5, $6) RETURNING id
-  `, [req.user.id, name.trim(), (phone || '').trim(), priority, (time || '').trim(), (reason || '').trim()]);
+    INSERT INTO call_queue (user_id, name, phone, priority, call_time, call_date, reason)
+    VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id
+  `, [req.user.id, name.trim(), (phone || '').trim(), priority, (time || '').trim(), callDate, (reason || '').trim()]);
 
   res.json({
     id: row.id, name: name.trim(), phone: (phone || '').trim(),
-    priority, time: (time || '').trim(), reason: (reason || '').trim()
+    priority, time: (time || '').trim(), date: callDate, reason: (reason || '').trim()
   });
 }));
 
@@ -486,6 +495,7 @@ app.patch('/api/call-queue/:id', safe(async (req, res) => {
   const params = [];
   const out = {};
   if (b.time != null)   { params.push(String(b.time).trim());   sets.push(`call_time = $${params.length}`); out.time = String(b.time).trim(); }
+  if (b.date != null)   { params.push(String(b.date).trim());   sets.push(`call_date = $${params.length}`); out.date = String(b.date).trim(); }
   if (b.reason != null) { params.push(String(b.reason).trim()); sets.push(`reason = $${params.length}`);    out.reason = String(b.reason).trim(); }
   if (!sets.length) return res.status(400).json({ error: 'Nothing to update.' });
   params.push(id, req.user.id);

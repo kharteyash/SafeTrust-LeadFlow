@@ -254,14 +254,17 @@ async function loadNotifications() {
   const nowMin = notifNowMin();
   const items = [];
 
-  // 1) Call queue — overdue + due soon.
+  // 1) Call queue — overdue + due soon (date-aware; future-dated calls are skipped).
   queue.forEach(c => {
     const t = notifLabelMin(c.time);
     if (t == null) return;
-    if (t < nowMin) {
+    const d = (c.date && c.date.trim()) || todayKey;
+    if (d > todayKey) return; // scheduled for a future day
+    const overdue = d < todayKey || t < nowMin;
+    if (overdue) {
       items.push({ key: `call-overdue-${c.id}`, sort: 0, icon: 'phone-missed', color: '#D63333',
-        text: `Overdue call: ${notifEsc(c.name)}`, sub: `Was due ${notifEsc(c.time)}`, href: 'calls.html' });
-    } else if (t - nowMin <= NOTIF_SOON_MIN) {
+        text: `Overdue call: ${notifEsc(c.name)}`, sub: `Was due ${notifEsc(c.time)}${d < todayKey ? ' · ' + d : ''}`, href: 'calls.html' });
+    } else if (d === todayKey && t - nowMin <= NOTIF_SOON_MIN) {
       items.push({ key: `call-soon-${c.id}`, sort: 2, icon: 'phone', color: '#6D5BFF',
         text: `Call ${notifEsc(c.name)} soon`, sub: `${notifEsc(c.time)} · in ${t - nowMin} min`, href: 'calls.html' });
     }

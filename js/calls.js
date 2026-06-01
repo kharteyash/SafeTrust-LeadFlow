@@ -162,22 +162,46 @@
     return `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`;
   }
   function nowMinutes() { const n = new Date(); return n.getHours() * 60 + n.getMinutes(); }
-  // A queued call is overdue if it has a time that's already passed today.
-  function isOverdue(label) { const t = queueTimeMinutes(label); return t !== Infinity && t < nowMinutes(); }
+  function todayKey() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+  function fmtDateShort(key) {
+    const m = /(\d{4})-(\d{2})-(\d{2})/.exec(key || '');
+    if (!m) return '';
+    const MS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return `${MS[+m[2] - 1]} ${+m[3]}`;
+  }
+  // A queue item's effective date (legacy rows with no date are treated as today).
+  function itemDate(c) { return (c.date && c.date.trim()) || todayKey(); }
+  // Overdue = a past-dated call, or one dated today whose time has already passed.
+  function isOverdue(c) {
+    const d = itemDate(c), today = todayKey();
+    if (d < today) return true;
+    if (d > today) return false;
+    const t = queueTimeMinutes(c.time);
+    return t !== Infinity && t < nowMinutes();
+  }
 
   function renderQueue() {
-    // Sort by how soon each call is *from now*: the next upcoming call is at the
-    // top, and times that have already passed today wrap to the bottom (e.g. at
-    // 10 AM, 12 PM comes before 12 AM). Untimed entries fall to the very bottom.
-    const nowMin = nowMinutes();
-    const rank = (label) => {
-      const t = queueTimeMinutes(label);
-      return t === Infinity ? Infinity : (t - nowMin + 1440) % 1440;
+    // Daily queue: show today's calls plus carried-over (past-dated) ones, and
+    // hide anything scheduled for a future day until that day arrives. Upcoming
+    // calls sort soonest-first; overdue ones drop to the bottom, chronological.
+    const today = todayKey();
+    const visible = callQueue.filter(c => itemDate(c) <= today);
+    const cmp = (a, b) => {
+      const oa = isOverdue(a), ob = isOverdue(b);
+      if (oa !== ob) return oa ? 1 : -1;                 // overdue last
+      if (!oa) return queueTimeMinutes(a.time) - queueTimeMinutes(b.time); // soonest today first
+      const da = itemDate(a), db = itemDate(b);          // both overdue: chronological
+      if (da !== db) return da < db ? -1 : 1;
+      return queueTimeMinutes(a.time) - queueTimeMinutes(b.time);
     };
-    const sorted = callQueue.slice().sort((a, b) => rank(a.time) - rank(b.time));
-    const overdueCount = callQueue.filter(c => isOverdue(c.time)).length;
+    const sorted = visible.slice().sort(cmp);
+    const overdueCount = visible.filter(isOverdue).length;
     const rows = sorted.length ? sorted.map(c => {
-      const overdue = isOverdue(c.time);
+      const overdue = isOverdue(c);
+      const carried = itemDate(c) < today; // from a previous day
       return `
       <tr ${overdue ? 'style="background:rgba(214,51,51,.06);"' : ''}>
         <td>
@@ -189,6 +213,7 @@
         <td>
           <div class="flex items-center gap-2">
             <span class="text-muted">${esc(c.time) || '—'}</span>
+            ${carried ? `<span class="text-soft text-[11px]">${fmtDateShort(itemDate(c))}</span>` : ''}
             ${overdue ? '<span class="pill pill-red" style="font-size:10.5px;">Overdue</span>' : ''}
           </div>
         </td>
@@ -212,7 +237,7 @@
     document.getElementById('calls-body').innerHTML = `
       <div class="flex items-center justify-between mb-3">
         <h3 class="text-[15px] font-semibold">Today's calls
-          <span class="text-muted font-normal">(${callQueue.length})</span>
+          <span class="text-muted font-normal">(${visible.length})</span>
           ${overdueCount ? `<span class="pill pill-red ml-1" style="font-size:11px;">${overdueCount} overdue</span>` : ''}
         </h3>
         <button id="add-queue-btn" class="btn-primary" style="padding:7px 14px;font-size:12.5px;">
@@ -410,6 +435,7 @@
     const form = document.getElementById('queue-form');
     form.reset();
     form.elements['priority'].value = 'Medium';
+    form.elements['date'].value = todayKey();
     document.getElementById('queue-form-msg').textContent = '';
     document.getElementById('queue-modal').classList.remove('hidden');
     form.elements['name'].focus();
@@ -422,6 +448,7 @@
     const form = document.getElementById('reschedule-form');
     form.reset();
     document.getElementById('reschedule-name').textContent = item.name;
+    form.elements['date'].value = itemDate(item);
     form.elements['time'].value = labelToInputValue(item.time);
     form.elements['reason'].value = item.reason || '';
     document.getElementById('reschedule-form-msg').textContent = '';
@@ -534,7 +561,7 @@
       try {
         const res = await fetch('/api/call-queue', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
-          body: JSON.stringify({ name: data.name, phone: data.phone || '', priority: data.priority, time: timeLabel, reason: data.reason || '' })
+          body: JSON.stringify({ name: data.name, phone: data.phone || '', priority: data.priority, time: timeLabel, date: data.date || todayKey(), reason: data.reason || '' })
         });
         const raw = await res.text();
         let body = {}; try { body = raw ? JSON.parse(raw) : {}; } catch (err) {}
@@ -558,21 +585,23 @@
       if (reschedulingId == null) { closeRescheduleModal(); return; }
       const data = Object.fromEntries(new FormData(reschedForm));
       if (!data.time) { reschedMsg.textContent = 'Pick a time.'; return; }
+      if (!data.date) { reschedMsg.textContent = 'Pick a date.'; return; }
       const timeLabel = formatTimeLabel(data.time);
       const reason = (data.reason || '').trim();
+      const date = data.date;
       const id = reschedulingId;
       const btn = reschedForm.querySelector('button[type="submit"]');
       btn.disabled = true; btn.style.opacity = '0.7';
       try {
         const res = await fetch('/api/call-queue/' + id, {
           method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
-          body: JSON.stringify({ time: timeLabel, reason })
+          body: JSON.stringify({ time: timeLabel, date, reason })
         });
         const raw = await res.text();
         let body = {}; try { body = raw ? JSON.parse(raw) : {}; } catch (err) {}
         if (!res.ok) { reschedMsg.textContent = body.error || `Request failed (HTTP ${res.status}).`; return; }
         const item = callQueue.find(c => String(c.id) === String(id));
-        if (item) { item.time = timeLabel; item.reason = reason; }
+        if (item) { item.time = timeLabel; item.date = date; item.reason = reason; }
         closeRescheduleModal();
         render();
       } catch (err) {
