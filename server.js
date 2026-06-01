@@ -134,8 +134,24 @@ const SCHEMA = `
     timeline   TEXT,
     score      INTEGER,
     owner      TEXT,
+    notes      TEXT,
+    preapproved    BOOLEAN DEFAULT false,
+    lead_type      TEXT,
+    refi_type      TEXT,
+    realtor_status TEXT,
+    realtor_name   TEXT,
+    realtor_email  TEXT,
+    realtor_phone  TEXT,
     created_at TIMESTAMPTZ DEFAULT now()
   );
+  ALTER TABLE leads ADD COLUMN IF NOT EXISTS notes TEXT;
+  ALTER TABLE leads ADD COLUMN IF NOT EXISTS preapproved BOOLEAN DEFAULT false;
+  ALTER TABLE leads ADD COLUMN IF NOT EXISTS lead_type TEXT;
+  ALTER TABLE leads ADD COLUMN IF NOT EXISTS refi_type TEXT;
+  ALTER TABLE leads ADD COLUMN IF NOT EXISTS realtor_status TEXT;
+  ALTER TABLE leads ADD COLUMN IF NOT EXISTS realtor_name TEXT;
+  ALTER TABLE leads ADD COLUMN IF NOT EXISTS realtor_email TEXT;
+  ALTER TABLE leads ADD COLUMN IF NOT EXISTS realtor_phone TEXT;
 
   CREATE TABLE IF NOT EXISTS contacts (
     id         SERIAL PRIMARY KEY,
@@ -707,45 +723,125 @@ app.delete('/api/scheduled/:id', safe(async (req, res) => {
 
 // ----- Leads -----
 const LEAD_TIMELINES = ['Buying Immediately', '1-3 Months', '3-6 Months', '6+ Months'];
+const LEAD_TYPES = ['Purchase', 'Refinance'];
+const REFI_TYPES = ['Rate & Term', 'Cash Out'];
+const REALTOR_STATUSES = ['has', 'unavailable', 'none'];
 
-function computeLeadScore(timeline, phone) {
+function computeLeadScore(timeline, phone, leadType, refiType) {
   const base = {
     'Buying Immediately': 85, '1-3 Months': 70, '3-6 Months': 50, '6+ Months': 35
   }[timeline] || 50;
   const phoneBonus = (phone && phone.trim()) ? 10 : 0;
-  return Math.min(100, base + phoneBonus);
+  // Cash-out refinances are weighted higher than rate & term.
+  let refiBonus = 0;
+  if (leadType === 'Refinance') refiBonus = refiType === 'Cash Out' ? 15 : 5;
+  return Math.min(100, base + phoneBonus + refiBonus);
+}
+
+// Normalize the lead-type fields from a request body (clears irrelevant ones).
+function normalizeLeadType(b) {
+  const leadType = LEAD_TYPES.includes(b.leadType) ? b.leadType : 'Purchase';
+  const out = { leadType, refiType: null, realtorStatus: null, realtorName: '', realtorEmail: '', realtorPhone: '' };
+  if (leadType === 'Refinance') {
+    out.refiType = REFI_TYPES.includes(b.refiType) ? b.refiType : 'Rate & Term';
+  } else {
+    out.realtorStatus = REALTOR_STATUSES.includes(b.realtorStatus) ? b.realtorStatus : 'none';
+    if (out.realtorStatus === 'has') {
+      out.realtorName = String(b.realtorName || '').trim();
+      out.realtorEmail = String(b.realtorEmail || '').trim();
+      out.realtorPhone = String(b.realtorPhone || '').trim();
+    }
+  }
+  out.preapproved = b.preapproved === true || b.preapproved === 'yes' || b.preapproved === 'true';
+  return out;
+}
+function leadRowToJson(r) {
+  return {
+    id: r.id, name: r.name, email: r.email || '', phone: r.phone || '',
+    timeline: r.timeline, score: r.score, owner: r.owner || '', notes: r.notes || '',
+    preapproved: !!r.preapproved, leadType: r.lead_type || 'Purchase', refiType: r.refi_type || '',
+    realtorStatus: r.realtor_status || 'none', realtorName: r.realtor_name || '',
+    realtorEmail: r.realtor_email || '', realtorPhone: r.realtor_phone || '',
+    last: 'Just now', created: r.created_at
+  };
 }
 
 app.get('/api/leads', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
   const rows = await q(`
-    SELECT id, name, email, phone, timeline, score, owner, created_at
+    SELECT id, name, email, phone, timeline, score, owner, notes,
+           preapproved, lead_type, refi_type, realtor_status, realtor_name, realtor_email, realtor_phone, created_at
     FROM leads WHERE user_id = $1 ORDER BY id DESC
   `, [req.user.id]);
-  res.json(rows.map(r => ({
-    id: r.id, name: r.name, email: r.email || '', phone: r.phone || '',
-    timeline: r.timeline, score: r.score, owner: r.owner || '', last: 'Just now',
-    created: r.created_at
-  })));
+  res.json(rows.map(leadRowToJson));
 }));
 
 app.post('/api/leads', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
-  const { name, email, phone, timeline, owner } = req.body || {};
+  const { name, email, phone, timeline, owner, notes } = req.body || {};
   if (!name || !name.trim())   return res.status(400).json({ error: 'Name is required.' });
   if (!email || !email.trim()) return res.status(400).json({ error: 'Email is required.' });
   if (!LEAD_TIMELINES.includes(timeline)) return res.status(400).json({ error: 'Invalid buying timeline.' });
 
-  const score = computeLeadScore(timeline, phone);
+  const f = normalizeLeadType(req.body || {});
+  const score = computeLeadScore(timeline, phone, f.leadType, f.refiType);
   const row = await one(`
-    INSERT INTO leads (user_id, name, email, phone, timeline, score, owner)
-    VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id
-  `, [req.user.id, name.trim(), email.trim(), (phone || '').trim(), timeline, score, (owner || '').trim()]);
+    INSERT INTO leads (user_id, name, email, phone, timeline, score, owner, notes,
+                       preapproved, lead_type, refi_type, realtor_status, realtor_name, realtor_email, realtor_phone)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id
+  `, [req.user.id, name.trim(), email.trim(), (phone || '').trim(), timeline, score, (owner || '').trim(), (notes || '').trim(),
+      f.preapproved, f.leadType, f.refiType, f.realtorStatus, f.realtorName, f.realtorEmail, f.realtorPhone]);
 
-  res.json({
+  res.json(leadRowToJson({
     id: row.id, name: name.trim(), email: email.trim(), phone: (phone || '').trim(),
-    timeline, score, owner: (owner || '').trim(), last: 'Just now'
+    timeline, score, owner: (owner || '').trim(), notes: (notes || '').trim(),
+    preapproved: f.preapproved, lead_type: f.leadType, refi_type: f.refiType,
+    realtor_status: f.realtorStatus, realtor_name: f.realtorName, realtor_email: f.realtorEmail, realtor_phone: f.realtorPhone
+  }));
+}));
+
+app.patch('/api/leads/:id', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid lead id.' });
+  const cur = await one(`SELECT name, email, phone, timeline, owner, notes,
+    preapproved, lead_type, refi_type, realtor_status, realtor_name, realtor_email, realtor_phone
+    FROM leads WHERE id = $1 AND user_id = $2`, [id, req.user.id]);
+  if (!cur) return res.status(404).json({ error: 'Lead not found.' });
+
+  const b = req.body || {};
+  const name     = b.name     != null ? String(b.name).trim()  : cur.name;
+  const email    = b.email    != null ? String(b.email).trim() : (cur.email || '');
+  const phone    = b.phone    != null ? String(b.phone).trim() : (cur.phone || '');
+  const timeline = b.timeline != null ? b.timeline             : cur.timeline;
+  const owner    = b.owner    != null ? String(b.owner).trim() : (cur.owner || '');
+  const notes    = b.notes    != null ? String(b.notes).trim() : (cur.notes || '');
+  if (!name)  return res.status(400).json({ error: 'Name is required.' });
+  if (!email) return res.status(400).json({ error: 'Email is required.' });
+  if (!LEAD_TIMELINES.includes(timeline)) return res.status(400).json({ error: 'Invalid buying timeline.' });
+
+  // Merge type fields with current values, then normalize + rescore.
+  const f = normalizeLeadType({
+    leadType:      b.leadType      != null ? b.leadType      : cur.lead_type,
+    refiType:      b.refiType      != null ? b.refiType      : cur.refi_type,
+    realtorStatus: b.realtorStatus != null ? b.realtorStatus : cur.realtor_status,
+    realtorName:   b.realtorName   != null ? b.realtorName   : cur.realtor_name,
+    realtorEmail:  b.realtorEmail  != null ? b.realtorEmail  : cur.realtor_email,
+    realtorPhone:  b.realtorPhone  != null ? b.realtorPhone  : cur.realtor_phone,
+    preapproved:   b.preapproved   != null ? b.preapproved   : cur.preapproved
   });
+  const score = computeLeadScore(timeline, phone, f.leadType, f.refiType);
+  await pool.query(`UPDATE leads SET name=$1, email=$2, phone=$3, timeline=$4, owner=$5, notes=$6, score=$7,
+      preapproved=$8, lead_type=$9, refi_type=$10, realtor_status=$11, realtor_name=$12, realtor_email=$13, realtor_phone=$14
+      WHERE id=$15 AND user_id=$16`,
+    [name, email, phone, timeline, owner, notes, score,
+     f.preapproved, f.leadType, f.refiType, f.realtorStatus, f.realtorName, f.realtorEmail, f.realtorPhone, id, req.user.id]);
+
+  res.json(leadRowToJson({
+    id, name, email, phone, timeline, score, owner, notes,
+    preapproved: f.preapproved, lead_type: f.leadType, refi_type: f.refiType,
+    realtor_status: f.realtorStatus, realtor_name: f.realtorName, realtor_email: f.realtorEmail, realtor_phone: f.realtorPhone
+  }));
 }));
 
 app.delete('/api/leads/:id', safe(async (req, res) => {

@@ -124,7 +124,7 @@
         <tbody>
           ${pageRows.map(l => `
             <tr>
-              <td class="font-semibold">${l.name}</td>
+              <td><span class="font-semibold">${l.name}</span>${l.preapproved ? ' <span class="pill pill-green" style="font-size:10px;">Pre-approved</span>' : ''}</td>
               <td class="text-muted">${l.email}</td>
               <td>${l.phone}</td>
               <td><span class="pill ${LF.timelinePill(l.timeline)}">${l.timeline}</span></td>
@@ -143,6 +143,9 @@
                   </button>
                   <button class="btn-icon" title="Send email" data-email="${l.email}" style="width:30px;height:30px;">
                     <i data-lucide="mail" style="width:13px;height:13px;color:#6D5BFF;pointer-events:none;"></i>
+                  </button>
+                  <button class="btn-icon" title="Edit lead" data-edit-uid="${l._uid}" style="width:30px;height:30px;">
+                    <i data-lucide="pencil" style="width:13px;height:13px;color:var(--text-muted);pointer-events:none;"></i>
                   </button>
                   <button class="btn-icon" title="Delete lead" data-del-uid="${l._uid}" style="width:30px;height:30px;border:none;">
                     <i data-lucide="trash-2" style="width:14px;height:14px;color:#D63333;pointer-events:none;"></i>
@@ -252,20 +255,57 @@
     } catch (e) { /* keep demo leads only */ }
   }
 
-  // ----- Add Lead modal -----
-  function openLeadModal() {
+  // ----- Add / Edit Lead modal -----
+  let editingLeadUid = null;
+  // Show/hide the conditional sections based on lead type + realtor status.
+  function syncLeadForm() {
+    const form = document.getElementById('lead-form');
+    const type = form.elements['lead_type'].value;
+    document.getElementById('refi-section').style.display = type === 'Refinance' ? '' : 'none';
+    document.getElementById('purchase-section').style.display = type === 'Purchase' ? '' : 'none';
+    const rs = form.elements['realtor_status'].value;
+    document.getElementById('realtor-fields').style.display = (type === 'Purchase' && rs === 'has') ? '' : 'none';
+  }
+  function openLeadModal(lead) {
+    editingLeadUid = lead ? lead._uid : null;
     const form = document.getElementById('lead-form');
     form.reset();
-    form.elements['owner'].value = (LF_DATA.user && LF_DATA.user.name) || '';
-    form.elements['timeline'].value = 'Buying Immediately';
+    if (lead) {
+      document.getElementById('lead-modal-title').textContent = 'Edit lead';
+      document.getElementById('lead-submit').textContent = 'Save changes';
+      form.elements['name'].value = lead.name || '';
+      form.elements['email'].value = lead.email || '';
+      form.elements['phone'].value = lead.phone || '';
+      form.elements['owner'].value = lead.owner || '';
+      form.elements['timeline'].value = lead.timeline || 'Buying Immediately';
+      form.elements['notes'].value = lead.notes || '';
+      form.elements['lead_type'].value = lead.leadType || 'Purchase';
+      form.elements['refi_type'].value = lead.refiType || 'Rate & Term';
+      form.elements['realtor_status'].value = lead.realtorStatus || 'none';
+      form.elements['realtor_name'].value = lead.realtorName || '';
+      form.elements['realtor_email'].value = lead.realtorEmail || '';
+      form.elements['realtor_phone'].value = lead.realtorPhone || '';
+      form.elements['preapproved'].value = lead.preapproved ? 'yes' : 'no';
+    } else {
+      document.getElementById('lead-modal-title').textContent = 'Add lead';
+      document.getElementById('lead-submit').textContent = 'Add lead';
+      form.elements['owner'].value = (LF_DATA.user && LF_DATA.user.name) || '';
+      form.elements['timeline'].value = 'Buying Immediately';
+      form.elements['lead_type'].value = 'Purchase';
+      form.elements['realtor_status'].value = 'none';
+      form.elements['preapproved'].value = 'no';
+    }
+    syncLeadForm();
     document.getElementById('lead-form-msg').textContent = '';
     document.getElementById('lead-modal').classList.remove('hidden');
     form.elements['name'].focus();
   }
-  function closeLeadModal() { document.getElementById('lead-modal').classList.add('hidden'); }
+  function closeLeadModal() { document.getElementById('lead-modal').classList.add('hidden'); editingLeadUid = null; }
 
   function bindAddLead() {
-    document.getElementById('add-lead-btn').addEventListener('click', openLeadModal);
+    document.getElementById('add-lead-btn').addEventListener('click', () => openLeadModal(null));
+    document.getElementById('lead-type-select').addEventListener('change', syncLeadForm);
+    document.getElementById('realtor-status-select').addEventListener('change', syncLeadForm);
     document.getElementById('lead-modal-close').addEventListener('click', closeLeadModal);
     document.getElementById('lead-cancel').addEventListener('click', closeLeadModal);
     document.getElementById('lead-modal-backdrop').addEventListener('click', closeLeadModal);
@@ -281,31 +321,60 @@
 
       const btn = form.querySelector('button[type="submit"]');
       btn.disabled = true; btn.style.opacity = '0.7';
+      const payload = {
+        name: data.name, email: data.email, phone: data.phone || '',
+        timeline: data.timeline, owner: data.owner || '', notes: data.notes || '',
+        preapproved: data.preapproved === 'yes',
+        leadType: data.lead_type,
+        refiType: data.refi_type,
+        realtorStatus: data.realtor_status,
+        realtorName: data.realtor_name || '',
+        realtorEmail: data.realtor_email || '',
+        realtorPhone: data.realtor_phone || ''
+      };
       try {
-        const res = await fetch('/api/leads', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
-          body: JSON.stringify({
-            name: data.name, email: data.email, phone: data.phone || '',
-            timeline: data.timeline, owner: data.owner || ''
-          })
-        });
-        const raw = await res.text();
-        let body = {};
-        try { body = raw ? JSON.parse(raw) : {}; } catch (err) { /* non-JSON */ }
-        if (!res.ok) { msg.textContent = body.error || `Request failed (HTTP ${res.status}).`; return; }
+        if (editingLeadUid != null) {
+          const lead = leads.find(l => String(l._uid) === String(editingLeadUid));
+          if (!lead || !lead.id) { msg.textContent = 'This lead can’t be edited.'; return; }
+          const res = await fetch('/api/leads/' + lead.id, {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+            body: JSON.stringify(payload)
+          });
+          const raw = await res.text(); let body = {}; try { body = raw ? JSON.parse(raw) : {}; } catch (err) {}
+          if (!res.ok) { msg.textContent = body.error || `Request failed (HTTP ${res.status}).`; return; }
+          Object.assign(lead, {
+            name: body.name, email: body.email, phone: body.phone,
+            timeline: body.timeline, owner: body.owner, notes: body.notes, score: body.score,
+            preapproved: body.preapproved, leadType: body.leadType, refiType: body.refiType,
+            realtorStatus: body.realtorStatus, realtorName: body.realtorName,
+            realtorEmail: body.realtorEmail, realtorPhone: body.realtorPhone
+          });
+          closeLeadModal();
+          renderLeadStats();
+          renderTabs();
+          renderTable();
+          if (window.lucide) lucide.createIcons();
+        } else {
+          const res = await fetch('/api/leads', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+            body: JSON.stringify(payload)
+          });
+          const raw = await res.text(); let body = {}; try { body = raw ? JSON.parse(raw) : {}; } catch (err) {}
+          if (!res.ok) { msg.textContent = body.error || `Request failed (HTTP ${res.status}).`; return; }
 
-        leads.unshift(withUid(body));
-        closeLeadModal();
-        // Reset to All Leads, first page so the new lead is visible up top.
-        state.tab = 'all';
-        state.page = 1;
-        state.search = '';
-        const search = document.getElementById('topbar-search');
-        if (search) search.value = '';
-        renderLeadStats();
-        renderTabs();
-        renderTable();
-        if (window.lucide) lucide.createIcons();
+          leads.unshift(withUid(body));
+          closeLeadModal();
+          // Reset to All Leads, first page so the new lead is visible up top.
+          state.tab = 'all';
+          state.page = 1;
+          state.search = '';
+          const search = document.getElementById('topbar-search');
+          if (search) search.value = '';
+          renderLeadStats();
+          renderTabs();
+          renderTable();
+          if (window.lucide) lucide.createIcons();
+        }
       } catch (err) {
         msg.textContent = 'Network error. Is the server running?';
       } finally {
@@ -339,6 +408,12 @@
   function bindDeleteLead() {
     // Delegated — #leads-table persists while its body re-renders.
     document.getElementById('leads-table').addEventListener('click', e => {
+      const editBtn = e.target.closest('[data-edit-uid]');
+      if (editBtn) {
+        const lead = leads.find(l => String(l._uid) === editBtn.getAttribute('data-edit-uid'));
+        if (lead) openLeadModal(lead);
+        return;
+      }
       const btn = e.target.closest('[data-del-uid]');
       if (btn) deleteLead(btn.getAttribute('data-del-uid'));
     });
