@@ -59,8 +59,8 @@
       <div class="tab ${state.tab === t.id ? 'active' : ''}" data-tab="${t.id}">
         ${t.label}
         <span class="ml-1.5 text-[11px] font-semibold rounded-full px-1.5 py-[1px]"
-              style="background:${state.tab === t.id ? 'rgba(109,91,255,0.12)' : '#F0F0F5'};
-                     color:${state.tab === t.id ? '#6D5BFF' : '#6A6A82'};">
+              style="background:${state.tab === t.id ? 'rgba(109,91,255,0.12)' : 'var(--chip)'};
+                     color:${state.tab === t.id ? '#6D5BFF' : 'var(--text-muted)'};">
           ${counts[t.id]}
         </span>
       </div>
@@ -173,17 +173,17 @@
     const pager = document.getElementById('pager');
     pager.innerHTML = `
       <button class="btn-icon" data-page="prev" style="width:30px;height:30px;" ${state.page === 1 ? 'disabled' : ''}>
-        <i data-lucide="chevron-left" style="width:14px;height:14px;color:#6A6A82;"></i>
+        <i data-lucide="chevron-left" style="width:14px;height:14px;color:var(--text-muted);"></i>
       </button>
       ${pages.map(p => {
         const active = p === state.page;
         const style = active
           ? 'background:#6D5BFF;color:#FFF;'
-          : 'background:#FFF;color:#1A1A2E;border:1px solid #E2E2EB;';
+          : 'background:var(--surface);color:var(--text);border:1px solid var(--border-strong);';
         return `<button data-page="${p}" class="rounded-md text-[12.5px] font-semibold" style="width:30px;height:30px;${style}">${p}</button>`;
       }).join('')}
       <button class="btn-icon" data-page="next" style="width:30px;height:30px;" ${state.page === totalPages ? 'disabled' : ''}>
-        <i data-lucide="chevron-right" style="width:14px;height:14px;color:#6A6A82;"></i>
+        <i data-lucide="chevron-right" style="width:14px;height:14px;color:var(--text-muted);"></i>
       </button>
     `;
 
@@ -346,7 +346,7 @@
     document.getElementById('export-options').innerHTML = EXPORT_TIMELINES.map(t => {
       const count = leads.filter(l => l.timeline === t).length;
       return `
-        <label class="flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer" style="border:1px solid #ECECF2;">
+        <label class="flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer" style="border:1px solid var(--border);">
           <input type="checkbox" value="${t}" checked style="width:15px;height:15px;accent-color:#6D5BFF;cursor:pointer;" />
           <span class="flex-1 text-[13.5px]">${t}</span>
           <span class="text-[12px] text-muted">${count}</span>

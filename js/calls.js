@@ -62,7 +62,7 @@
   }
   function personRow(name, phone, rightHTML) {
     return `
-      <div class="flex items-center gap-3 py-2.5" style="border-bottom:1px solid #F2F2F7;">
+      <div class="flex items-center gap-3 py-2.5" style="border-bottom:1px solid var(--border-soft);">
         <div class="avatar">${initials(name)}</div>
         <div class="flex-1 min-w-0">
           <div class="text-[13.5px] font-semibold truncate">${esc(name)}</div>
@@ -109,7 +109,7 @@
       : emptyCardBody('No missed calls.');
     const aiBody = recs.length
       ? recs.map(r => `
-        <div class="flex items-start gap-3 py-2.5" style="border-bottom:1px solid #F2F2F7;">
+        <div class="flex items-start gap-3 py-2.5" style="border-bottom:1px solid var(--border-soft);">
           <span class="stat-icon" style="background:#EFEAFF;width:30px;height:30px;border-radius:8px;flex-shrink:0;">
             <i data-lucide="sparkles" style="width:15px;height:15px;color:#6D5BFF;"></i>
           </span>
@@ -160,7 +160,7 @@
           <i data-lucide="plus" style="width:14px;height:14px;"></i> Add to queue
         </button>
       </div>
-      <div class="rounded-xl overflow-hidden" style="border:1px solid #ECECF2;">
+      <div class="rounded-xl overflow-hidden" style="border:1px solid var(--border);">
         <table class="lf-table">
           <thead><tr><th>Name</th><th>Time</th><th>Priority</th><th>Reason</th><th>Action</th></tr></thead>
           <tbody>${rows}</tbody>
@@ -207,7 +207,7 @@
           <button data-log-new class="btn-secondary" style="padding:6px 12px;font-size:12.5px;"><i data-lucide="phone-call" style="width:13px;height:13px;pointer-events:none;"></i> Log call</button>
         </div>
         <div class="text-center py-16">
-          <div class="mx-auto mb-3 stat-icon" style="background:#F5F5FA;width:48px;height:48px;border-radius:12px;">
+          <div class="mx-auto mb-3 stat-icon" style="background:var(--surface-3);width:48px;height:48px;border-radius:12px;">
             <i data-lucide="phone" style="width:22px;height:22px;color:#8A8AA0;"></i>
           </div>
           <div class="text-[14px] font-semibold mb-1">No calls logged yet</div>
@@ -228,7 +228,7 @@
           <button data-log-new class="btn-secondary" style="padding:6px 12px;font-size:12.5px;"><i data-lucide="phone-call" style="width:13px;height:13px;pointer-events:none;"></i> Log call</button>
         </div>
       </div>
-      <div class="overflow-x-auto rounded-xl" style="border:1px solid #ECECF2;">
+      <div class="overflow-x-auto rounded-xl" style="border:1px solid var(--border);">
         <table class="lf-table">
           <thead><tr><th>Contact</th><th>Date</th><th>Duration</th><th>Outcome</th><th>Notes</th><th>Agent</th></tr></thead>
           <tbody id="history-tbody">${historyRowsHTML(list)}</tbody>
@@ -269,7 +269,7 @@
     if (total === 0) {
       document.getElementById('calls-body').innerHTML = `
         <div class="text-center py-16">
-          <div class="mx-auto mb-3 stat-icon" style="background:#F5F5FA;width:48px;height:48px;border-radius:12px;">
+          <div class="mx-auto mb-3 stat-icon" style="background:var(--surface-3);width:48px;height:48px;border-radius:12px;">
             <i data-lucide="bar-chart-3" style="width:22px;height:22px;color:#8A8AA0;"></i>
           </div>
           <div class="text-[14px] font-semibold mb-1">No call data yet</div>
@@ -317,7 +317,7 @@
           <span class="font-medium">${t.window}</span>
           <span class="text-muted">${t.rate}% connect · ${t.total} call${t.total === 1 ? '' : 's'}</span>
         </div>
-        <div class="rounded-full" style="height:8px;background:#F0F0F5;">
+        <div class="rounded-full" style="height:8px;background:var(--chip);">
           <div class="rounded-full" style="height:8px;width:${t.rate}%;background:#6D5BFF;"></div>
         </div>
       </div>`).join('') : `<div class="text-[12.5px] text-muted">Not enough data yet.</div>`;

@@ -6,6 +6,7 @@
   <title>Reports — LeadFlow</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  <script>try{if(localStorage.getItem('lf-theme')==='dark')document.documentElement.classList.add('dark')}catch(e){}</script>
   <link rel="stylesheet" href="css/styles.css" />
 </head>
 <body>
@@ -24,7 +25,7 @@
 
     <!-- Tabs + body -->
     <div class="panel">
-      <div class="p-4 flex items-center gap-5 flex-wrap" style="border-bottom:1px solid #ECECF2;">
+      <div class="p-4 flex items-center gap-5 flex-wrap" style="border-bottom:1px solid var(--border);">
         <div id="rep-tabs" class="flex items-center gap-5"></div>
       </div>
       <div id="rep-body" class="p-5"></div>

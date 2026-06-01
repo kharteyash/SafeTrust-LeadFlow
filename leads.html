@@ -6,6 +6,7 @@
   <title>Leads — LeadFlow</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  <script>try{if(localStorage.getItem('lf-theme')==='dark')document.documentElement.classList.add('dark')}catch(e){}</script>
   <link rel="stylesheet" href="css/styles.css" />
 </head>
 <body>
@@ -43,7 +44,7 @@
         <table class="lf-table" id="leads-table"></table>
       </div>
 
-      <div class="p-4 flex items-center justify-between border-t flex-wrap gap-3" style="border-color:#ECECF2;">
+      <div class="p-4 flex items-center justify-between border-t flex-wrap gap-3" style="border-color:var(--border);">
         <span id="lead-summary" class="text-[12.5px] text-muted"></span>
         <div class="flex items-center gap-4">
           <div id="pager" class="flex items-center gap-1"></div>
@@ -68,7 +69,7 @@
           <div class="flex items-center justify-between mb-1">
             <h3 class="text-[17px] font-bold">Export leads</h3>
             <button id="export-modal-close" class="btn-icon" style="width:32px;height:32px;border:none;">
-              <i data-lucide="x" style="width:16px;height:16px;color:#6A6A82;"></i>
+              <i data-lucide="x" style="width:16px;height:16px;color:var(--text-muted);"></i>
             </button>
           </div>
           <p class="text-[12.5px] text-muted mb-4">Choose which leads to include, then download as CSV.</p>
@@ -92,7 +93,7 @@
           <div class="flex items-center justify-between mb-4">
             <h3 class="text-[17px] font-bold">Add lead</h3>
             <button id="lead-modal-close" class="btn-icon" style="width:32px;height:32px;border:none;">
-              <i data-lucide="x" style="width:16px;height:16px;color:#6A6A82;"></i>
+              <i data-lucide="x" style="width:16px;height:16px;color:var(--text-muted);"></i>
             </button>
           </div>
           <form id="lead-form" class="flex flex-col gap-3">

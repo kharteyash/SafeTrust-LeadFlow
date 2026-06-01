@@ -3,6 +3,10 @@
 
 window.LF = window.LF || {};
 
+// Apply the saved theme as early as possible (the inline <head> script in each
+// page is the primary no-flash guard; this is a fallback).
+try { if (localStorage.getItem('lf-theme') === 'dark') document.documentElement.classList.add('dark'); } catch (e) {}
+
 const NAV_ITEMS = [
   { id: 'dashboard',    label: 'Dashboard',    icon: 'layout-dashboard', href: 'index.html' },
   { id: 'leads',        label: 'Leads',        icon: 'users',            href: 'leads.html' },
@@ -89,12 +93,15 @@ LF.renderLayout = async function ({ active }) {
           ${active === 'leads' ? `
             <div class="relative flex-1 max-w-[420px]">
               <i data-lucide="search" style="width:16px;height:16px;color:#8A8AA0;position:absolute;left:14px;top:50%;transform:translateY(-50%);"></i>
-              <input id="topbar-search" class="input pl-10" style="background:#F5F5FA;border-color:#F0F0F5;" placeholder="Search leads, phone, email, notes..." />
+              <input id="topbar-search" class="input pl-10" style="background:var(--surface-3);border-color:var(--chip);" placeholder="Search leads, phone, email, notes..." />
             </div>
           ` : ''}
           <div class="flex-1"></div>
+          <button id="lf-theme-toggle" class="theme-toggle" title="Toggle dark mode">
+            <i data-lucide="${document.documentElement.classList.contains('dark') ? 'sun' : 'moon'}" style="width:16px;height:16px;color:var(--text-muted);"></i>
+          </button>
           <button class="btn-icon relative">
-            <i data-lucide="bell" style="width:16px;height:16px;color:#6A6A82;"></i>
+            <i data-lucide="bell" style="width:16px;height:16px;color:var(--text-muted);"></i>
             <span class="absolute -top-1 -right-1 bg-[#E64B4B] text-white text-[10px] font-bold rounded-full w-[16px] h-[16px] flex items-center justify-center">3</span>
           </button>
           <div class="relative" id="lf-user-menu">
@@ -104,10 +111,10 @@ LF.renderLayout = async function ({ active }) {
                 <div id="lf-user-name" class="text-[13px] font-semibold">${LF_DATA.user.name}</div>
                 <div class="text-[11px] text-soft">${LF_DATA.user.role}</div>
               </div>
-              <i data-lucide="chevron-down" style="width:14px;height:14px;color:#6A6A82;margin-left:2px;"></i>
+              <i data-lucide="chevron-down" style="width:14px;height:14px;color:var(--text-muted);margin-left:2px;"></i>
             </button>
             <div id="lf-user-dropdown" class="hidden absolute right-0 mt-2 panel" style="top:100%;min-width:200px;z-index:30;box-shadow:0 8px 28px rgba(0,0,0,.10);">
-              <div class="px-4 py-3" style="border-bottom:1px solid #ECECF2;">
+              <div class="px-4 py-3" style="border-bottom:1px solid var(--border);">
                 <div class="text-[11.5px] text-muted">Signed in as</div>
                 <div class="text-[13px] font-semibold truncate">${LF_DATA.user.email}</div>
               </div>
@@ -135,6 +142,16 @@ LF.renderLayout = async function ({ active }) {
     localStorage.setItem('lf-sidebar-collapsed', nowCollapsed ? '1' : '0');
     btn.setAttribute('title', nowCollapsed ? 'Expand sidebar' : 'Collapse sidebar');
     btn.innerHTML = `<i data-lucide="${nowCollapsed ? 'chevrons-right' : 'chevrons-left'}"></i>`;
+    if (window.lucide) lucide.createIcons();
+  });
+
+  // Theme toggle (light/dark).
+  const themeBtn = document.getElementById('lf-theme-toggle');
+  themeBtn.addEventListener('click', () => {
+    const nowDark = !document.documentElement.classList.contains('dark');
+    document.documentElement.classList.toggle('dark', nowDark);
+    localStorage.setItem('lf-theme', nowDark ? 'dark' : 'light');
+    themeBtn.innerHTML = `<i data-lucide="${nowDark ? 'sun' : 'moon'}" style="width:16px;height:16px;color:var(--text-muted);"></i>`;
     if (window.lucide) lucide.createIcons();
   });
 

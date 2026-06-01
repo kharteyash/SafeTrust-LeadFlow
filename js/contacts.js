@@ -48,7 +48,7 @@
       table.innerHTML = `
         <tbody><tr><td>
           <div class="text-center py-16">
-            <div class="mx-auto mb-3 stat-icon" style="background:#F5F5FA;width:48px;height:48px;border-radius:12px;">
+            <div class="mx-auto mb-3 stat-icon" style="background:var(--surface-3);width:48px;height:48px;border-radius:12px;">
               <i data-lucide="contact" style="width:22px;height:22px;color:#8A8AA0;"></i>
             </div>
             <div class="text-[14px] font-semibold mb-1">No contacts yet</div>

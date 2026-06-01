@@ -6,6 +6,7 @@
   <title>Sign in — LeadFlow</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  <script>try{if(localStorage.getItem('lf-theme')==='dark')document.documentElement.classList.add('dark')}catch(e){}</script>
   <link rel="stylesheet" href="css/styles.css" />
 </head>
 <body class="min-h-screen flex items-center justify-center p-4" style="background:radial-gradient(circle at 30% 20%, #2A2745 0%, #0E0E1B 60%);">
@@ -21,7 +22,7 @@
     <p id="auth-subtitle" class="text-[13.5px] text-muted mb-6">Sign in to continue to your dashboard.</p>
 
     <!-- Tabs -->
-    <div class="flex gap-1 mb-5 p-1 rounded-xl" style="background:#F5F5FA;">
+    <div class="flex gap-1 mb-5 p-1 rounded-xl" style="background:var(--surface-3);">
       <button class="auth-tab active flex-1" data-tab="login">Sign In</button>
       <button class="auth-tab flex-1" data-tab="register">Create Account</button>
     </div>

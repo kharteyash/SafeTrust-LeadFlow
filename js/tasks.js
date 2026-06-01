@@ -77,7 +77,7 @@
       <div class="tab ${state.tab === t.id ? 'active' : ''}" data-tab="${t.id}">
         ${t.label}
         <span class="ml-1.5 text-[11px] font-semibold rounded-full px-1.5 py-[1px]"
-              style="background:${state.tab === t.id ? 'rgba(109,91,255,0.12)' : '#F0F0F5'};color:${state.tab === t.id ? '#6D5BFF' : '#6A6A82'};">${counts[t.id]}</span>
+              style="background:${state.tab === t.id ? 'rgba(109,91,255,0.12)' : 'var(--chip)'};color:${state.tab === t.id ? '#6D5BFF' : 'var(--text-muted)'};">${counts[t.id]}</span>
       </div>`).join('');
     document.querySelectorAll('#task-tabs .tab').forEach(el => {
       el.addEventListener('click', () => { state.tab = el.dataset.tab; renderTabs(); renderList(); });
@@ -93,7 +93,7 @@
     if (tasks.length === 0) {
       list.innerHTML = `
         <div class="text-center py-16">
-          <div class="mx-auto mb-3 stat-icon" style="background:#F5F5FA;width:48px;height:48px;border-radius:12px;">
+          <div class="mx-auto mb-3 stat-icon" style="background:var(--surface-3);width:48px;height:48px;border-radius:12px;">
             <i data-lucide="check-square" style="width:22px;height:22px;color:#8A8AA0;"></i>
           </div>
           <div class="text-[14px] font-semibold mb-1">No tasks yet</div>
@@ -115,9 +115,9 @@
       const done = t.status === 'done';
       const dm = dueMeta(t.due, t.status);
       return `
-        <div class="flex items-center gap-3 px-3 py-3 rounded-lg hover:bg-[#FAFAFC]" style="border-bottom:1px solid #F2F2F7;">
+        <div class="flex items-center gap-3 px-3 py-3 rounded-lg hover:bg-[#FAFAFC]" style="border-bottom:1px solid var(--border-soft);">
           <button data-toggle="${t.id}" class="flex items-center justify-center flex-shrink-0"
-                  style="width:20px;height:20px;border-radius:6px;background:${done ? '#6D5BFF' : '#FFF'};border:1.5px solid ${done ? '#6D5BFF' : '#D8D8E5'};">
+                  style="width:20px;height:20px;border-radius:6px;background:${done ? '#6D5BFF' : 'var(--surface)'};border:1.5px solid ${done ? '#6D5BFF' : 'var(--border-strong)'};">
             ${done ? '<i data-lucide="check" style="width:12px;height:12px;color:#FFF;pointer-events:none;"></i>' : ''}
           </button>
           <div class="flex-1 min-w-0">

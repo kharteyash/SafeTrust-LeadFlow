@@ -88,7 +88,7 @@
     switch (ch) {
       case 'SMS':   return { icon: 'message-square', fg: '#2B57D9', bg: '#E7EEFF', pill: 'pill-blue' };
       case 'Email': return { icon: 'mail',           fg: '#6D5BFF', bg: '#EFEAFF', pill: 'pill-purple' };
-      default:      return { icon: 'message-square', fg: '#5C5C75', bg: '#F0F0F5', pill: 'pill-gray' };
+      default:      return { icon: 'message-square', fg: '#5C5C75', bg: 'var(--chip)', pill: 'pill-gray' };
     }
   }
 
@@ -111,11 +111,11 @@
     const sections = scheduled.length ? Object.keys(groups).map(when => `
       <div class="mb-5">
         <h4 class="text-[13px] font-semibold text-muted mb-2">${when}</h4>
-        <div class="rounded-xl" style="border:1px solid #ECECF2;">
+        <div class="rounded-xl" style="border:1px solid var(--border);">
           ${groups[when].map((s, i) => {
             const m = channelMeta(s.channel);
             return `
-              <div class="flex items-center gap-3 px-4 py-3 ${i > 0 ? 'border-t' : ''}" style="border-color:#ECECF2;">
+              <div class="flex items-center gap-3 px-4 py-3 ${i > 0 ? 'border-t' : ''}" style="border-color:var(--border);">
                 <span class="text-[13px] font-semibold w-[72px] flex-shrink-0">${s.time}</span>
                 <span class="stat-icon" style="background:${m.bg};width:30px;height:30px;border-radius:8px;flex-shrink:0;">
                   <i data-lucide="${m.icon}" style="width:14px;height:14px;color:${m.fg};"></i>
@@ -150,7 +150,7 @@
       { id: 'personalized', label: 'Personalized',     icon: 'sparkles' }
     ];
     const chips = types.map(t => `
-      <button class="settings-tab ${state.aiType === t.id ? 'active' : ''}" data-ai="${t.id}" style="border:1px solid #ECECF2;">
+      <button class="settings-tab ${state.aiType === t.id ? 'active' : ''}" data-ai="${t.id}" style="border:1px solid var(--border);">
         <i data-lucide="${t.icon}"></i><span>${t.label}</span>
       </button>`).join('');
 
@@ -187,7 +187,7 @@
       const text = samples[aiIndex % samples.length].replace(/\{name\}/g, name);
       aiIndex++;
       document.getElementById('ai-output').innerHTML = `
-        <div class="rounded-xl p-4" style="border:1px solid #ECECF2;background:#FAFAFC;">
+        <div class="rounded-xl p-4" style="border:1px solid var(--border);background:var(--surface-2);">
           <div class="flex items-center gap-2 mb-2 text-[12px] font-semibold" style="color:#6D5BFF;">
             <i data-lucide="sparkles" style="width:13px;height:13px;"></i> AI suggestion
           </div>

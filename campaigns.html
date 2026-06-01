@@ -6,6 +6,7 @@
   <title>Campaigns — LeadFlow</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  <script>try{if(localStorage.getItem('lf-theme')==='dark')document.documentElement.classList.add('dark')}catch(e){}</script>
   <link rel="stylesheet" href="css/styles.css" />
 </head>
 <body>
@@ -29,7 +30,7 @@
           <div class="flex items-center justify-between mb-4">
             <h3 class="text-[17px] font-bold">New campaign</h3>
             <button id="campaign-modal-close" class="btn-icon" style="width:32px;height:32px;border:none;">
-              <i data-lucide="x" style="width:16px;height:16px;color:#6A6A82;"></i>
+              <i data-lucide="x" style="width:16px;height:16px;color:var(--text-muted);"></i>
             </button>
           </div>
           <form id="campaign-form" class="flex flex-col gap-3">

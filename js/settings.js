@@ -108,7 +108,7 @@
           </div>
           <div>
             <label class="text-[12px] font-semibold text-muted">Email</label>
-            <input class="input mt-1" value="${escapeAttr(u.email || '')}" readonly style="background:#F5F5FA;color:#6A6A82;" />
+            <input class="input mt-1" value="${escapeAttr(u.email || '')}" readonly style="background:var(--surface-3);color:var(--text-muted);" />
           </div>
           <div>
             <label class="text-[12px] font-semibold text-muted">Phone</label>
@@ -194,8 +194,8 @@
   function mockCard(i) {
     const connected = i.status === 'Connected';
     return `
-      <div class="flex items-center gap-4 p-4 rounded-xl" style="border:1px solid #ECECF2;">
-        <div class="stat-icon" style="background:#F5F5FA;width:44px;height:44px;border-radius:12px;">
+      <div class="flex items-center gap-4 p-4 rounded-xl" style="border:1px solid var(--border);">
+        <div class="stat-icon" style="background:var(--surface-3);width:44px;height:44px;border-radius:12px;">
           <i data-lucide="${i.icon}" style="width:20px;height:20px;color:#6D5BFF;"></i>
         </div>
         <div class="flex-1 min-w-0">
@@ -233,7 +233,7 @@
     }
 
     const viewBtns = (status.connected) ? `
-      <div class="flex items-center gap-2 mt-3 pt-3" style="border-top:1px solid #F2F2F7;">
+      <div class="flex items-center gap-2 mt-3 pt-3" style="border-top:1px solid var(--border-soft);">
         <button id="gmail-emails" class="btn-secondary" style="padding:6px 12px;font-size:12.5px;">
           <i data-lucide="mail" style="width:13px;height:13px;"></i> View recent emails
         </button>
@@ -243,9 +243,9 @@
       </div>` : '';
 
     return `
-      <div class="p-4 rounded-xl" style="border:1px solid #ECECF2;">
+      <div class="p-4 rounded-xl" style="border:1px solid var(--border);">
         <div class="flex items-center gap-4">
-          <div class="stat-icon" style="background:#F5F5FA;width:44px;height:44px;border-radius:12px;">
+          <div class="stat-icon" style="background:var(--surface-3);width:44px;height:44px;border-radius:12px;">
             <i data-lucide="mail" style="width:20px;height:20px;color:#6D5BFF;"></i>
           </div>
           <div class="flex-1 min-w-0">
@@ -290,9 +290,9 @@
       if (!data.length) { out.innerHTML = `<div class="text-[13px] text-muted py-2">${emptyMsg}</div>`; return; }
       out.innerHTML = `
         <h3 class="text-[14.5px] font-semibold mb-3">${title}</h3>
-        <div class="rounded-xl" style="border:1px solid #ECECF2;">
+        <div class="rounded-xl" style="border:1px solid var(--border);">
           ${data.map((item, i) => `
-            <div class="px-4 py-3 ${i > 0 ? 'border-t' : ''}" style="border-color:#F2F2F7;">${renderItem(item)}</div>
+            <div class="px-4 py-3 ${i > 0 ? 'border-t' : ''}" style="border-color:var(--border-soft);">${renderItem(item)}</div>
           `).join('')}
         </div>`;
       if (window.lucide) lucide.createIcons();
@@ -357,7 +357,7 @@
   // ----- Roles & Permissions -----
   function renderRoles() {
     const roleCards = ROLE_PERMISSIONS.map(r => `
-      <div class="rounded-xl p-5" style="border:1px solid #ECECF2;">
+      <div class="rounded-xl p-5" style="border:1px solid var(--border);">
         <div class="flex items-center gap-3 mb-3">
           <div class="stat-icon" style="background:${r.tint};width:40px;height:40px;">
             <i data-lucide="shield" style="width:18px;height:18px;color:${r.color};"></i>
@@ -404,7 +404,7 @@
 
       <div>
         <h3 class="text-[15px] font-semibold mb-3">Team members</h3>
-        <div class="rounded-xl overflow-hidden" style="border:1px solid #ECECF2;">
+        <div class="rounded-xl overflow-hidden" style="border:1px solid var(--border);">
           <table class="lf-table">
             <thead><tr><th>Member</th><th>Role</th><th>Status</th></tr></thead>
             <tbody>${teamRows}</tbody>
@@ -423,9 +423,9 @@
           <i data-lucide="${g.icon}" style="width:16px;height:16px;color:#6D5BFF;"></i>
           <h3 class="text-[14.5px] font-semibold">${g.label}</h3>
         </div>
-        <div class="rounded-xl" style="border:1px solid #ECECF2;">
+        <div class="rounded-xl" style="border:1px solid var(--border);">
           ${g.items.map((it, idx) => `
-            <div class="flex items-center justify-between gap-4 px-4 py-3 ${idx > 0 ? 'border-t' : ''}" style="border-color:#ECECF2;">
+            <div class="flex items-center justify-between gap-4 px-4 py-3 ${idx > 0 ? 'border-t' : ''}" style="border-color:var(--border);">
               <div class="flex-1 min-w-0">
                 <div class="text-[13.5px] font-medium">${it.label}</div>
                 <div class="text-[12.5px] text-muted">${it.desc}</div>

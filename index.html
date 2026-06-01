@@ -6,6 +6,7 @@
   <title>Dashboard — LeadFlow</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  <script>try{if(localStorage.getItem('lf-theme')==='dark')document.documentElement.classList.add('dark')}catch(e){}</script>
   <link rel="stylesheet" href="css/styles.css" />
 </head>
 <body>
@@ -66,7 +67,7 @@
         <div class="overflow-x-auto">
           <table class="lf-table" id="leads-table"></table>
         </div>
-        <div class="p-4 flex items-center justify-between border-t flex-wrap gap-3" style="border-color:#ECECF2;">
+        <div class="p-4 flex items-center justify-between border-t flex-wrap gap-3" style="border-color:var(--border);">
           <span id="lead-summary" class="text-[12.5px] text-muted"></span>
           <div class="flex items-center gap-4">
             <div id="pager" class="flex items-center gap-1"></div>

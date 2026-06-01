@@ -23,7 +23,7 @@
     ].map(c => {
       const m = channelMeta(c.ch);
       return `
-        <div class="col-span-12 md:col-span-6 rounded-xl p-5 flex items-center gap-3 cursor-pointer hover:bg-[#FAFAFC]" style="border:1px solid #ECECF2;" data-create="${c.ch}">
+        <div class="col-span-12 md:col-span-6 rounded-xl p-5 flex items-center gap-3 cursor-pointer hover:bg-[#FAFAFC]" style="border:1px solid var(--border);" data-create="${c.ch}">
           <span class="stat-icon" style="background:${m.bg};width:40px;height:40px;">
             <i data-lucide="${c.icon}" style="width:18px;height:18px;color:${m.fg};"></i>
           </span>
@@ -36,7 +36,7 @@
     }).join('');
 
     const tracking = campaigns.length ? `
-      <div class="overflow-x-auto rounded-xl" style="border:1px solid #ECECF2;">
+      <div class="overflow-x-auto rounded-xl" style="border:1px solid var(--border);">
         <table class="lf-table">
           <thead><tr><th>Campaign</th><th>Type</th><th>Status</th><th>Delivered</th><th>Opened</th><th>Clicked</th><th>Replied</th><th></th></tr></thead>
           <tbody>
@@ -59,7 +59,7 @@
         </table>
       </div>`
       : `
-      <div class="text-center py-12 rounded-xl" style="border:1px dashed #E2E2EB;">
+      <div class="text-center py-12 rounded-xl" style="border:1px dashed var(--border-strong);">
         <div class="text-[13px] text-muted">No campaigns yet. Create one above to start tracking it.</div>
       </div>`;
 

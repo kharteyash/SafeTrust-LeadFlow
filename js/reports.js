@@ -38,7 +38,7 @@
           <span class="font-medium">${label}</span>
           <span class="text-muted">${right}</span>
         </div>
-        <div class="rounded-full" style="height:8px;background:#F0F0F5;">
+        <div class="rounded-full" style="height:8px;background:var(--chip);">
           <div class="rounded-full" style="height:8px;width:${pct}%;background:${color};"></div>
         </div>
       </div>`;

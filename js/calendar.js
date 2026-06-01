@@ -56,7 +56,7 @@
     if (type === 'meeting')  return { bg: '#EFEAFF', fg: '#6D5BFF', label: 'Meeting',   icon: 'users' };
     if (type === 'call')     return { bg: '#E7EEFF', fg: '#2B57D9', label: 'Call',      icon: 'phone' };
     if (type === 'followup') return { bg: '#E6F8EC', fg: '#138A4B', label: 'Follow-up', icon: 'repeat' };
-    return { bg: '#F0F0F5', fg: '#5C5C75', label: 'Event', icon: 'calendar' };
+    return { bg: 'var(--chip)', fg: '#5C5C75', label: 'Event', icon: 'calendar' };
   }
 
   // Working event list = the user's saved events (DB only).
@@ -129,11 +129,11 @@
 
     bar.innerHTML = `
       <button class="btn-icon" data-nav="prev" style="width:32px;height:32px;">
-        <i data-lucide="chevron-left" style="width:15px;height:15px;color:#6A6A82;"></i>
+        <i data-lucide="chevron-left" style="width:15px;height:15px;color:var(--text-muted);"></i>
       </button>
       <span class="text-[13.5px] font-semibold px-2 min-w-[180px] text-center">${label}</span>
       <button class="btn-icon" data-nav="next" style="width:32px;height:32px;">
-        <i data-lucide="chevron-right" style="width:15px;height:15px;color:#6A6A82;"></i>
+        <i data-lucide="chevron-right" style="width:15px;height:15px;color:var(--text-muted);"></i>
       </button>
       <button class="btn-secondary" data-nav="today" style="padding:6px 12px;font-size:12.5px;">Today</button>
     `;
@@ -168,7 +168,7 @@
         <div class="flex items-center justify-between gap-2">
           <span class="text-[13px] font-semibold" style="color:${s.fg};">${ev.title}</span>
           <div class="flex items-center gap-1.5">
-            <span class="pill" style="background:#FFF;color:${s.fg};font-size:10.5px;">${s.label}</span>
+            <span class="pill" style="background:var(--surface);color:${s.fg};font-size:10.5px;">${s.label}</span>
             <button data-delete-uid="${ev._uid}" title="Remove event" class="btn-icon"
                     style="width:26px;height:26px;border:none;background:transparent;">
               <i data-lucide="trash-2" style="width:13px;height:13px;color:${s.fg};pointer-events:none;"></i>
@@ -187,9 +187,9 @@
     const rows = hoursForEvents(dayEvents).map(h => {
       const evs = dayEvents.filter(e => startHour(e) === h);
       return `
-        <div class="flex" style="border-top:1px solid #F2F2F7;min-height:56px;">
+        <div class="flex" style="border-top:1px solid var(--border-soft);min-height:56px;">
           <div class="w-[72px] flex-shrink-0 pt-2 pr-3 text-right text-[11.5px] text-soft">${fmtTime(h + ':00')}</div>
-          <div class="flex-1 py-2 pl-3" style="border-left:1px solid #F2F2F7;">
+          <div class="flex-1 py-2 pl-3" style="border-left:1px solid var(--border-soft);">
             ${evs.map(e => eventBlock(e, false)).join('') || ''}
           </div>
         </div>`;
@@ -198,7 +198,7 @@
     const total = dayEvents.length;
     document.getElementById('cal-body').innerHTML = `
       <div class="mb-3 text-[12.5px] text-muted">${total} event${total === 1 ? '' : 's'} scheduled</div>
-      <div class="rounded-xl overflow-hidden" style="border:1px solid #ECECF2;">${rows}</div>
+      <div class="rounded-xl overflow-hidden" style="border:1px solid var(--border);">${rows}</div>
     `;
   }
 
@@ -213,7 +213,7 @@
         ${days.map(d => {
           const today = sameDay(d, TODAY);
           return `
-            <div class="text-center py-2" style="border-left:1px solid #F2F2F7;">
+            <div class="text-center py-2" style="border-left:1px solid var(--border-soft);">
               <div class="text-[11px] text-soft">${DOW[d.getDay()]}</div>
               <div class="text-[15px] font-semibold mt-0.5 mx-auto ${today ? 'text-white' : ''}"
                    style="${today ? 'background:#6D5BFF;width:28px;height:28px;border-radius:999px;display:flex;align-items:center;justify-content:center;' : ''}">
@@ -224,11 +224,11 @@
       </div>`;
 
     const rows = hoursForEvents(weekEvents).map(h => `
-      <div style="display:grid;grid-template-columns:60px repeat(7,1fr);border-top:1px solid #F2F2F7;min-height:54px;">
+      <div style="display:grid;grid-template-columns:60px repeat(7,1fr);border-top:1px solid var(--border-soft);min-height:54px;">
         <div class="pt-1 pr-2 text-right text-[11px] text-soft">${fmtTime(h + ':00')}</div>
         ${days.map(d => {
           const evs = eventsOn(d).filter(e => startHour(e) === h);
-          return `<div class="p-1" style="border-left:1px solid #F2F2F7;">${evs.map(e => eventBlock(e, true)).join('')}</div>`;
+          return `<div class="p-1" style="border-left:1px solid var(--border-soft);">${evs.map(e => eventBlock(e, true)).join('')}</div>`;
         }).join('')}
       </div>`).join('');
 
@@ -261,7 +261,7 @@
         const d = parseDate(e.date);
         const dayLabel = sameDay(d, TODAY) ? 'Today' : `${DOW[d.getDay()]}, ${MONTHS[d.getMonth()].slice(0,3)} ${d.getDate()}`;
         return `
-          <div class="rounded-lg p-3 mb-2" style="border:1px solid #ECECF2;">
+          <div class="rounded-lg p-3 mb-2" style="border:1px solid var(--border);">
             <div class="flex items-start justify-between gap-2">
               <div class="text-[13px] font-semibold">${e.title}</div>
               <button data-delete-uid="${e._uid}" title="Remove event" class="btn-icon"
