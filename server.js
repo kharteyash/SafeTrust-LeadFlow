@@ -61,9 +61,22 @@ const SCHEMA = `
     phone         TEXT,
     title         TEXT,
     bio           TEXT,
+    role          TEXT DEFAULT 'user',
+    leader_id     INTEGER REFERENCES users(id) ON DELETE SET NULL,
     created_at    TIMESTAMPTZ DEFAULT now()
   );
   CREATE UNIQUE INDEX IF NOT EXISTS users_email_lower_idx ON users (lower(email));
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'user';
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS leader_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+
+  -- Team join invitations (a leader invites a user; the user accepts/rejects).
+  CREATE TABLE IF NOT EXISTS team_invites (
+    id         SERIAL PRIMARY KEY,
+    leader_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    status     TEXT NOT NULL DEFAULT 'pending',
+    created_at TIMESTAMPTZ DEFAULT now()
+  );
 
   CREATE TABLE IF NOT EXISTS sessions (
     id         TEXT PRIMARY KEY,
@@ -217,14 +230,17 @@ async function createSession(userId) {
 async function loadUserFromSession(sid) {
   if (!sid) return null;
   const row = await one(`
-    SELECT u.id, u.email, u.name, u.phone, u.title, u.bio
+    SELECT u.id, u.email, u.name, u.phone, u.title, u.bio, u.role, u.leader_id,
+           l.name AS leader_name
     FROM sessions s JOIN users u ON u.id = s.user_id
+    LEFT JOIN users l ON l.id = u.leader_id
     WHERE s.id = $1 AND s.expires_at > now()
   `, [sid]);
   if (!row) return null;
   return {
     id: row.id, email: row.email, name: row.name,
-    phone: row.phone || '', title: row.title || '', bio: row.bio || ''
+    phone: row.phone || '', title: row.title || '', bio: row.bio || '',
+    role: row.role || 'user', leaderId: row.leader_id || null, leaderName: row.leader_name || ''
   };
 }
 
@@ -315,12 +331,15 @@ app.post('/api/register', safe(async (req, res) => {
   if (existing) return res.status(409).json({ error: 'An account with that email already exists.' });
 
   const hash = bcrypt.hashSync(password, 10);
-  const row = await one('INSERT INTO users (email, name, password_hash) VALUES ($1, $2, $3) RETURNING id',
-    [emailNorm, name.trim(), hash]);
+  // The very first account to register becomes the Admin (superuser).
+  const anyUser = await one('SELECT id FROM users LIMIT 1', []);
+  const role = anyUser ? 'user' : 'admin';
+  const row = await one('INSERT INTO users (email, name, password_hash, role) VALUES ($1, $2, $3, $4) RETURNING id',
+    [emailNorm, name.trim(), hash, role]);
 
   const sid = await createSession(row.id);
   setSessionCookie(res, sid);
-  res.json({ id: row.id, email: emailNorm, name: name.trim() });
+  res.json({ id: row.id, email: emailNorm, name: name.trim(), role });
 }));
 
 app.post('/api/login', safe(async (req, res) => {
@@ -379,6 +398,123 @@ app.post('/api/change-password', safe(async (req, res) => {
   const newHash = bcrypt.hashSync(newPassword, 10);
   await q('UPDATE users SET password_hash = $1 WHERE id = $2', [newHash, req.user.id]);
   res.json({ ok: true });
+}));
+
+// ----- Roles, teams & invitations -----
+const ASSIGNABLE_ROLES = ['team_leader', 'user'];
+
+// Admin: list all accounts with their role + leader.
+app.get('/api/admin/users', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin only.' });
+  const rows = await q(`
+    SELECT u.id, u.name, u.email, u.role, l.name AS leader_name
+    FROM users u LEFT JOIN users l ON l.id = u.leader_id
+    ORDER BY (u.role='admin') DESC, (u.role='team_leader') DESC, lower(u.name)
+  `, []);
+  res.json(rows.map(r => ({ id: r.id, name: r.name, email: r.email, role: r.role || 'user', leaderName: r.leader_name || '' })));
+}));
+
+// Admin: change a user's role (team_leader <-> user). Admins are not editable here.
+app.patch('/api/admin/users/:id/role', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin only.' });
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid user id.' });
+  const role = (req.body || {}).role;
+  if (!ASSIGNABLE_ROLES.includes(role)) return res.status(400).json({ error: 'Role must be team_leader or user.' });
+  const target = await one('SELECT id, role FROM users WHERE id = $1', [id]);
+  if (!target) return res.status(404).json({ error: 'User not found.' });
+  if (target.role === 'admin') return res.status(400).json({ error: 'The admin role cannot be changed.' });
+
+  await q('UPDATE users SET role = $1 WHERE id = $2', [role, id]);
+  // Demoting a leader to a plain user: orphan their members + cancel pending invites.
+  if (target.role === 'team_leader' && role === 'user') {
+    await q('UPDATE users SET leader_id = NULL WHERE leader_id = $1', [id]);
+    await q(`UPDATE team_invites SET status = 'cancelled' WHERE leader_id = $1 AND status = 'pending'`, [id]);
+  }
+  res.json({ ok: true, role });
+}));
+
+// Leader: my team (members + pending invites) and users I can still invite.
+app.get('/api/team', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  if (req.user.role !== 'team_leader') return res.status(403).json({ error: 'Team leaders only.' });
+  const members = await q('SELECT id, name, email FROM users WHERE leader_id = $1 ORDER BY lower(name)', [req.user.id]);
+  const pending = await q(`
+    SELECT ti.id, u.name, u.email FROM team_invites ti JOIN users u ON u.id = ti.user_id
+    WHERE ti.leader_id = $1 AND ti.status = 'pending' ORDER BY ti.id DESC
+  `, [req.user.id]);
+  // Candidates: plain users with no team, excluding those already invited by me.
+  const candidates = await q(`
+    SELECT id, name, email FROM users
+    WHERE role = 'user' AND leader_id IS NULL
+      AND id NOT IN (SELECT user_id FROM team_invites WHERE leader_id = $1 AND status = 'pending')
+    ORDER BY lower(name)
+  `, [req.user.id]);
+  res.json({
+    members: members.map(m => ({ id: m.id, name: m.name, email: m.email })),
+    pending: pending.map(p => ({ id: p.id, name: p.name, email: p.email })),
+    candidates: candidates.map(c => ({ id: c.id, name: c.name, email: c.email }))
+  });
+}));
+
+// Leader: invite a user to my team.
+app.post('/api/team/invite', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  if (req.user.role !== 'team_leader') return res.status(403).json({ error: 'Team leaders only.' });
+  const userId = Number((req.body || {}).userId);
+  if (!Number.isInteger(userId)) return res.status(400).json({ error: 'Invalid user.' });
+  const target = await one('SELECT id, name, role, leader_id FROM users WHERE id = $1', [userId]);
+  if (!target) return res.status(404).json({ error: 'User not found.' });
+  if (target.role !== 'user') return res.status(400).json({ error: 'Only regular users can be invited.' });
+  if (target.leader_id) return res.status(400).json({ error: 'That user is already on a team.' });
+  const dup = await one(`SELECT id FROM team_invites WHERE leader_id = $1 AND user_id = $2 AND status = 'pending'`, [req.user.id, userId]);
+  if (dup) return res.status(409).json({ error: 'You already invited this user.' });
+  await one(`INSERT INTO team_invites (leader_id, user_id, status) VALUES ($1, $2, 'pending') RETURNING id`, [req.user.id, userId]);
+  res.json({ ok: true });
+}));
+
+// Leader: remove a member from my team.
+app.delete('/api/team/members/:id', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  if (req.user.role !== 'team_leader') return res.status(403).json({ error: 'Team leaders only.' });
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid user id.' });
+  const r = await pool.query('UPDATE users SET leader_id = NULL WHERE id = $1 AND leader_id = $2', [id, req.user.id]);
+  if (r.rowCount === 0) return res.status(404).json({ error: 'Member not found on your team.' });
+  res.json({ ok: true });
+}));
+
+// Invitee: my pending team invitations (surfaced in notifications).
+app.get('/api/invites', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  const rows = await q(`
+    SELECT ti.id, u.name AS leader_name FROM team_invites ti JOIN users u ON u.id = ti.leader_id
+    WHERE ti.user_id = $1 AND ti.status = 'pending' ORDER BY ti.id DESC
+  `, [req.user.id]);
+  res.json(rows.map(r => ({ id: r.id, leaderName: r.leader_name })));
+}));
+
+// Invitee: accept or reject a team invitation.
+app.post('/api/invites/:id/respond', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid invite id.' });
+  const action = (req.body || {}).action;
+  if (!['accept', 'reject'].includes(action)) return res.status(400).json({ error: 'Invalid action.' });
+  const inv = await one(`SELECT id, leader_id FROM team_invites WHERE id = $1 AND user_id = $2 AND status = 'pending'`, [id, req.user.id]);
+  if (!inv) return res.status(404).json({ error: 'Invitation not found.' });
+
+  if (action === 'reject') {
+    await q(`UPDATE team_invites SET status = 'rejected' WHERE id = $1`, [id]);
+    return res.json({ ok: true, status: 'rejected' });
+  }
+  // Accept: join this team and decline any other pending invites for me.
+  await q('UPDATE users SET leader_id = $1 WHERE id = $2', [inv.leader_id, req.user.id]);
+  await q(`UPDATE team_invites SET status = 'accepted' WHERE id = $1`, [id]);
+  await q(`UPDATE team_invites SET status = 'cancelled' WHERE user_id = $1 AND status = 'pending' AND id <> $2`, [req.user.id, id]);
+  res.json({ ok: true, status: 'accepted' });
 }));
 
 // ----- Events -----
@@ -458,7 +594,7 @@ app.post('/api/call-log', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
   const { name, phone, outcome, duration, notes } = req.body || {};
   if (!name || !name.trim()) return res.status(400).json({ error: 'Contact name is required.' });
-  if (!['Connected', 'Voicemail', 'Missed'].includes(outcome)) return res.status(400).json({ error: 'Please choose a valid outcome.' });
+  if (!['Connected', 'Voicemail', 'No Answer', 'Missed'].includes(outcome)) return res.status(400).json({ error: 'Please choose a valid outcome.' });
 
   const agent = shortName(req.user.name);
   const loggedAt = fmtCallDate(new Date());
@@ -1105,5 +1241,12 @@ app.use(express.static(__dirname, { dotfiles: 'deny' }));
 
 // ----- Start -----
 pool.query(SCHEMA)
+  // If no admin exists yet (e.g. a database created before roles), promote the
+  // earliest account to Admin so there's always a superuser.
+  .then(() => pool.query(`
+    UPDATE users SET role = 'admin'
+    WHERE id = (SELECT id FROM users ORDER BY id ASC LIMIT 1)
+      AND NOT EXISTS (SELECT 1 FROM users WHERE role = 'admin')
+  `))
   .then(() => app.listen(PORT, () => console.log(`LeadFlow running on port ${PORT}`)))
   .catch(err => { console.error('Database init failed:', err); process.exit(1); });

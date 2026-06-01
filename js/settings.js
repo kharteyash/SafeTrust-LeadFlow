@@ -7,13 +7,10 @@
     { name: 'ARRIVE',   category: 'CRM / Real Estate', status: 'Not Connected', desc: 'Sync listings, showings, and buyer activity.', icon: 'home' },
     { name: 'WhatsApp', category: 'Messaging',         status: 'Not Connected', desc: 'Send and receive WhatsApp Business messages.',  icon: 'message-circle' }
   ];
-  const ROLE_PERMISSIONS = [
-    { role: 'Admin',   color: '#6D5BFF', tint: '#EFEAFF', desc: 'Full access to every feature, billing, and team management.',
-      perms: ['Manage team & roles', 'Billing & integrations', 'Edit / delete any record', 'Export data', 'Configure automations'] },
-    { role: 'Manager', color: '#2B57D9', tint: '#E7EEFF', desc: 'Oversee a team — lead assignments, reports, and pipeline.',
-      perms: ['Assign leads to agents', 'View team reports', 'Edit any lead / contact', 'Create campaigns', 'Cannot modify billing'] },
-    { role: 'Agent',   color: '#138A4B', tint: '#E6F8EC', desc: 'Day-to-day usage — work assigned leads and tasks.',
-      perms: ['View & edit own leads', 'Log calls & messages', 'Complete tasks', 'Send templated emails', 'Cannot delete records'] }
+  const ROLE_LEGEND = [
+    { role: 'Admin',       color: '#6D5BFF', tint: '#EFEAFF', desc: 'Superuser — manages everyone’s role.' },
+    { role: 'Team Leader', color: '#2B57D9', tint: '#E7EEFF', desc: 'Builds a team and assigns leads to members.' },
+    { role: 'Member',      color: '#138A4B', tint: '#E6F8EC', desc: 'Works their own and assigned leads.' }
   ];
   const NOTIFICATION_GROUPS = [
     { id: 'reminders', label: 'Reminders', icon: 'alarm-clock', items: [
@@ -354,65 +351,187 @@
       });
   }
 
-  // ----- Roles & Permissions -----
+  // ----- Roles & Permissions (functional) -----
+  function escAttr(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  function roleBadge(role) {
+    if (role === 'admin') return '<span class="pill pill-purple">Admin</span>';
+    if (role === 'team_leader') return '<span class="pill pill-blue">Team Leader</span>';
+    return '<span class="pill pill-gray">Member</span>';
+  }
   function renderRoles() {
-    const roleCards = ROLE_PERMISSIONS.map(r => `
-      <div class="rounded-xl p-5" style="border:1px solid var(--border);">
-        <div class="flex items-center gap-3 mb-3">
-          <div class="stat-icon" style="background:${r.tint};width:40px;height:40px;">
-            <i data-lucide="shield" style="width:18px;height:18px;color:${r.color};"></i>
-          </div>
-          <div>
-            <div class="text-[15px] font-semibold">${r.role}</div>
-            <div class="text-[12px] text-muted">${r.desc}</div>
-          </div>
+    const legend = ROLE_LEGEND.map(r => `
+      <div class="rounded-xl p-4" style="border:1px solid var(--border);">
+        <div class="flex items-center gap-2 mb-1">
+          <span class="stat-icon" style="background:${r.tint};width:28px;height:28px;border-radius:8px;">
+            <i data-lucide="shield" style="width:14px;height:14px;color:${r.color};"></i>
+          </span>
+          <div class="text-[14px] font-semibold">${r.role}</div>
         </div>
-        <ul class="flex flex-col gap-1.5 mt-2">
-          ${r.perms.map(p => `
-            <li class="flex items-start gap-2 text-[13px]">
-              <i data-lucide="check" style="width:14px;height:14px;color:${r.color};margin-top:3px;flex-shrink:0;"></i>
-              <span>${p}</span>
-            </li>
-          `).join('')}
-        </ul>
-      </div>
-    `).join('');
-
-    const u = D.user || {};
-    const teamRows = `
-      <tr>
-        <td>
-          <div class="flex items-center gap-2">
-            <div class="avatar avatar-sm">${u.initials || '?'}</div>
-            <div>
-              <div class="font-semibold text-[13px]">${u.name || 'You'}</div>
-              <div class="text-[11.5px] text-muted">${u.email || ''}</div>
-            </div>
-          </div>
-        </td>
-        <td><span class="pill pill-purple">Admin</span></td>
-        <td><span class="pill pill-green">Active</span></td>
-      </tr>`;
+        <div class="text-[12px] text-muted">${r.desc}</div>
+      </div>`).join('');
 
     return `
       <div class="mb-5">
-        <h2 class="text-[18px] font-bold">Roles & Permissions</h2>
-        <p class="text-[13px] text-muted mt-1">What each role can see and do.</p>
+        <h2 class="text-[18px] font-bold">Roles &amp; Permissions</h2>
+        <p class="text-[13px] text-muted mt-1">Manage who's an admin, team leader, or member.</p>
       </div>
-
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-7">${roleCards}</div>
-
-      <div>
-        <h3 class="text-[15px] font-semibold mb-3">Team members</h3>
-        <div class="rounded-xl overflow-hidden" style="border:1px solid var(--border);">
-          <table class="lf-table">
-            <thead><tr><th>Member</th><th>Role</th><th>Status</th></tr></thead>
-            <tbody>${teamRows}</tbody>
-          </table>
-        </div>
-        <p class="text-[12px] text-soft mt-3">Inviting teammates isn’t available yet — you’re the only member.</p>
-      </div>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-7">${legend}</div>
+      <div id="roles-host"><div class="text-[13px] text-muted py-6 text-center">Loading…</div></div>
     `;
+  }
+
+  async function bindRoles() {
+    const host = document.getElementById('roles-host');
+    if (!host) return;
+    const raw = (D.user && D.user.rawRole) || 'user';
+    try {
+      if (raw === 'admin') host.innerHTML = await adminRolesHTML();
+      else if (raw === 'team_leader') host.innerHTML = await leaderTeamHTML();
+      else host.innerHTML = memberStatusHTML();
+    } catch (e) { host.innerHTML = `<div class="text-[13px]" style="color:#D63333;">Could not load. Is the server running?</div>`; }
+    if (window.lucide) lucide.createIcons();
+    wireRoles();
+  }
+
+  // Admin: all accounts with a role selector.
+  async function adminRolesHTML() {
+    const res = await fetch('/api/admin/users', { credentials: 'same-origin' });
+    const users = res.ok ? await res.json() : [];
+    const rows = users.map(u => `
+      <tr>
+        <td>
+          <div class="flex items-center gap-2">
+            <div class="avatar avatar-sm">${(u.name || '?').trim().split(/\s+/).map(s => s[0]).slice(0,2).join('').toUpperCase()}</div>
+            <div>
+              <div class="font-semibold text-[13px]">${escAttr(u.name)}</div>
+              <div class="text-[11.5px] text-muted">${escAttr(u.email)}</div>
+            </div>
+          </div>
+        </td>
+        <td>${u.leaderName ? escAttr(u.leaderName) : '<span class="text-soft">—</span>'}</td>
+        <td>
+          ${u.role === 'admin'
+            ? roleBadge('admin')
+            : `<select data-role-user="${u.id}" class="input" style="padding:5px 10px;font-size:12.5px;width:auto;cursor:pointer;">
+                 <option value="user" ${u.role === 'user' ? 'selected' : ''}>Member</option>
+                 <option value="team_leader" ${u.role === 'team_leader' ? 'selected' : ''}>Team Leader</option>
+               </select>`}
+        </td>
+      </tr>`).join('');
+    return `
+      <h3 class="text-[15px] font-semibold mb-3">All users (${users.length})</h3>
+      <div class="rounded-xl overflow-hidden" style="border:1px solid var(--border);">
+        <table class="lf-table">
+          <thead><tr><th>User</th><th>Team leader</th><th>Role</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+      <div id="roles-msg" class="text-[12.5px] mt-3"></div>`;
+  }
+
+  // Team leader: members + invite + pending.
+  async function leaderTeamHTML() {
+    const res = await fetch('/api/team', { credentials: 'same-origin' });
+    const t = res.ok ? await res.json() : { members: [], pending: [], candidates: [] };
+    const memberRows = t.members.length ? t.members.map(m => `
+      <div class="flex items-center justify-between gap-3 px-4 py-3" style="border-bottom:1px solid var(--border-soft);">
+        <div class="flex items-center gap-2">
+          <div class="avatar avatar-sm">${(m.name || '?').trim().split(/\s+/).map(s => s[0]).slice(0,2).join('').toUpperCase()}</div>
+          <div><div class="font-semibold text-[13px]">${escAttr(m.name)}</div><div class="text-[11.5px] text-muted">${escAttr(m.email)}</div></div>
+        </div>
+        <button class="btn-icon" title="Remove from team" data-remove-member="${m.id}" style="width:30px;height:30px;border:none;">
+          <i data-lucide="user-minus" style="width:14px;height:14px;color:#D63333;pointer-events:none;"></i>
+        </button>
+      </div>`).join('') : `<div class="text-[12.5px] text-muted px-4 py-4">No members yet. Invite someone below.</div>`;
+
+    const pendingRows = t.pending.length ? `
+      <div class="mt-4">
+        <div class="text-[12px] font-semibold text-muted mb-2">Pending invitations</div>
+        ${t.pending.map(p => `<div class="flex items-center gap-2 text-[13px] px-1 py-1">
+          <i data-lucide="clock" style="width:13px;height:13px;color:#B07A00;"></i> ${escAttr(p.name)} <span class="text-soft">— awaiting response</span>
+        </div>`).join('')}
+      </div>` : '';
+
+    const options = t.candidates.map(c => `<option value="${c.id}">${escAttr(c.name)} (${escAttr(c.email)})</option>`).join('');
+    const inviteBox = `
+      <div class="rounded-xl p-4 mt-5" style="border:1px solid var(--border);">
+        <div class="text-[13px] font-semibold mb-2">Invite a member</div>
+        ${t.candidates.length ? `
+          <div class="flex items-center gap-2">
+            <select id="invite-select" class="input" style="cursor:pointer;">${options}</select>
+            <button id="invite-btn" class="btn-primary" style="white-space:nowrap;"><i data-lucide="user-plus" style="width:14px;height:14px;"></i> Invite</button>
+          </div>` : `<div class="text-[12.5px] text-muted">No available users to invite right now.</div>`}
+        <div id="roles-msg" class="text-[12.5px] mt-2"></div>
+      </div>`;
+
+    return `
+      <h3 class="text-[15px] font-semibold mb-3">My team (${t.members.length})</h3>
+      <div class="rounded-xl overflow-hidden" style="border:1px solid var(--border);">${memberRows}</div>
+      ${pendingRows}
+      ${inviteBox}`;
+  }
+
+  // Member: simple status.
+  function memberStatusHTML() {
+    const u = D.user || {};
+    if (u.leaderName) {
+      return `<div class="rounded-xl p-5" style="border:1px solid var(--border);">
+        <div class="text-[14px] font-semibold mb-1">You're on ${escAttr(u.leaderName)}'s team</div>
+        <div class="text-[13px] text-muted">Leads assigned to you by your team leader appear in your Leads list.</div>
+      </div>`;
+    }
+    return `<div class="rounded-xl p-5" style="border:1px solid var(--border);">
+      <div class="text-[14px] font-semibold mb-1">You're not on a team</div>
+      <div class="text-[13px] text-muted">A team leader can invite you — you'll get a notification to accept or decline.</div>
+    </div>`;
+  }
+
+  function wireRoles() {
+    // Admin: change a role.
+    document.querySelectorAll('[data-role-user]').forEach(sel => sel.addEventListener('change', async () => {
+      const id = sel.getAttribute('data-role-user');
+      const msg = document.getElementById('roles-msg');
+      sel.disabled = true;
+      try {
+        const res = await fetch('/api/admin/users/' + id + '/role', {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+          body: JSON.stringify({ role: sel.value })
+        });
+        if (msg) msg.style.color = res.ok ? '#138A4B' : '#D63333';
+        if (msg) msg.textContent = res.ok ? 'Role updated.' : 'Could not update role.';
+        if (res.ok) bindRoles(); // refresh leader column
+      } catch (e) { if (msg) { msg.style.color = '#D63333'; msg.textContent = 'Network error.'; } }
+      finally { sel.disabled = false; }
+    }));
+
+    // Leader: invite.
+    const inviteBtn = document.getElementById('invite-btn');
+    if (inviteBtn) inviteBtn.addEventListener('click', async () => {
+      const sel = document.getElementById('invite-select');
+      const msg = document.getElementById('roles-msg');
+      if (!sel || !sel.value) return;
+      inviteBtn.disabled = true;
+      try {
+        const res = await fetch('/api/team/invite', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+          body: JSON.stringify({ userId: Number(sel.value) })
+        });
+        const body = await res.json().catch(() => ({}));
+        if (msg) { msg.style.color = res.ok ? '#138A4B' : '#D63333'; msg.textContent = res.ok ? 'Invitation sent.' : (body.error || 'Could not invite.'); }
+        if (res.ok) bindRoles();
+      } catch (e) { if (msg) { msg.style.color = '#D63333'; msg.textContent = 'Network error.'; } }
+      finally { inviteBtn.disabled = false; }
+    });
+
+    // Leader: remove a member.
+    document.querySelectorAll('[data-remove-member]').forEach(btn => btn.addEventListener('click', async () => {
+      const id = btn.getAttribute('data-remove-member');
+      if (!window.confirm('Remove this member from your team?')) return;
+      try {
+        const res = await fetch('/api/team/members/' + id, { method: 'DELETE', credentials: 'same-origin' });
+        if (res.ok) bindRoles(); else window.alert('Could not remove the member.');
+      } catch (e) { window.alert('Network error.'); }
+    }));
   }
 
   // ----- Notifications -----
@@ -562,6 +681,7 @@
     // Section-specific bindings.
     if (state.section === 'profile')        bindProfile();
     if (state.section === 'integrations')   bindIntegrations();
+    if (state.section === 'roles')          bindRoles();
     if (state.section === 'notifications')  bindToggles();
     if (state.section === 'changepassword') bindChangePassword();
 

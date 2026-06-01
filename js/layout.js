@@ -3,6 +3,11 @@
 
 window.LF = window.LF || {};
 
+// Friendly label for a raw role value.
+LF.roleLabel = function (role) {
+  return role === 'admin' ? 'Admin' : role === 'team_leader' ? 'Team Leader' : 'Member';
+};
+
 // Apply the saved theme as early as possible (the inline <head> script in each
 // page is the primary no-flash guard; this is a fallback).
 try { if (localStorage.getItem('lf-theme') === 'dark') document.documentElement.classList.add('dark'); } catch (e) {}
@@ -49,7 +54,10 @@ LF.renderLayout = async function ({ active }) {
     phone: user.phone || '',
     title: user.title || '',
     bio:   user.bio   || '',
-    role:  'Member',
+    rawRole: user.role || 'user',
+    role:  LF.roleLabel(user.role),
+    leaderId: user.leaderId || null,
+    leaderName: user.leaderName || '',
     initials: getInitials(user.name)
   };
 
@@ -246,13 +254,19 @@ function notifSaveRead(set) {
 
 async function loadNotifications() {
   const get = async (u) => { try { const r = await fetch(u, { credentials: 'same-origin' }); return r.ok ? await r.json() : []; } catch (e) { return []; } };
-  const [queue, tasks, events, leads, calls] = await Promise.all([
-    get('/api/call-queue'), get('/api/tasks'), get('/api/events'), get('/api/leads'), get('/api/call-log')
+  const [queue, tasks, events, leads, calls, invites] = await Promise.all([
+    get('/api/call-queue'), get('/api/tasks'), get('/api/events'), get('/api/leads'), get('/api/call-log'), get('/api/invites')
   ]);
 
   const todayKey = notifTodayKey();
   const nowMin = notifNowMin();
   const items = [];
+
+  // 0) Team invitations — actionable (Accept / Decline).
+  invites.forEach(inv => {
+    items.push({ key: `invite-${inv.id}`, sort: -1, type: 'invite', actionId: inv.id, icon: 'users', color: '#6D5BFF',
+      text: `${notifEsc(inv.leaderName)} invited you to their team`, sub: 'Accept or decline below' });
+  });
 
   // 1) Call queue — overdue + due soon (date-aware; future-dated calls are skipped).
   queue.forEach(c => {
@@ -310,6 +324,21 @@ async function loadNotifications() {
   renderNotifications(items, read);
 }
 
+// Respond to a team invitation from the bell; reload on accept so the new
+// role/team is reflected everywhere.
+async function respondInvite(id, action, btn) {
+  if (btn) btn.disabled = true;
+  try {
+    const res = await fetch('/api/invites/' + id + '/respond', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+      body: JSON.stringify({ action })
+    });
+    if (!res.ok) { if (btn) btn.disabled = false; window.alert('Could not respond to the invitation.'); return; }
+  } catch (e) { if (btn) btn.disabled = false; window.alert('Network error.'); return; }
+  if (action === 'accept') { window.location.reload(); return; }
+  loadNotifications();
+}
+
 function renderNotifications(items, read) {
   const list = document.getElementById('lf-notif-list');
   const badge = document.getElementById('lf-notif-badge');
@@ -333,14 +362,36 @@ function renderNotifications(items, read) {
   }
   if (readAll) readAll.style.visibility = 'visible';
 
+  const iconChip = (i) => `<span class="stat-icon flex-shrink-0" style="width:30px;height:30px;border-radius:8px;background:${i.color}1A;">
+      <i data-lucide="${i.icon}" style="width:15px;height:15px;color:${i.color};"></i>
+    </span>`;
+
   list.innerHTML = items.map(i => {
     const isUnread = !read.has(i.key);
+    const bg = isUnread ? 'background:rgba(109,91,255,.05);' : '';
+    // Actionable items (team invites / lead assignments) render with buttons.
+    if (i.type === 'invite' || i.type === 'assignment') {
+      const acc = i.type === 'invite' ? 'data-invite-accept' : 'data-assign-accept';
+      const rej = i.type === 'invite' ? 'data-invite-reject' : 'data-assign-reject';
+      return `
+        <div class="px-4 py-3" style="border-bottom:1px solid var(--border-soft);${bg}">
+          <div class="flex items-start gap-3">
+            ${iconChip(i)}
+            <div class="flex-1 min-w-0">
+              <div class="text-[13px] font-medium leading-snug">${i.text}</div>
+              <div class="text-[11.5px] text-muted mt-0.5">${i.sub}</div>
+              <div class="flex items-center gap-2 mt-2">
+                <button ${acc}="${i.actionId}" class="btn-primary" style="padding:5px 12px;font-size:12px;">Accept</button>
+                <button ${rej}="${i.actionId}" class="btn-secondary" style="padding:5px 12px;font-size:12px;">Decline</button>
+              </div>
+            </div>
+          </div>
+        </div>`;
+    }
     return `
       <a href="${i.href}" data-notif-key="${i.key}" class="flex items-start gap-3 px-4 py-3 hover:bg-[#FAFAFC]"
-         style="border-bottom:1px solid var(--border-soft);${isUnread ? 'background:rgba(109,91,255,.05);' : ''}">
-        <span class="stat-icon flex-shrink-0" style="width:30px;height:30px;border-radius:8px;background:${i.color}1A;">
-          <i data-lucide="${i.icon}" style="width:15px;height:15px;color:${i.color};"></i>
-        </span>
+         style="border-bottom:1px solid var(--border-soft);${bg}">
+        ${iconChip(i)}
         <div class="flex-1 min-w-0">
           <div class="text-[13px] font-medium leading-snug">${i.text}</div>
           <div class="text-[11.5px] text-muted mt-0.5">${i.sub}</div>
@@ -352,6 +403,14 @@ function renderNotifications(items, read) {
   // Clicking a row marks just that one read (navigation proceeds via the <a>).
   list.querySelectorAll('[data-notif-key]').forEach(a => a.addEventListener('click', () => {
     const r = notifReadSet(); r.add(a.getAttribute('data-notif-key')); notifSaveRead(r);
+  }));
+
+  // Team-invite Accept / Decline.
+  list.querySelectorAll('[data-invite-accept]').forEach(b => b.addEventListener('click', e => {
+    e.preventDefault(); e.stopPropagation(); respondInvite(b.getAttribute('data-invite-accept'), 'accept', b);
+  }));
+  list.querySelectorAll('[data-invite-reject]').forEach(b => b.addEventListener('click', e => {
+    e.preventDefault(); e.stopPropagation(); respondInvite(b.getAttribute('data-invite-reject'), 'reject', b);
   }));
 
   // Mark all read.
@@ -377,15 +436,14 @@ LF.telLink = function (phone) {
 
 // Refreshes the topbar avatar + name after profile changes save.
 LF.refreshUserDisplay = function (user) {
-  LF_DATA.user = {
+  LF_DATA.user = Object.assign({}, LF_DATA.user, {
     name: user.name,
     email: user.email,
     phone: user.phone || '',
     title: user.title || '',
     bio:   user.bio   || '',
-    role:  'Member',
     initials: getInitials(user.name)
-  };
+  });
   const avatar = document.getElementById('lf-user-avatar');
   const nameEl = document.getElementById('lf-user-name');
   if (avatar) avatar.textContent = LF_DATA.user.initials;
@@ -407,6 +465,6 @@ LF.statusPill = (s) => {
   if (['Active','Connected','Online','Completed'].includes(s)) return 'pill-green';
   if (['Scheduled','Away','High'].includes(s)) return 'pill-yellow';
   if (['Paused','Offline','Not Connected','Low'].includes(s)) return 'pill-gray';
-  if (['Missed'].includes(s)) return 'pill-red';
+  if (['Missed', 'No Answer'].includes(s)) return 'pill-red';
   return 'pill-blue';
 };
