@@ -138,6 +138,10 @@
                 </div>
                 <span class="pill ${m.pill}">${s.channel}</span>
                 ${statusChip(s.status, s.error)}
+                ${(s.channel === 'Email' && s.status !== 'sent' && s.status !== 'sending') ? `
+                <button class="btn-icon" title="Send now" data-send-uid="${s._uid}" style="width:30px;height:30px;">
+                  <i data-lucide="send" style="width:13px;height:13px;color:#138A4B;pointer-events:none;"></i>
+                </button>` : ''}
                 <button class="btn-icon" title="Remove" data-remove-uid="${s._uid}" style="width:30px;height:30px;border:none;">
                   <i data-lucide="x" style="width:14px;height:14px;color:#8A8AA0;pointer-events:none;"></i>
                 </button>
@@ -333,9 +337,37 @@
     scheduled.splice(idx, 1);
     render();
   }
+  // ----- Send a scheduled email immediately -----
+  async function sendNow(uid) {
+    const item = scheduled.find(s => String(s._uid) === String(uid));
+    if (!item || !item.id) return;
+    if (!window.confirm(`Send this email to ${item.to} now?`)) return;
+    item.status = 'sending'; render();
+    try {
+      const res = await fetch('/api/scheduled/' + item.id + '/send', { method: 'POST', credentials: 'same-origin' });
+      const raw = await res.text();
+      let body = {}; try { body = raw ? JSON.parse(raw) : {}; } catch (e) {}
+      if (!res.ok) {
+        item.status = body.status || 'failed';
+        item.error = body.error || '';
+        render();
+        window.alert(body.error || `Could not send (HTTP ${res.status}).`);
+        return;
+      }
+      item.status = 'sent';
+      render();
+    } catch (e) {
+      item.status = 'failed';
+      render();
+      window.alert('Network error. Is the server running?');
+    }
+  }
+
   function bindRemove() {
     // Delegated — survives #msg-body re-renders.
     document.getElementById('msg-body').addEventListener('click', (e) => {
+      const sendBtn = e.target.closest('[data-send-uid]');
+      if (sendBtn) { sendNow(sendBtn.getAttribute('data-send-uid')); return; }
       const btn = e.target.closest('[data-remove-uid]');
       if (btn) removeScheduled(btn.getAttribute('data-remove-uid'));
     });

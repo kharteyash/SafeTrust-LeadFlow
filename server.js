@@ -664,6 +664,36 @@ async function dispatchScheduled(req, res) {
 app.get('/api/cron/dispatch', safe(dispatchScheduled));
 app.post('/api/cron/dispatch', safe(dispatchScheduled));
 
+// Send one of the user's own scheduled emails immediately (the "Send now" button).
+app.post('/api/scheduled/:id/send', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid message id.' });
+
+  // Claim it: must be the user's, an Email, and not already sent/in-flight.
+  const m = await one(`
+    UPDATE scheduled_messages SET status = 'sending'
+    WHERE id = $1 AND user_id = $2 AND channel = 'Email' AND status IN ('pending', 'failed')
+    RETURNING id, recipient, type, body
+  `, [id, req.user.id]);
+  if (!m) {
+    const cur = await one('SELECT channel, status FROM scheduled_messages WHERE id = $1 AND user_id = $2', [id, req.user.id]);
+    if (!cur) return res.status(404).json({ error: 'Message not found.' });
+    if (cur.channel !== 'Email') return res.status(400).json({ error: 'Only email messages can be sent.' });
+    if (cur.status === 'sent') return res.status(400).json({ error: 'This message was already sent.' });
+    return res.status(409).json({ error: 'This message is already sending.' });
+  }
+  try {
+    await sendEmailViaResend({ to: m.recipient, subject: m.type, text: m.body || '' });
+    await pool.query(`UPDATE scheduled_messages SET status = 'sent', sent_at = now(), error = NULL WHERE id = $1`, [id]);
+    res.json({ ok: true, status: 'sent' });
+  } catch (e) {
+    const msg = String((e && e.message) || e).slice(0, 500);
+    await pool.query(`UPDATE scheduled_messages SET status = 'failed', error = $2 WHERE id = $1`, [id, msg]);
+    res.status(502).json({ error: 'Send failed: ' + msg, status: 'failed' });
+  }
+}));
+
 app.delete('/api/scheduled/:id', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
   const id = Number(req.params.id);
