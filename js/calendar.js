@@ -64,12 +64,43 @@
   let uidCounter = 0;
   function withUid(e) { return Object.assign({ _uid: ++uidCounter }, e); }
   let events = [];
+  let tasks = [];
 
   function eventsOn(date) {
     const key = toKey(date);
     return events
       .filter(e => e.date === key)
       .sort((a, b) => a.start.localeCompare(b.start));
+  }
+
+  // ----- Tasks on the calendar (shown as all-day items on their due date) -----
+  function esc(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  function escAttr(s) { return String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  function openTasksOn(date) {
+    const key = toKey(date);
+    return tasks.filter(t => t.status !== 'done' && t.due === key);
+  }
+  function taskColor(p) { return p === 'High' ? '#D63333' : p === 'Medium' ? '#B07A00' : '#5C5C75'; }
+  function taskPill(p) { return p === 'High' ? 'pill-red' : p === 'Medium' ? 'pill-yellow' : 'pill-gray'; }
+  // A clickable all-day task chip (links to the Tasks page).
+  function taskChip(t, compact, withDate) {
+    const pc = taskColor(t.priority);
+    if (compact) {
+      return `<a href="tasks.html" title="${escAttr(t.title)} — ${esc(t.priority)}"
+        class="rounded-md px-2 py-1 mb-1 flex items-center gap-1" style="background:var(--surface-3);border-left:3px solid ${pc};">
+        <i data-lucide="check-square" style="width:10px;height:10px;color:${pc};flex-shrink:0;pointer-events:none;"></i>
+        <span class="text-[10.5px] font-medium truncate">${esc(t.title)}</span>
+      </a>`;
+    }
+    const d = parseDate(t.due);
+    const dateLabel = sameDay(d, TODAY) ? 'Today' : `${DOW[d.getDay()]}, ${MONTHS[d.getMonth()].slice(0, 3)} ${d.getDate()}`;
+    return `<a href="tasks.html" class="rounded-lg px-3 py-2 flex items-center gap-2" style="background:var(--surface-3);border-left:3px solid ${pc};">
+      <i data-lucide="check-square" style="width:14px;height:14px;color:${pc};flex-shrink:0;pointer-events:none;"></i>
+      <span class="text-[12.5px] font-semibold truncate">${esc(t.title)}</span>
+      ${withDate
+        ? `<span class="text-[11px] text-muted ml-auto flex-shrink-0">${dateLabel}</span>`
+        : `<span class="pill ${taskPill(t.priority)} ml-auto" style="font-size:10px;flex-shrink:0;">${esc(t.priority)}</span>`}
+    </a>`;
   }
 
   // Hour rows to render: the default 8 AM–6 PM window, expanded to include
@@ -195,9 +226,19 @@
         </div>`;
     }).join('');
 
+    const dayTasks = openTasksOn(state.cursor);
+    const allDay = dayTasks.length ? `
+      <div class="rounded-xl p-3 mb-3" style="border:1px solid var(--border);">
+        <div class="text-[12px] font-semibold text-muted mb-2 flex items-center gap-1.5">
+          <i data-lucide="check-square" style="width:13px;height:13px;"></i> Tasks due (${dayTasks.length})
+        </div>
+        <div class="flex flex-col gap-1.5">${dayTasks.map(t => taskChip(t, false, false)).join('')}</div>
+      </div>` : '';
+
     const total = dayEvents.length;
     document.getElementById('cal-body').innerHTML = `
       <div class="mb-3 text-[12.5px] text-muted">${total} event${total === 1 ? '' : 's'} scheduled</div>
+      ${allDay}
       <div class="rounded-xl overflow-hidden" style="border:1px solid var(--border);">${rows}</div>
     `;
   }
@@ -223,6 +264,13 @@
         }).join('')}
       </div>`;
 
+    const anyTasks = days.some(d => openTasksOn(d).length);
+    const allDayRow = anyTasks ? `
+      <div style="display:grid;grid-template-columns:60px repeat(7,1fr);border-top:1px solid var(--border-soft);background:var(--surface-2);">
+        <div class="pt-1 pr-2 text-right text-[10.5px] text-soft">Tasks</div>
+        ${days.map(d => `<div class="p-1" style="border-left:1px solid var(--border-soft);">${openTasksOn(d).map(t => taskChip(t, true)).join('')}</div>`).join('')}
+      </div>` : '';
+
     const rows = hoursForEvents(weekEvents).map(h => `
       <div style="display:grid;grid-template-columns:60px repeat(7,1fr);border-top:1px solid var(--border-soft);min-height:54px;">
         <div class="pt-1 pr-2 text-right text-[11px] text-soft">${fmtTime(h + ':00')}</div>
@@ -236,6 +284,7 @@
       <div class="overflow-x-auto">
         <div style="min-width:760px;">
           ${header}
+          ${allDayRow}
           ${rows}
         </div>
       </div>
@@ -293,7 +342,25 @@
         </div>`;
     }).join('');
 
-    document.getElementById('cal-body').innerHTML = `<div class="grid grid-cols-12 gap-5">${cols}</div>`;
+    // Upcoming open tasks (due today or later), shown below the meeting columns.
+    const upcomingTasks = tasks
+      .filter(t => t.status !== 'done' && t.due && parseDate(t.due).getTime() >= TODAY.getTime())
+      .sort((a, b) => a.due.localeCompare(b.due));
+    const tasksSection = `
+      <div class="mt-6">
+        <div class="flex items-center gap-2 mb-3">
+          <span class="stat-icon" style="background:#EFEAFF;width:30px;height:30px;border-radius:8px;">
+            <i data-lucide="check-square" style="width:15px;height:15px;color:#6D5BFF;"></i>
+          </span>
+          <h3 class="text-[14.5px] font-semibold">Upcoming Tasks</h3>
+          <span class="pill pill-gray" style="font-size:11px;">${upcomingTasks.length}</span>
+        </div>
+        ${upcomingTasks.length
+          ? `<div class="grid grid-cols-12 gap-2">${upcomingTasks.map(t => `<div class="col-span-12 md:col-span-6 lg:col-span-4">${taskChip(t, false, true)}</div>`).join('')}</div>`
+          : `<div class="text-[12.5px] text-soft">No upcoming tasks.</div>`}
+      </div>`;
+
+    document.getElementById('cal-body').innerHTML = `<div class="grid grid-cols-12 gap-5">${cols}</div>${tasksSection}`;
   }
 
   // ----- Render dispatcher -----
@@ -306,7 +373,7 @@
     if (window.lucide) lucide.createIcons();
   }
 
-  // ----- Load the user's saved events from the DB -----
+  // ----- Load the user's saved events + tasks from the DB -----
   async function loadEvents() {
     try {
       const res = await fetch('/api/events', { credentials: 'same-origin' });
@@ -315,6 +382,12 @@
         events = saved.map(withUid);
       }
     } catch (e) { events = []; }
+  }
+  async function loadTasks() {
+    try {
+      const res = await fetch('/api/tasks', { credentials: 'same-origin' });
+      tasks = res.ok ? await res.json() : [];
+    } catch (e) { tasks = []; }
   }
 
   // ----- Delete an event -----
@@ -456,7 +529,7 @@
   // ----- Mount -----
   document.addEventListener('DOMContentLoaded', async function () {
     await LF.renderLayout({ active: 'calendar' });
-    await loadEvents();
+    await Promise.all([loadEvents(), loadTasks()]);
     bindModal();
     bindDelete();
     render();
