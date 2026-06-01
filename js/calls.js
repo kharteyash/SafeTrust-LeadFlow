@@ -130,8 +130,18 @@
   }
 
   // ----- Call Queue (real) -----
+  // Parse a "9:30 AM" label to minutes since midnight; no/invalid time sorts last.
+  function queueTimeMinutes(label) {
+    const m = /(\d{1,2}):(\d{2})\s*(AM|PM)/i.exec(label || '');
+    if (!m) return Infinity;
+    let h = parseInt(m[1], 10) % 12;
+    if (/PM/i.test(m[3])) h += 12;
+    return h * 60 + parseInt(m[2], 10);
+  }
   function renderQueue() {
-    const rows = callQueue.length ? callQueue.map(c => `
+    // Earliest call at the top; untimed entries fall to the bottom.
+    const sorted = callQueue.slice().sort((a, b) => queueTimeMinutes(a.time) - queueTimeMinutes(b.time));
+    const rows = sorted.length ? sorted.map(c => `
       <tr>
         <td>
           <div class="flex items-center gap-2">
