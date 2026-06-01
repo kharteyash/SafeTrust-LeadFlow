@@ -14,6 +14,7 @@
   let callHistory = [];
   let leads = [];
   let pendingQueueId = null; // queue item being logged, if any
+  let reschedulingId = null; // queue item being rescheduled, if any
 
   function esc(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
   function escAttr(s) { return String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
@@ -138,42 +139,72 @@
     if (/PM/i.test(m[3])) h += 12;
     return h * 60 + parseInt(m[2], 10);
   }
+  // "14:30" (24h input) -> "2:30 PM" label.
+  function formatTimeLabel(hhmm) {
+    if (!hhmm) return '';
+    const [h, m] = hhmm.split(':').map(Number);
+    const ap = h >= 12 ? 'PM' : 'AM';
+    return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${ap}`;
+  }
+  // "2:30 PM" label -> "14:30" for a <input type="time"> default value.
+  function labelToInputValue(label) {
+    const t = queueTimeMinutes(label);
+    if (t === Infinity) return '';
+    return `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`;
+  }
+  function nowMinutes() { const n = new Date(); return n.getHours() * 60 + n.getMinutes(); }
+  // A queued call is overdue if it has a time that's already passed today.
+  function isOverdue(label) { const t = queueTimeMinutes(label); return t !== Infinity && t < nowMinutes(); }
+
   function renderQueue() {
     // Sort by how soon each call is *from now*: the next upcoming call is at the
     // top, and times that have already passed today wrap to the bottom (e.g. at
     // 10 AM, 12 PM comes before 12 AM). Untimed entries fall to the very bottom.
-    const now = new Date();
-    const nowMin = now.getHours() * 60 + now.getMinutes();
+    const nowMin = nowMinutes();
     const rank = (label) => {
       const t = queueTimeMinutes(label);
       return t === Infinity ? Infinity : (t - nowMin + 1440) % 1440;
     };
     const sorted = callQueue.slice().sort((a, b) => rank(a.time) - rank(b.time));
-    const rows = sorted.length ? sorted.map(c => `
-      <tr>
+    const overdueCount = callQueue.filter(c => isOverdue(c.time)).length;
+    const rows = sorted.length ? sorted.map(c => {
+      const overdue = isOverdue(c.time);
+      return `
+      <tr ${overdue ? 'style="background:rgba(214,51,51,.06);"' : ''}>
         <td>
           <div class="flex items-center gap-2">
             <div class="avatar avatar-sm">${initials(c.name)}</div>
             <span class="font-semibold text-[13px]">${esc(c.name)}</span>
           </div>
         </td>
-        <td class="text-muted">${esc(c.time) || '—'}</td>
+        <td>
+          <div class="flex items-center gap-2">
+            <span class="text-muted">${esc(c.time) || '—'}</span>
+            ${overdue ? '<span class="pill pill-red" style="font-size:10.5px;">Overdue</span>' : ''}
+          </div>
+        </td>
         <td><span class="pill ${priorityPill(c.priority)}">${esc(c.priority)}</span></td>
         <td class="text-muted">${esc(c.reason) || '—'}</td>
         <td>
           <div class="flex items-center gap-1">
             ${logBtn(c.name, c.phone, c.id)}
+            <button data-resched="${c.id}" class="btn-icon" title="Reschedule" style="width:30px;height:30px;">
+              <i data-lucide="clock" style="width:14px;height:14px;color:var(--text-muted);pointer-events:none;"></i>
+            </button>
             <button data-del-queue="${c.id}" class="btn-icon" title="Remove from queue" style="width:30px;height:30px;border:none;">
               <i data-lucide="x" style="width:14px;height:14px;color:#8A8AA0;pointer-events:none;"></i>
             </button>
           </div>
         </td>
-      </tr>`).join('')
+      </tr>`; }).join('')
       : `<tr><td colspan="5" class="text-center py-10 text-muted text-[13px]">Queue is empty. Add someone to call.</td></tr>`;
 
     document.getElementById('calls-body').innerHTML = `
       <div class="flex items-center justify-between mb-3">
-        <h3 class="text-[15px] font-semibold">Today's calls <span class="text-muted font-normal">(${callQueue.length})</span></h3>
+        <h3 class="text-[15px] font-semibold">Today's calls
+          <span class="text-muted font-normal">(${callQueue.length})</span>
+          ${overdueCount ? `<span class="pill pill-red ml-1" style="font-size:11px;">${overdueCount} overdue</span>` : ''}
+        </h3>
         <button id="add-queue-btn" class="btn-primary" style="padding:7px 14px;font-size:12.5px;">
           <i data-lucide="plus" style="width:14px;height:14px;"></i> Add to queue
         </button>
@@ -375,6 +406,19 @@
   }
   function closeQueueModal() { document.getElementById('queue-modal').classList.add('hidden'); }
 
+  // ----- Reschedule modal -----
+  function openRescheduleModal(item) {
+    reschedulingId = item.id;
+    const form = document.getElementById('reschedule-form');
+    form.reset();
+    document.getElementById('reschedule-name').textContent = item.name;
+    form.elements['time'].value = labelToInputValue(item.time);
+    document.getElementById('reschedule-form-msg').textContent = '';
+    document.getElementById('reschedule-modal').classList.remove('hidden');
+    form.elements['time'].focus();
+  }
+  function closeRescheduleModal() { document.getElementById('reschedule-modal').classList.add('hidden'); reschedulingId = null; }
+
   function bind() {
     // Log modal controls
     document.getElementById('log-modal-close').addEventListener('click', closeLogModal);
@@ -384,8 +428,12 @@
     document.getElementById('queue-modal-close').addEventListener('click', closeQueueModal);
     document.getElementById('queue-cancel').addEventListener('click', closeQueueModal);
     document.getElementById('queue-modal-backdrop').addEventListener('click', closeQueueModal);
+    // Reschedule modal controls
+    document.getElementById('reschedule-modal-close').addEventListener('click', closeRescheduleModal);
+    document.getElementById('reschedule-cancel').addEventListener('click', closeRescheduleModal);
+    document.getElementById('reschedule-modal-backdrop').addEventListener('click', closeRescheduleModal);
 
-    // Delegated clicks inside the body (log triggers, log-new, queue removal).
+    // Delegated clicks inside the body (log triggers, log-new, reschedule, queue removal).
     document.getElementById('calls-body').addEventListener('click', async e => {
       const newBtn = e.target.closest('[data-log-new]');
       if (newBtn) { openLogModal(null, null); return; }
@@ -395,6 +443,13 @@
         const phone = trigger.getAttribute('data-log-phone');
         if (phone) window.open(waLink(phone), '_blank');
         openLogModal({ name: trigger.getAttribute('data-log-name'), phone }, trigger.getAttribute('data-log-queue'));
+        return;
+      }
+
+      const resched = e.target.closest('[data-resched]');
+      if (resched) {
+        const item = callQueue.find(c => String(c.id) === resched.getAttribute('data-resched'));
+        if (item) openRescheduleModal(item);
         return;
       }
 
@@ -455,12 +510,7 @@
       const data = Object.fromEntries(new FormData(queueForm));
       if (!data.name.trim()) { queueMsg.textContent = 'Name is required.'; return; }
       // Show the time in 12-hour format if provided.
-      let timeLabel = '';
-      if (data.time) {
-        const [h, m] = data.time.split(':').map(Number);
-        const ap = h >= 12 ? 'PM' : 'AM';
-        timeLabel = `${h % 12 || 12}:${String(m).padStart(2, '0')} ${ap}`;
-      }
+      const timeLabel = formatTimeLabel(data.time);
       const btn = queueForm.querySelector('button[type="submit"]');
       btn.disabled = true; btn.style.opacity = '0.7';
       try {
@@ -476,6 +526,38 @@
         render();
       } catch (err) {
         queueMsg.textContent = 'Network error. Is the server running?';
+      } finally {
+        btn.disabled = false; btn.style.opacity = '';
+      }
+    });
+
+    // Reschedule form submit
+    const reschedForm = document.getElementById('reschedule-form');
+    const reschedMsg = document.getElementById('reschedule-form-msg');
+    reschedForm.addEventListener('submit', async e => {
+      e.preventDefault();
+      reschedMsg.textContent = '';
+      if (reschedulingId == null) { closeRescheduleModal(); return; }
+      const data = Object.fromEntries(new FormData(reschedForm));
+      if (!data.time) { reschedMsg.textContent = 'Pick a time.'; return; }
+      const timeLabel = formatTimeLabel(data.time);
+      const id = reschedulingId;
+      const btn = reschedForm.querySelector('button[type="submit"]');
+      btn.disabled = true; btn.style.opacity = '0.7';
+      try {
+        const res = await fetch('/api/call-queue/' + id, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+          body: JSON.stringify({ time: timeLabel })
+        });
+        const raw = await res.text();
+        let body = {}; try { body = raw ? JSON.parse(raw) : {}; } catch (err) {}
+        if (!res.ok) { reschedMsg.textContent = body.error || `Request failed (HTTP ${res.status}).`; return; }
+        const item = callQueue.find(c => String(c.id) === String(id));
+        if (item) item.time = timeLabel;
+        closeRescheduleModal();
+        render();
+      } catch (err) {
+        reschedMsg.textContent = 'Network error. Is the server running?';
       } finally {
         btn.disabled = false; btn.style.opacity = '';
       }
