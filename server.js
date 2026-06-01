@@ -613,9 +613,11 @@ app.post('/api/scheduled', safe(async (req, res) => {
 // ----- Scheduled email delivery -----
 // Sends one email through Resend (https://resend.com). Throws on misconfig/failure.
 async function sendEmailViaResend({ to, subject, text }) {
-  const key = process.env.RESEND_API_KEY;
-  const from = process.env.RESEND_FROM;
+  // Trim whitespace/newlines and strip accidental wrapping quotes from env values.
+  const key = (process.env.RESEND_API_KEY || '').trim().replace(/^["']|["']$/g, '');
+  const from = (process.env.RESEND_FROM || '').trim().replace(/^["']|["']$/g, '');
   if (!key || !from) throw new Error('Email sending not configured (set RESEND_API_KEY and RESEND_FROM).');
+  if (!key.startsWith('re_')) throw new Error('RESEND_API_KEY looks wrong — it should start with "re_".');
   const r = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json' },
