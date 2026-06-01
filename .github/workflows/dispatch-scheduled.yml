@@ -1,0 +1,40 @@
+name: Dispatch scheduled emails
+
+# Pings the app's dispatcher so due scheduled emails get sent. Uses two repo
+# secrets (Settings → Secrets and variables → Actions):
+#   APP_URL      e.g. https://leadflow-xxxx.onrender.com  (no trailing slash)
+#   CRON_SECRET  the same value as the app's CRON_SECRET env var
+# The secret is sent as a Bearer header (never in the URL/logs; GitHub also
+# masks registered secrets automatically).
+
+on:
+  schedule:
+    # Every 5 minutes. Note: GitHub may delay scheduled runs under load, and
+    # disables them after ~60 days with no repo activity.
+    - cron: '*/5 * * * *'
+  workflow_dispatch: {}   # lets you run it manually from the Actions tab
+
+# If a run overruns, don't pile up overlapping ones.
+concurrency:
+  group: dispatch-scheduled
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping dispatcher
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$APP_URL" ] || [ -z "$CRON_SECRET" ]; then
+            echo "APP_URL or CRON_SECRET repo secret is not set."; exit 1
+          fi
+          code=$(curl -s -o /tmp/out.txt -w "%{http_code}" --max-time 90 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$APP_URL/api/cron/dispatch")
+          echo "HTTP $code"
+          cat /tmp/out.txt || true
+          echo
+          [ "$code" = "200" ] || { echo "Dispatch failed."; exit 1; }
