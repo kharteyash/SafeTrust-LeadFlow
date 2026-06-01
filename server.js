@@ -838,10 +838,37 @@ app.patch('/api/tasks/:id', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid task id.' });
-  const status = (req.body && req.body.status) === 'done' ? 'done' : 'todo';
-  const r = await pool.query('UPDATE tasks SET status = $1 WHERE id = $2 AND user_id = $3', [status, id, req.user.id]);
+  const b = req.body || {};
+  const sets = [], params = [], out = {};
+  if (b.status != null) {
+    const s = b.status === 'done' ? 'done' : 'todo';
+    params.push(s); sets.push(`status = $${params.length}`); out.status = s;
+  }
+  if (b.title != null) {
+    const title = String(b.title).trim();
+    if (!title) return res.status(400).json({ error: 'Task title is required.' });
+    params.push(title); sets.push(`title = $${params.length}`); out.title = title;
+  }
+  if (b.priority != null) {
+    const pr = TASK_PRIORITIES.includes(b.priority) ? b.priority : 'Medium';
+    params.push(pr); sets.push(`priority = $${params.length}`); out.priority = pr;
+  }
+  if (b.due != null) {
+    const due = String(b.due).trim();
+    if (due) {
+      const d = new Date(due + 'T00:00:00');
+      if (isNaN(d.getTime())) return res.status(400).json({ error: 'Invalid due date.' });
+    }
+    params.push(due || null); sets.push(`due_date = $${params.length}`); out.due = due;
+  }
+  if (!sets.length) return res.status(400).json({ error: 'Nothing to update.' });
+  params.push(id, req.user.id);
+  const r = await pool.query(
+    `UPDATE tasks SET ${sets.join(', ')} WHERE id = $${params.length - 1} AND user_id = $${params.length}`,
+    params
+  );
   if (r.rowCount === 0) return res.status(404).json({ error: 'Task not found.' });
-  res.json({ ok: true, status });
+  res.json({ ok: true, ...out });
 }));
 
 app.delete('/api/tasks/:id', safe(async (req, res) => {

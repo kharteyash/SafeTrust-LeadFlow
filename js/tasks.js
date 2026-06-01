@@ -1,15 +1,44 @@
 // Tasks page: real per-user tasks (Postgres-backed CRUD).
 (function () {
   let tasks = [];
+  let queue = [], callLog = [], leads = [];
+  const queuedLeadIds = new Set(); // leads added to the queue from here this session
+  let editingId = null;            // task being edited, if any
   const state = { tab: 'all' };
+
+  function isOverdueTask(t) { return t.status !== 'done' && t.due && t.due < todayStr(); }
 
   const TABS = [
     { id: 'all',       label: 'All',       match: () => true },
     { id: 'open',      label: 'Open',      match: t => t.status !== 'done' },
+    { id: 'today',     label: 'Due today', match: t => t.status !== 'done' && isDueToday(t.due) },
+    { id: 'overdue',   label: 'Overdue',   match: t => isOverdueTask(t) },
     { id: 'completed', label: 'Completed', match: t => t.status === 'done' }
   ];
 
   function esc(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  function escAttr(s) { return String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  function initials(name) { return (name || '?').trim().split(/\s+/).map(s => s[0]).slice(0, 2).join('').toUpperCase() || '?'; }
+  function waLink(phone) { let d = String(phone || '').replace(/\D/g, ''); if (d.length === 10) d = '1' + d; return 'https://wa.me/' + d; }
+  function scorePill(s) { return s >= 80 ? 'pill-green' : s >= 60 ? 'pill-yellow' : 'pill-red'; }
+
+  // ----- Call-queue time helpers (mirror the Calls page) -----
+  function queueTimeMinutes(label) {
+    const m = /(\d{1,2}):(\d{2})\s*(AM|PM)/i.exec(label || '');
+    if (!m) return Infinity;
+    let h = parseInt(m[1], 10) % 12;
+    if (/PM/i.test(m[3])) h += 12;
+    return h * 60 + parseInt(m[2], 10);
+  }
+  function nowMinutes() { const n = new Date(); return n.getHours() * 60 + n.getMinutes(); }
+  function qItemDate(c) { return (c.date && c.date.trim()) || todayStr(); }
+  function isQueueOverdue(c) {
+    const d = qItemDate(c), today = todayStr();
+    if (d < today) return true;
+    if (d > today) return false;
+    const t = queueTimeMinutes(c.time);
+    return t !== Infinity && t < nowMinutes();
+  }
 
   // ----- Date helpers -----
   function pad(n) { return String(n).padStart(2, '0'); }
@@ -38,20 +67,22 @@
 
   // ----- Load -----
   async function load() {
-    try {
-      const res = await fetch('/api/tasks', { credentials: 'same-origin' });
-      tasks = res.ok ? await res.json() : [];
-    } catch (e) { tasks = []; }
+    const get = async (u) => { try { const r = await fetch(u, { credentials: 'same-origin' }); return r.ok ? await r.json() : []; } catch (e) { return []; } };
+    [tasks, queue, callLog, leads] = await Promise.all([
+      get('/api/tasks'), get('/api/call-queue'), get('/api/call-log'), get('/api/leads')
+    ]);
   }
 
   // ----- Stats -----
   function renderStats() {
     const open = tasks.filter(t => t.status !== 'done').length;
     const dueToday = tasks.filter(t => t.status !== 'done' && isDueToday(t.due)).length;
+    const overdue = tasks.filter(isOverdueTask).length;
     const done = tasks.filter(t => t.status === 'done').length;
     const cards = [
       { label: 'Open',      value: open,     icon: 'list-checks',    tint: '#EFEAFF', color: '#6D5BFF' },
       { label: 'Due Today', value: dueToday, icon: 'alarm-clock',    tint: '#FFF4D6', color: '#B07A00' },
+      { label: 'Overdue',   value: overdue,  icon: 'alert-triangle', tint: '#FEECEC', color: '#D63333' },
       { label: 'Completed', value: done,     icon: 'check-circle-2', tint: '#E6F8EC', color: '#138A4B' }
     ];
     document.getElementById('task-stats').innerHTML = cards.map(c => `
@@ -66,13 +97,92 @@
       </div>`).join('');
   }
 
+  // ----- Calls to make (derived live from the queue + uncalled leads) -----
+  function callBtns(phone, withQueueLeadId) {
+    const p = escAttr(phone || '');
+    return `
+      <button class="btn-icon" title="Call" data-call="${p}" style="width:30px;height:30px;" ${phone ? '' : 'disabled'}>
+        <i data-lucide="phone" style="width:13px;height:13px;color:#6D5BFF;pointer-events:none;"></i>
+      </button>
+      <button class="btn-icon" title="WhatsApp" data-wa="${p}" style="width:30px;height:30px;" ${phone ? '' : 'disabled'}>
+        <i data-lucide="message-circle" style="width:13px;height:13px;color:#138A4B;pointer-events:none;"></i>
+      </button>
+      ${withQueueLeadId != null ? `
+      <button class="btn-icon" title="Add to call queue" data-queue-lead="${withQueueLeadId}" style="width:30px;height:30px;">
+        <i data-lucide="list-plus" style="width:13px;height:13px;color:#6D5BFF;pointer-events:none;"></i>
+      </button>` : ''}`;
+  }
+
+  function renderCallsToMake() {
+    const host = document.getElementById('calls-to-make');
+    const today = todayStr();
+
+    // From the queue: today + carried-over, soonest first, overdue last.
+    const qList = queue.filter(c => qItemDate(c) <= today).sort((a, b) => {
+      const oa = isQueueOverdue(a), ob = isQueueOverdue(b);
+      if (oa !== ob) return oa ? 1 : -1;
+      return queueTimeMinutes(a.time) - queueTimeMinutes(b.time);
+    });
+
+    // Leads with no call logged yet and not already in the queue, hottest first.
+    const calledNames = new Set(callLog.map(c => (c.name || '').toLowerCase()));
+    const queuedNames = new Set(queue.map(c => (c.name || '').toLowerCase()));
+    const lList = leads
+      .filter(l => {
+        const n = (l.name || '').toLowerCase();
+        return !calledNames.has(n) && !queuedNames.has(n) && !queuedLeadIds.has(l.id);
+      })
+      .sort((a, b) => (b.score || 0) - (a.score || 0))
+      .slice(0, 8);
+
+    const total = qList.length + lList.length;
+    if (total === 0) { host.innerHTML = ''; return; }
+
+    const qRows = qList.map(c => {
+      const overdue = isQueueOverdue(c);
+      return `
+        <div class="flex items-center gap-3 px-3 py-2.5" style="border-bottom:1px solid var(--border-soft);">
+          <div class="avatar avatar-sm">${initials(c.name)}</div>
+          <div class="flex-1 min-w-0">
+            <div class="text-[13px] font-semibold truncate">${esc(c.name)}</div>
+            <div class="text-[11.5px] text-muted">${esc(c.time) || 'Any time'}${c.reason ? ' · ' + esc(c.reason) : ''}</div>
+          </div>
+          ${overdue ? '<span class="pill pill-red" style="font-size:10.5px;">Overdue</span>' : ''}
+          ${callBtns(c.phone, null)}
+        </div>`;
+    }).join('');
+
+    const lRows = lList.map(l => `
+      <div class="flex items-center gap-3 px-3 py-2.5" style="border-bottom:1px solid var(--border-soft);">
+        <div class="avatar avatar-sm">${initials(l.name)}</div>
+        <div class="flex-1 min-w-0">
+          <div class="text-[13px] font-semibold truncate">${esc(l.name)}</div>
+          <div class="text-[11.5px] text-muted">${esc(l.phone) || 'No number'}${l.timeline ? ' · ' + esc(l.timeline) : ''}</div>
+        </div>
+        <span class="pill ${scorePill(l.score)}" style="font-size:10.5px;">${l.score}</span>
+        ${callBtns(l.phone, l.id)}
+      </div>`).join('');
+
+    host.innerHTML = `
+      <div class="panel p-5">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="text-[15px] font-semibold">Calls to make <span class="text-muted font-normal">(${total})</span></h3>
+          <a href="calls.html" class="text-[12.5px] font-semibold" style="color:var(--accent);">Open Calls →</a>
+        </div>
+        ${qList.length ? `
+          <div class="text-[12px] font-semibold text-muted mb-1 mt-1">Scheduled (${qList.length})</div>
+          ${qRows}` : ''}
+        ${lList.length ? `
+          <div class="text-[12px] font-semibold text-muted mb-1 mt-3">Leads to call (${lList.length})</div>
+          ${lRows}` : ''}
+      </div>`;
+    if (window.lucide) lucide.createIcons();
+  }
+
   // ----- Tabs -----
   function renderTabs() {
-    const counts = {
-      all: tasks.length,
-      open: tasks.filter(t => t.status !== 'done').length,
-      completed: tasks.filter(t => t.status === 'done').length
-    };
+    const counts = {};
+    TABS.forEach(t => { counts[t.id] = tasks.filter(t.match).length; });
     document.getElementById('task-tabs').innerHTML = TABS.map(t => `
       <div class="tab ${state.tab === t.id ? 'active' : ''}" data-tab="${t.id}">
         ${t.label}
@@ -129,6 +239,9 @@
             </div>
           </div>
           <span class="pill ${priorityPill(t.priority)}">${esc(t.priority)}</span>
+          <button data-edit="${t.id}" class="btn-icon" title="Edit task" style="width:30px;height:30px;">
+            <i data-lucide="pencil" style="width:13px;height:13px;color:var(--text-muted);pointer-events:none;"></i>
+          </button>
           <button data-del="${t.id}" class="btn-icon" title="Delete task" style="width:30px;height:30px;border:none;">
             <i data-lucide="trash-2" style="width:14px;height:14px;color:#D63333;pointer-events:none;"></i>
           </button>
@@ -137,25 +250,62 @@
     if (window.lucide) lucide.createIcons();
   }
 
-  // ----- Modal -----
-  function openModal() {
+  // ----- Modal (add + edit) -----
+  function openModal(task) {
+    editingId = task ? task.id : null;
     const form = document.getElementById('task-form');
     form.reset();
-    form.elements['priority'].value = 'Medium';
-    form.elements['due'].min = todayStr(); // block past dates in the picker
+    if (task) {
+      document.getElementById('task-modal-title').textContent = 'Edit task';
+      document.getElementById('task-submit').textContent = 'Save changes';
+      form.elements['title'].value = task.title || '';
+      form.elements['due'].value = task.due || '';
+      form.elements['priority'].value = task.priority || 'Medium';
+      form.elements['due'].min = ''; // keep an existing (possibly past) date
+    } else {
+      document.getElementById('task-modal-title').textContent = 'Add task';
+      document.getElementById('task-submit').textContent = 'Add task';
+      form.elements['priority'].value = 'Medium';
+      form.elements['due'].min = todayStr(); // block past dates for new tasks
+    }
     document.getElementById('task-form-msg').textContent = '';
     document.getElementById('task-modal').classList.remove('hidden');
     form.elements['title'].focus();
   }
-  function closeModal() { document.getElementById('task-modal').classList.add('hidden'); }
+  function closeModal() { document.getElementById('task-modal').classList.add('hidden'); editingId = null; }
 
-  function renderAll() { renderStats(); renderTabs(); renderList(); if (window.lucide) lucide.createIcons(); }
+  function renderAll() { renderStats(); renderCallsToMake(); renderTabs(); renderList(); if (window.lucide) lucide.createIcons(); }
 
   function bind() {
-    document.getElementById('add-task-btn').addEventListener('click', openModal);
+    document.getElementById('add-task-btn').addEventListener('click', () => openModal(null));
     document.getElementById('task-modal-close').addEventListener('click', closeModal);
     document.getElementById('task-cancel').addEventListener('click', closeModal);
     document.getElementById('task-modal-backdrop').addEventListener('click', closeModal);
+
+    // Calls-to-make actions: call (tel), WhatsApp, add lead to queue.
+    document.getElementById('calls-to-make').addEventListener('click', async e => {
+      const callBtn = e.target.closest('[data-call]');
+      if (callBtn) { const tel = LF.telLink(callBtn.getAttribute('data-call')); if (tel) window.location.href = tel; return; }
+      const waBtn = e.target.closest('[data-wa]');
+      if (waBtn) { const ph = waBtn.getAttribute('data-wa'); if (ph) window.open(waLink(ph), '_blank'); return; }
+      const qBtn = e.target.closest('[data-queue-lead]');
+      if (qBtn) {
+        const lead = leads.find(l => String(l.id) === qBtn.getAttribute('data-queue-lead'));
+        if (!lead) return;
+        qBtn.disabled = true;
+        try {
+          const res = await fetch('/api/call-queue', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+            body: JSON.stringify({ name: lead.name, phone: lead.phone || '', priority: 'Medium', time: '', date: todayStr(), reason: 'From Tasks' })
+          });
+          if (!res.ok) { qBtn.disabled = false; window.alert('Could not add to the queue.'); return; }
+          const body = await res.json().catch(() => null);
+          if (body) queue.unshift(body);
+          queuedLeadIds.add(lead.id); // drop it from the "leads to call" list
+          renderAll();
+        } catch (err) { qBtn.disabled = false; window.alert('Network error.'); }
+      }
+    });
 
     // Delegated: toggle done + delete.
     document.getElementById('task-list').addEventListener('click', async e => {
@@ -174,6 +324,12 @@
         } catch (err) { window.alert('Network error.'); return; }
         t.status = newStatus;
         renderAll();
+        return;
+      }
+      const edit = e.target.closest('[data-edit]');
+      if (edit) {
+        const t = tasks.find(x => String(x.id) === edit.getAttribute('data-edit'));
+        if (t) openModal(t);
         return;
       }
       const del = e.target.closest('[data-del]');
@@ -197,7 +353,8 @@
       msg.textContent = '';
       const data = Object.fromEntries(new FormData(form));
       if (!data.title.trim()) { msg.textContent = 'Title is required.'; return; }
-      if (data.due) {
+      // Block past dates only for NEW tasks; editing may keep an existing past date.
+      if (!editingId && data.due) {
         const now = new Date();
         const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
         if (parseLocalDate(data.due).getTime() < todayMidnight.getTime()) {
@@ -207,19 +364,31 @@
 
       const btn = form.querySelector('button[type="submit"]');
       btn.disabled = true; btn.style.opacity = '0.7';
+      const payload = { title: data.title, due: data.due || '', priority: data.priority };
       try {
-        const res = await fetch('/api/tasks', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
-          body: JSON.stringify({ title: data.title, due: data.due || '', priority: data.priority })
-        });
-        const raw = await res.text();
-        let body = {};
-        try { body = raw ? JSON.parse(raw) : {}; } catch (err) {}
-        if (!res.ok) { msg.textContent = body.error || `Request failed (HTTP ${res.status}).`; return; }
-        tasks.unshift(body);
-        closeModal();
-        state.tab = 'all';
-        renderAll();
+        if (editingId) {
+          const res = await fetch('/api/tasks/' + editingId, {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+            body: JSON.stringify(payload)
+          });
+          const raw = await res.text(); let body = {}; try { body = raw ? JSON.parse(raw) : {}; } catch (err) {}
+          if (!res.ok) { msg.textContent = body.error || `Request failed (HTTP ${res.status}).`; return; }
+          const t = tasks.find(x => String(x.id) === String(editingId));
+          if (t) { t.title = data.title.trim(); t.due = data.due || ''; t.priority = data.priority; }
+          closeModal();
+          renderAll();
+        } else {
+          const res = await fetch('/api/tasks', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+            body: JSON.stringify(payload)
+          });
+          const raw = await res.text(); let body = {}; try { body = raw ? JSON.parse(raw) : {}; } catch (err) {}
+          if (!res.ok) { msg.textContent = body.error || `Request failed (HTTP ${res.status}).`; return; }
+          tasks.unshift(body);
+          closeModal();
+          state.tab = 'all';
+          renderAll();
+        }
       } catch (err) {
         msg.textContent = 'Network error. Is the server running?';
       } finally {

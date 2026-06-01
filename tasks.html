@@ -24,7 +24,10 @@
     </div>
 
     <!-- Stats -->
-    <div id="task-stats" class="grid grid-cols-2 md:grid-cols-3 gap-4 mb-5"></div>
+    <div id="task-stats" class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5"></div>
+
+    <!-- Calls to make (derived live from your queue + leads) -->
+    <div id="calls-to-make" class="mb-5"></div>
 
     <!-- Tabs + list -->
     <div class="panel">
@@ -38,7 +41,7 @@
       <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:100%;max-width:460px;" class="px-4">
         <div class="bg-white rounded-2xl p-6 shadow-2xl">
           <div class="flex items-center justify-between mb-4">
-            <h3 class="text-[17px] font-bold">Add task</h3>
+            <h3 id="task-modal-title" class="text-[17px] font-bold">Add task</h3>
             <button id="task-modal-close" class="btn-icon" style="width:32px;height:32px;border:none;">
               <i data-lucide="x" style="width:16px;height:16px;color:var(--text-muted);"></i>
             </button>
@@ -65,7 +68,7 @@
             <div id="task-form-msg" class="text-[12.5px] font-medium" style="color:#D63333;"></div>
             <div class="flex items-center justify-end gap-2 mt-2">
               <button type="button" id="task-cancel" class="btn-secondary">Cancel</button>
-              <button type="submit" class="btn-primary">Add task</button>
+              <button type="submit" id="task-submit" class="btn-primary">Add task</button>
             </div>
           </form>
         </div>
