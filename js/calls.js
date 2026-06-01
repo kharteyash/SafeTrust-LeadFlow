@@ -139,8 +139,16 @@
     return h * 60 + parseInt(m[2], 10);
   }
   function renderQueue() {
-    // Earliest call at the top; untimed entries fall to the bottom.
-    const sorted = callQueue.slice().sort((a, b) => queueTimeMinutes(a.time) - queueTimeMinutes(b.time));
+    // Sort by how soon each call is *from now*: the next upcoming call is at the
+    // top, and times that have already passed today wrap to the bottom (e.g. at
+    // 10 AM, 12 PM comes before 12 AM). Untimed entries fall to the very bottom.
+    const now = new Date();
+    const nowMin = now.getHours() * 60 + now.getMinutes();
+    const rank = (label) => {
+      const t = queueTimeMinutes(label);
+      return t === Infinity ? Infinity : (t - nowMin + 1440) % 1440;
+    };
+    const sorted = callQueue.slice().sort((a, b) => rank(a.time) - rank(b.time));
     const rows = sorted.length ? sorted.map(c => `
       <tr>
         <td>
