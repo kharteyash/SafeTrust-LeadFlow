@@ -25,13 +25,14 @@
 
   function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 
-  // Team-leader assignment state.
-  let isLeader = false;
-  let teamMembers = [];
+  // Assignment / forwarding state (works for team leaders and members).
+  let canAssign = false;
+  let assignTargets = []; // [{ id, name, isLeader }]
   let assigningLeadId = null;
-  async function loadTeam() {
-    try { const r = await fetch('/api/team', { credentials: 'same-origin' }); if (r.ok) { const t = await r.json(); teamMembers = t.members || []; } }
-    catch (e) { teamMembers = []; }
+  async function loadAssignTargets() {
+    try { const r = await fetch('/api/assign-targets', { credentials: 'same-origin' }); if (r.ok) assignTargets = await r.json(); }
+    catch (e) { assignTargets = []; }
+    canAssign = assignTargets.length > 0;
   }
 
   // ----- Header stats -----
@@ -155,8 +156,8 @@
                   <button class="btn-icon" title="Send email" data-email="${l.email}" style="width:30px;height:30px;">
                     <i data-lucide="mail" style="width:13px;height:13px;color:#6D5BFF;pointer-events:none;"></i>
                   </button>
-                  ${isLeader ? `<button class="btn-icon" title="Assign to team" data-assign-uid="${l._uid}" style="width:30px;height:30px;">
-                    <i data-lucide="user-plus" style="width:13px;height:13px;color:#2B57D9;pointer-events:none;"></i>
+                  ${canAssign ? `<button class="btn-icon" title="Assign / forward to team" data-assign-uid="${l._uid}" style="width:30px;height:30px;">
+                    <i data-lucide="forward" style="width:13px;height:13px;color:#2B57D9;pointer-events:none;"></i>
                   </button>` : ''}
                   <button class="btn-icon" title="Edit lead" data-edit-uid="${l._uid}" style="width:30px;height:30px;">
                     <i data-lucide="pencil" style="width:13px;height:13px;color:var(--text-muted);pointer-events:none;"></i>
@@ -561,11 +562,11 @@
     assigningLeadId = lead.id;
     document.getElementById('assign-lead-name').textContent = lead.name;
     const sel = document.getElementById('assign-target');
-    if (teamMembers.length === 0) {
-      sel.innerHTML = '<option value="">No team members — invite people in Settings</option>';
+    if (assignTargets.length === 0) {
+      sel.innerHTML = '<option value="">No teammates available</option>';
     } else {
       sel.innerHTML = '<option value="all">Everyone on my team</option>' +
-        teamMembers.map(m => `<option value="${m.id}">${esc(m.name)}</option>`).join('');
+        assignTargets.map(m => `<option value="${m.id}">${esc(m.name)}${m.isLeader ? ' (team leader)' : ''}</option>`).join('');
     }
     document.getElementById('assign-msg').textContent = '';
     document.getElementById('assign-modal').classList.remove('hidden');
@@ -578,7 +579,7 @@
     document.getElementById('assign-go').addEventListener('click', async () => {
       const sel = document.getElementById('assign-target');
       const msg = document.getElementById('assign-msg');
-      if (!sel.value) { msg.textContent = 'No team members to assign to. Invite people in Settings first.'; return; }
+      if (!sel.value) { msg.textContent = 'No teammates available to assign to.'; return; }
       const btn = document.getElementById('assign-go');
       btn.disabled = true; btn.style.opacity = '0.7';
       try {
@@ -608,9 +609,8 @@
     // Layout must render first — it rebuilds #app's innerHTML, which wipes
     // any event listeners attached to elements inside it.
     await LF.renderLayout({ active: 'leads' });
-    isLeader = (D.user && D.user.rawRole) === 'team_leader';
     await loadLeads();
-    if (isLeader) await loadTeam();
+    await loadAssignTargets();
     renderLeadStats();
     renderTabs();
     renderTable();

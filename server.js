@@ -1017,25 +1017,52 @@ app.delete('/api/leads/:id', safe(async (req, res) => {
   res.json({ ok: true });
 }));
 
-// ----- Lead assignments (team leader -> member(s)) -----
-// Leader assigns one of their leads to a member or to everyone on the team.
+// ----- Lead assignments / forwarding within a team -----
+// Who can the user assign/forward a lead to (excluding themselves)?
+//  - team leader: their members
+//  - member:      their leader + sibling members
+async function assignTargetIds(user) {
+  if (user.role === 'team_leader') {
+    const rows = await q('SELECT id FROM users WHERE leader_id = $1', [user.id]);
+    return rows.map(r => r.id);
+  }
+  if (user.leaderId) {
+    const rows = await q('SELECT id FROM users WHERE (id = $1 OR leader_id = $1) AND id <> $2', [user.leaderId, user.id]);
+    return rows.map(r => r.id);
+  }
+  return [];
+}
+
+// People the current user can assign/forward to (with names, leader flagged).
+app.get('/api/assign-targets', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  let rows = [];
+  if (req.user.role === 'team_leader') {
+    rows = await q('SELECT id, name FROM users WHERE leader_id = $1 ORDER BY lower(name)', [req.user.id]);
+  } else if (req.user.leaderId) {
+    rows = await q(`SELECT id, name FROM users WHERE (id = $1 OR leader_id = $1) AND id <> $2
+                    ORDER BY (id = $1) DESC, lower(name)`, [req.user.leaderId, req.user.id]);
+  }
+  res.json(rows.map(r => ({ id: r.id, name: r.name, isLeader: r.id === req.user.leaderId })));
+}));
+
+// Assign/forward one of my leads to a teammate or everyone on the team.
 app.post('/api/leads/:id/assign', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
-  if (req.user.role !== 'team_leader') return res.status(403).json({ error: 'Only team leaders can assign leads.' });
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid lead id.' });
   const lead = await one('SELECT id FROM leads WHERE id = $1 AND user_id = $2', [id, req.user.id]);
   if (!lead) return res.status(404).json({ error: 'Lead not found.' });
 
-  const members = await q('SELECT id FROM users WHERE leader_id = $1', [req.user.id]);
-  if (members.length === 0) return res.status(400).json({ error: 'You have no team members yet.' });
+  const roster = await assignTargetIds(req.user);
+  if (roster.length === 0) return res.status(400).json({ error: 'You have no teammates to assign to.' });
 
   const target = (req.body || {}).target;
   let targetIds;
-  if (target === 'all') targetIds = members.map(m => m.id);
+  if (target === 'all') targetIds = roster;
   else {
     const tid = Number(target);
-    if (!members.some(m => m.id === tid)) return res.status(400).json({ error: 'That user is not on your team.' });
+    if (!roster.includes(tid)) return res.status(400).json({ error: 'That user is not on your team.' });
     targetIds = [tid];
   }
 
@@ -1087,7 +1114,7 @@ app.post('/api/assignments/:id/respond', safe(async (req, res) => {
 // Leader: unseen accept/reject outcomes (conveyed back), and dismissing them.
 app.get('/api/assignments/outcomes', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
-  if (req.user.role !== 'team_leader') return res.json([]);
+  // Outcomes go back to whoever assigned/forwarded the lead (leader or member).
   const rows = await q(`
     SELECT a.id, a.status, u.name AS member_name, l.name AS lead_name
     FROM lead_assignments a JOIN users u ON u.id = a.to_user_id JOIN leads l ON l.id = a.lead_id
