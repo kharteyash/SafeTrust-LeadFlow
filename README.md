@@ -45,6 +45,32 @@ Lets a user connect their Google account to read recent emails and import contac
 > Read-only scopes (`gmail.readonly`, `contacts.readonly`). While the OAuth app is
 > in "Testing" mode, only allow-listed Google accounts can connect.
 
+## Scheduled email sending (optional)
+
+By default, scheduled messages (Messages → Scheduled) are just saved and shown.
+To make **email** messages send automatically at their scheduled time, wire up an
+email provider plus a cron trigger:
+
+1. **Resend** (<https://resend.com>): create an account, verify a sending domain,
+   and make an API key. Set in `.env` (or Render env vars):
+   ```
+   RESEND_API_KEY=re_...
+   RESEND_FROM=LeadFlow <noreply@yourdomain.com>   # an address on your verified domain
+   CRON_SECRET=some-long-random-string
+   ```
+2. **A cron trigger.** The dispatcher endpoint sends any due emails when called:
+   ```
+   GET https://YOUR-APP.onrender.com/api/cron/dispatch?key=CRON_SECRET
+   ```
+   Schedule it every few minutes with a free service like <https://cron-job.org>
+   or a GitHub Actions scheduled workflow. (Render's free web service sleeps when
+   idle, so an external ping is what wakes it to send.)
+
+Notes: only the **Email** channel auto-sends; SMS entries stay as reminders. Each
+message shows as **Sent** / **Failed** in the UI, and the dispatcher claims rows
+atomically so overlapping cron runs can't double-send. The "To" field must be a
+real email address for email messages.
+
 ## Deploy (Render)
 
 1. Push this repo to GitHub.

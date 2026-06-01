@@ -105,9 +105,17 @@ const SCHEMA = `
     type        TEXT NOT NULL,
     send_date   TEXT NOT NULL,
     send_time   TEXT NOT NULL,
+    send_at     TIMESTAMPTZ,
+    status      TEXT DEFAULT 'pending',
+    sent_at     TIMESTAMPTZ,
+    error       TEXT,
     body        TEXT,
     created_at  TIMESTAMPTZ DEFAULT now()
   );
+  ALTER TABLE scheduled_messages ADD COLUMN IF NOT EXISTS send_at TIMESTAMPTZ;
+  ALTER TABLE scheduled_messages ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'pending';
+  ALTER TABLE scheduled_messages ADD COLUMN IF NOT EXISTS sent_at TIMESTAMPTZ;
+  ALTER TABLE scheduled_messages ADD COLUMN IF NOT EXISTS error TEXT;
 
   CREATE TABLE IF NOT EXISTS google_accounts (
     user_id       INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
@@ -570,30 +578,91 @@ app.delete('/api/campaigns/:id', safe(async (req, res) => {
 app.get('/api/scheduled', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
   const rows = await q(`
-    SELECT id, recipient, channel, type, send_date, send_time, body
+    SELECT id, recipient, channel, type, send_date, send_time, status, sent_at, error, body
     FROM scheduled_messages WHERE user_id = $1 ORDER BY send_date, send_time
   `, [req.user.id]);
   res.json(rows.map(r => ({
     id: r.id, to: r.recipient, channel: r.channel, type: r.type,
-    date: r.send_date, time24: r.send_time, body: r.body || ''
+    date: r.send_date, time24: r.send_time,
+    status: r.status || 'pending', sentAt: r.sent_at, error: r.error || '', body: r.body || ''
   })));
 }));
 
 app.post('/api/scheduled', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
-  const { recipient, channel, type, date, time, body } = req.body || {};
+  const { recipient, channel, type, date, time, sendAt, body } = req.body || {};
   if (!recipient || !recipient.trim()) return res.status(400).json({ error: 'Recipient is required.' });
   if (!type || !type.trim())           return res.status(400).json({ error: 'Message type is required.' });
   if (!date || !time)                  return res.status(400).json({ error: 'Date and time are required.' });
   if (!['Email', 'SMS'].includes(channel)) return res.status(400).json({ error: 'Channel must be Email or SMS.' });
+  // sendAt is the precise UTC instant computed client-side from local date+time.
+  const sendAtDate = sendAt ? new Date(sendAt) : null;
+  const sendAtVal = (sendAtDate && !isNaN(sendAtDate.getTime())) ? sendAtDate.toISOString() : null;
 
   const row = await one(`
-    INSERT INTO scheduled_messages (user_id, recipient, channel, type, send_date, send_time, body)
-    VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id
-  `, [req.user.id, recipient.trim(), channel, type.trim(), date, time, (body || '').trim()]);
+    INSERT INTO scheduled_messages (user_id, recipient, channel, type, send_date, send_time, send_at, status, body)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', $8) RETURNING id
+  `, [req.user.id, recipient.trim(), channel, type.trim(), date, time, sendAtVal, (body || '').trim()]);
 
-  res.json({ id: row.id, to: recipient.trim(), channel, type: type.trim(), date, time24: time, body: (body || '').trim() });
+  res.json({
+    id: row.id, to: recipient.trim(), channel, type: type.trim(),
+    date, time24: time, status: 'pending', sentAt: null, error: '', body: (body || '').trim()
+  });
 }));
+
+// ----- Scheduled email delivery -----
+// Sends one email through Resend (https://resend.com). Throws on misconfig/failure.
+async function sendEmailViaResend({ to, subject, text }) {
+  const key = process.env.RESEND_API_KEY;
+  const from = process.env.RESEND_FROM;
+  if (!key || !from) throw new Error('Email sending not configured (set RESEND_API_KEY and RESEND_FROM).');
+  const r = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from, to, subject: subject || '(no subject)', text: text || '' })
+  });
+  if (!r.ok) {
+    const t = await r.text().catch(() => '');
+    throw new Error(`Resend ${r.status}: ${t.slice(0, 200)}`);
+  }
+}
+
+// Cron-triggered dispatcher: sends due pending emails. Protected by CRON_SECRET
+// (passed as ?key=... or "Authorization: Bearer ...") since there's no user session.
+// Atomically claims rows as 'sending' so overlapping runs can't double-send.
+async function dispatchScheduled(req, res) {
+  const secret = process.env.CRON_SECRET;
+  if (!secret) return res.status(503).json({ error: 'Dispatch disabled (CRON_SECRET not set).' });
+  const provided = (req.query && req.query.key) ||
+    (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+  if (provided !== secret) return res.status(401).json({ error: 'Unauthorized.' });
+
+  const due = await q(`
+    UPDATE scheduled_messages SET status = 'sending'
+    WHERE id IN (
+      SELECT id FROM scheduled_messages
+      WHERE status = 'pending' AND channel = 'Email' AND send_at IS NOT NULL AND send_at <= now()
+      ORDER BY send_at LIMIT 50 FOR UPDATE SKIP LOCKED
+    )
+    RETURNING id, recipient, type, body
+  `, []);
+
+  let sent = 0, failed = 0;
+  for (const m of due) {
+    try {
+      await sendEmailViaResend({ to: m.recipient, subject: m.type, text: m.body || '' });
+      await pool.query(`UPDATE scheduled_messages SET status = 'sent', sent_at = now(), error = NULL WHERE id = $1`, [m.id]);
+      sent++;
+    } catch (e) {
+      await pool.query(`UPDATE scheduled_messages SET status = 'failed', error = $2 WHERE id = $1`,
+        [m.id, String((e && e.message) || e).slice(0, 500)]);
+      failed++;
+    }
+  }
+  res.json({ ok: true, claimed: due.length, sent, failed });
+}
+app.get('/api/cron/dispatch', safe(dispatchScheduled));
+app.post('/api/cron/dispatch', safe(dispatchScheduled));
 
 app.delete('/api/scheduled/:id', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });

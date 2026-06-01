@@ -58,12 +58,24 @@
   function fromDb(item) {
     return {
       id: item.id, to: item.to, channel: item.channel, type: item.type,
-      when: whenLabel(item.date), time: timeLabel(item.time24)
+      when: whenLabel(item.date), time: timeLabel(item.time24),
+      status: item.status || 'pending', error: item.error || ''
     };
   }
 
   function esc(s) {
     return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+  function escAttr(s) {
+    return String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+  // Status chip shown next to a scheduled message (pending shows nothing extra —
+  // the channel pill already implies "waiting to send").
+  function statusChip(s, error) {
+    if (s === 'sent')    return '<span class="pill pill-green" style="font-size:11px;">Sent</span>';
+    if (s === 'failed')  return `<span class="pill pill-red" title="${escAttr(error)}" style="font-size:11px;">Failed</span>`;
+    if (s === 'sending') return '<span class="pill pill-yellow" style="font-size:11px;">Sending…</span>';
+    return '';
   }
 
   async function copyToClipboard(str) {
@@ -125,6 +137,7 @@
                   <span class="text-muted"> to ${esc(s.to)}</span>
                 </div>
                 <span class="pill ${m.pill}">${s.channel}</span>
+                ${statusChip(s.status, s.error)}
                 <button class="btn-icon" title="Remove" data-remove-uid="${s._uid}" style="width:30px;height:30px;border:none;">
                   <i data-lucide="x" style="width:14px;height:14px;color:#8A8AA0;pointer-events:none;"></i>
                 </button>
@@ -263,6 +276,21 @@
       const data = Object.fromEntries(new FormData(form));
       if (!data.recipient.trim()) { msg.textContent = 'Recipient is required.'; return; }
       if (!data.type.trim())      { msg.textContent = 'Subject / type is required.'; return; }
+      // Email auto-send needs a real email address in the "To" field.
+      if (data.channel === 'Email' && !/^\S+@\S+\.\S+$/.test(data.recipient.trim())) {
+        msg.textContent = "Enter the recipient's email address (e.g. name@example.com) for an email.";
+        return;
+      }
+
+      // Convert the chosen local date+time into a precise UTC instant so the
+      // server can send it at the right moment regardless of timezone.
+      let sendAt = '';
+      if (data.date && data.time) {
+        const [yy, mm, dd] = data.date.split('-').map(Number);
+        const [hh, mi] = data.time.split(':').map(Number);
+        const dt = new Date(yy, mm - 1, dd, hh, mi);
+        if (!isNaN(dt.getTime())) sendAt = dt.toISOString();
+      }
 
       const btn = form.querySelector('button[type="submit"]');
       btn.disabled = true; btn.style.opacity = '0.7';
@@ -271,7 +299,7 @@
           method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
           body: JSON.stringify({
             recipient: data.recipient, channel: data.channel, type: data.type,
-            date: data.date, time: data.time, body: data.body || ''
+            date: data.date, time: data.time, sendAt, body: data.body || ''
           })
         });
         const raw = await res.text();

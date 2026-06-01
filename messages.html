@@ -46,7 +46,7 @@
             <div class="grid grid-cols-2 gap-3">
               <div>
                 <label class="text-[12px] font-semibold text-muted">To</label>
-                <input name="recipient" required maxlength="80" class="input mt-1" placeholder="Recipient name" />
+                <input name="recipient" required maxlength="120" class="input mt-1" placeholder="name@example.com" />
               </div>
               <div>
                 <label class="text-[12px] font-semibold text-muted">Channel</label>
@@ -74,6 +74,7 @@
               <label class="text-[12px] font-semibold text-muted">Message</label>
               <textarea name="body" rows="3" maxlength="1000" class="input mt-1" placeholder="Write your message..."></textarea>
             </div>
+            <p class="text-[11.5px] text-muted">Emails send automatically at the scheduled time (requires email setup). SMS is saved as a reminder only.</p>
             <div id="msg-form-msg" class="text-[12.5px] font-medium" style="color:#D63333;"></div>
             <div class="flex items-center justify-end gap-2 mt-2">
               <button type="button" id="msg-cancel" class="btn-secondary">Cancel</button>

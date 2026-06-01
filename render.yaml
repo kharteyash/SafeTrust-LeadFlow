@@ -22,3 +22,13 @@ services:
         sync: false
       - key: GOOGLE_REDIRECT_URI
         sync: false
+      # Scheduled email sending via Resend (optional). Leave blank to keep
+      # scheduled messages as reminders only.
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM
+        sync: false
+      # Protects /api/cron/dispatch. Render generates a random value; copy it
+      # from the dashboard into your external cron's URL as ?key=...
+      - key: CRON_SECRET
+        generateValue: true
