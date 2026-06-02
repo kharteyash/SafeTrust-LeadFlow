@@ -1042,6 +1042,48 @@ app.delete('/api/leads/:id', safe(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// Close a lead: capture relationship details, move it into closed_leads, delete it.
+app.post('/api/leads/:id/close', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid lead id.' });
+  const lead = await one('SELECT * FROM leads WHERE id = $1 AND user_id = $2', [id, req.user.id]);
+  if (!lead) return res.status(404).json({ error: 'Lead not found.' });
+
+  const b = req.body || {};
+  const birthday = String(b.birthday || '').trim();
+  const loanAnniversary = String(b.loanAnniversary || '').trim();
+  if (!birthday) return res.status(400).json({ error: "The lead's birthday is required." });
+  if (!loanAnniversary) return res.status(400).json({ error: 'The loan anniversary is required.' });
+
+  const data = {
+    'Name': lead.name,
+    'Email': lead.email || '',
+    'Phone': lead.phone || '',
+    'State': lead.state || '',
+    'Loan Purpose': lead.lead_type || '',
+    'Buying Timeline': lead.timeline || '',
+    'Lead Score': lead.score != null ? String(lead.score) : '',
+    'Owner': lead.owner || '',
+    'Birthday': birthday,
+    'Loan Anniversary': loanAnniversary,
+    "Pet's Name": String(b.petName || '').trim(),
+    "Children's Name": String(b.childrenName || '').trim(),
+    'Hobbies': String(b.hobbies || '').trim(),
+    'Lead Notes': lead.notes || '',
+    'Misc Notes': String(b.miscNotes || '').trim(),
+    'Closed Date': serverToday()
+  };
+  const key = closedDedupeKey(data);
+  await pool.query(
+    `INSERT INTO closed_leads (user_id, data, dedupe_key) VALUES ($1, $2, $3)
+     ON CONFLICT (user_id, dedupe_key) DO UPDATE SET data = EXCLUDED.data`,
+    [req.user.id, JSON.stringify(data), key]
+  );
+  await pool.query('DELETE FROM leads WHERE id = $1 AND user_id = $2', [id, req.user.id]);
+  res.json({ ok: true });
+}));
+
 // ----- Lead assignments / forwarding within a team -----
 // Who can the user assign/forward a lead to (excluding themselves)?
 //  - team leader: their members

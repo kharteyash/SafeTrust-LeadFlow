@@ -371,6 +371,58 @@
   }
   function closeLeadDetail() { document.getElementById('lead-detail-modal').classList.add('hidden'); }
 
+  // ----- Close a lead (move it to Previously Closed) -----
+  let closingLeadId = null;
+  function openCloseLeadModal(lead) {
+    closingLeadId = lead.id;
+    document.getElementById('closelead-name').textContent = lead.name;
+    const form = document.getElementById('closelead-form');
+    form.reset();
+    document.getElementById('closelead-msg').textContent = '';
+    document.getElementById('closelead-modal').classList.remove('hidden');
+    form.elements['birthday'].focus();
+  }
+  function closeCloseLeadModal() { document.getElementById('closelead-modal').classList.add('hidden'); closingLeadId = null; }
+  function bindCloseLead() {
+    document.getElementById('closelead-close').addEventListener('click', closeCloseLeadModal);
+    document.getElementById('closelead-cancel').addEventListener('click', closeCloseLeadModal);
+    document.getElementById('closelead-backdrop').addEventListener('click', closeCloseLeadModal);
+
+    const form = document.getElementById('closelead-form');
+    const msg = document.getElementById('closelead-msg');
+    form.addEventListener('submit', async e => {
+      e.preventDefault();
+      msg.textContent = '';
+      if (closingLeadId == null) { closeCloseLeadModal(); return; }
+      const data = Object.fromEntries(new FormData(form));
+      if (!data.birthday) { msg.textContent = "The lead's birthday is required."; return; }
+      if (!data.loanAnniversary) { msg.textContent = 'The loan anniversary is required.'; return; }
+      const cid = closingLeadId;
+      const btn = form.querySelector('button[type="submit"]');
+      btn.disabled = true; btn.style.opacity = '0.7';
+      try {
+        const res = await fetch('/api/leads/' + cid + '/close', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+          body: JSON.stringify({
+            birthday: data.birthday, loanAnniversary: data.loanAnniversary,
+            petName: data.petName || '', childrenName: data.childrenName || '',
+            hobbies: data.hobbies || '', miscNotes: data.miscNotes || ''
+          })
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) { msg.textContent = body.error || `Request failed (HTTP ${res.status}).`; return; }
+        leads = leads.filter(l => String(l.id) !== String(cid));
+        closeCloseLeadModal();
+        renderLeadStats();
+        renderTabs();
+        renderTable();
+        if (window.lucide) lucide.createIcons();
+        window.alert('Lead closed and moved to Previously Closed.');
+      } catch (err) { msg.textContent = 'Network error. Is the server running?'; }
+      finally { btn.disabled = false; btn.style.opacity = ''; }
+    });
+  }
+
   function bindAddLead() {
     document.getElementById('add-lead-btn').addEventListener('click', () => openLeadModal(null));
     document.getElementById('lead-type-select').addEventListener('change', syncLeadForm);
@@ -381,12 +433,16 @@
 
     // Lead detail modal controls.
     document.getElementById('lead-detail-close').addEventListener('click', closeLeadDetail);
-    document.getElementById('lead-detail-done').addEventListener('click', closeLeadDetail);
     document.getElementById('lead-detail-backdrop').addEventListener('click', closeLeadDetail);
     document.getElementById('lead-detail-edit').addEventListener('click', () => {
       const lead = leads.find(l => String(l._uid) === String(detailViewUid));
       closeLeadDetail();
       if (lead) openLeadModal(lead);
+    });
+    document.getElementById('lead-detail-closelead').addEventListener('click', () => {
+      const lead = leads.find(l => String(l._uid) === String(detailViewUid));
+      closeLeadDetail();
+      if (lead) openCloseLeadModal(lead);
     });
 
     const form = document.getElementById('lead-form');
@@ -623,6 +679,7 @@
     bindAddLead();
     bindDeleteLead();
     bindAssign();
+    bindCloseLead();
     bindExport();
     if (window.lucide) lucide.createIcons();
   });
