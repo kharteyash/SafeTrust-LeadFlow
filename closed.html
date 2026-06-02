@@ -43,6 +43,20 @@
       <div class="overflow-x-auto">
         <table class="lf-table" id="closed-table"></table>
       </div>
+      <div id="closed-footer" class="p-4 flex items-center justify-between border-t flex-wrap gap-3 hidden" style="border-color:var(--border);">
+        <span id="closed-summary" class="text-[12.5px] text-muted"></span>
+        <div class="flex items-center gap-4">
+          <div id="closed-pager" class="flex items-center gap-1"></div>
+          <div class="flex items-center gap-2 text-[12.5px] text-muted">
+            <span>Rows per page:</span>
+            <select id="closed-rows-per-page" class="btn-secondary" style="padding:4px 8px;font-size:12px;cursor:pointer;">
+              <option value="10">10</option>
+              <option value="25">25</option>
+              <option value="50">50</option>
+            </select>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Details modal -->

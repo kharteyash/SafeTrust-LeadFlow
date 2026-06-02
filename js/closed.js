@@ -2,6 +2,7 @@
 (function () {
   let closed = []; // [{ id, data: {col: value} }]
   let query = '';
+  const state = { page: 1, pageSize: 10 };
 
   // Filter by the search term (matches any field value, so names are covered).
   function filtered() {
@@ -115,12 +116,14 @@
   // ----- Render -----
   function render() {
     const table = document.getElementById('closed-table');
+    const footer = document.getElementById('closed-footer');
     const rows = filtered();
     document.getElementById('closed-count').textContent = closed.length
       ? (query.trim() ? `${rows.length} of ${closed.length}` : `(${closed.length})`)
       : '';
 
     if (closed.length === 0) {
+      footer.classList.add('hidden');
       table.innerHTML = `
         <tbody><tr><td>
           <div class="text-center py-16">
@@ -138,6 +141,12 @@
       return;
     }
 
+    const total = rows.length;
+    const totalPages = Math.max(1, Math.ceil(total / state.pageSize));
+    if (state.page > totalPages) state.page = totalPages;
+    const start = (state.page - 1) * state.pageSize;
+    const pageRows = rows.slice(start, start + state.pageSize);
+
     const allCols = computeColumns();
     const cols = pickColumns(allCols);
     const nameCol = nameColumn(allCols);
@@ -146,9 +155,9 @@
         <tr>${cols.map(c => `<th>${esc(c)}</th>`).join('')}<th>Action</th></tr>
       </thead>
       <tbody>
-        ${rows.length === 0
+        ${total === 0
           ? `<tr><td colspan="${cols.length + 1}" class="text-center py-10 text-muted">No closed leads match "${esc(query)}".</td></tr>`
-          : rows.map(r => `
+          : pageRows.map(r => `
           <tr>
             ${cols.map(c => {
               const val = r.data ? r.data[c] : '';
@@ -164,6 +173,38 @@
             </td>
           </tr>`).join('')}
       </tbody>`;
+
+    // Footer: summary + pager (hidden when there's nothing to page through).
+    if (total === 0) {
+      footer.classList.add('hidden');
+    } else {
+      footer.classList.remove('hidden');
+      document.getElementById('closed-summary').textContent =
+        `Showing ${start + 1} to ${Math.min(start + state.pageSize, total)} of ${total}`;
+      renderPager(totalPages);
+    }
+    if (window.lucide) lucide.createIcons();
+  }
+
+  function renderPager(totalPages) {
+    const pager = document.getElementById('closed-pager');
+    const pages = [];
+    for (let p = 1; p <= totalPages; p++) pages.push(p);
+    pager.innerHTML = `
+      <button class="btn-icon" data-page="prev" style="width:30px;height:30px;" ${state.page === 1 ? 'disabled' : ''}>
+        <i data-lucide="chevron-left" style="width:14px;height:14px;color:var(--text-muted);"></i>
+      </button>
+      ${pages.map(p => `<button data-page="${p}" class="rounded-md text-[12.5px] font-semibold" style="width:30px;height:30px;${p === state.page ? 'background:#6D5BFF;color:#FFF;' : 'background:var(--surface);color:var(--text);border:1px solid var(--border-strong);'}">${p}</button>`).join('')}
+      <button class="btn-icon" data-page="next" style="width:30px;height:30px;" ${state.page === totalPages ? 'disabled' : ''}>
+        <i data-lucide="chevron-right" style="width:14px;height:14px;color:var(--text-muted);"></i>
+      </button>`;
+    pager.querySelectorAll('button[data-page]').forEach(btn => btn.addEventListener('click', () => {
+      const v = btn.dataset.page;
+      if (v === 'prev' && state.page > 1) state.page--;
+      else if (v === 'next' && state.page < totalPages) state.page++;
+      else if (!isNaN(parseInt(v, 10))) state.page = parseInt(v, 10);
+      render();
+    }));
     if (window.lucide) lucide.createIcons();
   }
 
@@ -223,7 +264,8 @@
   }
 
   function bind() {
-    document.getElementById('closed-search').addEventListener('input', e => { query = e.target.value; render(); });
+    document.getElementById('closed-search').addEventListener('input', e => { query = e.target.value; state.page = 1; render(); });
+    document.getElementById('closed-rows-per-page').addEventListener('change', e => { state.pageSize = parseInt(e.target.value, 10); state.page = 1; render(); });
 
     const fileInput = document.getElementById('closed-file');
     document.getElementById('closed-import-btn').addEventListener('click', () => fileInput.click());
