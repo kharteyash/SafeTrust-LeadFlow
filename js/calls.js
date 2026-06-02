@@ -21,7 +21,8 @@
   function initials(name) { return (name || '?').trim().split(/\s+/).map(s => s[0]).slice(0, 2).join('').toUpperCase() || '?'; }
 
   function priorityPill(p) { return p === 'High' ? 'pill-red' : p === 'Medium' ? 'pill-yellow' : 'pill-gray'; }
-  function outcomePill(o) { return o === 'Connected' ? 'pill-green' : o === 'Voicemail' ? 'pill-yellow' : o === 'Missed' ? 'pill-red' : 'pill-gray'; }
+  function isNoAnswer(o) { return o === 'No Answer' || o === 'Missed'; }
+  function outcomePill(o) { return o === 'Connected' ? 'pill-green' : o === 'Voicemail' ? 'pill-yellow' : isNoAnswer(o) ? 'pill-red' : 'pill-gray'; }
   function scorePill(s) { return s >= 80 ? 'pill-green' : s >= 60 ? 'pill-yellow' : 'pill-red'; }
 
   function waLink(phone) {
@@ -48,10 +49,13 @@
     });
   }
 
-  // A tel: dial button (opens the device dialer).
-  function callBtn(phone, size) {
+  // A tel: dial button (opens the device dialer, then the log-call modal).
+  function callBtn(name, phone, queueId, size) {
     size = size || 32;
-    return `<button class="btn-icon" title="Call" data-call="${escAttr(phone || '')}" style="width:${size}px;height:${size}px;" ${phone ? '' : 'disabled'}>
+    return `<button class="btn-icon" title="Call"
+      data-call="${escAttr(phone || '')}" data-call-name="${escAttr(name || '')}"
+      ${queueId != null ? `data-call-queue="${queueId}"` : ''}
+      style="width:${size}px;height:${size}px;" ${phone ? '' : 'disabled'}>
       <i data-lucide="phone" style="width:14px;height:14px;color:#6D5BFF;pointer-events:none;"></i>
     </button>`;
   }
@@ -78,7 +82,7 @@
           <div class="text-[12px] text-muted">${esc(phone) || '—'}</div>
         </div>
         ${rightHTML || ''}
-        ${callBtn(phone)}
+        ${callBtn(name, phone, null)}
         ${logBtn(name, phone, null)}
       </div>`;
   }
@@ -100,7 +104,7 @@
     const calledNames = new Set(callHistory.map(c => (c.name || '').toLowerCase()));
     const notContacted = leads.filter(l => !calledNames.has((l.name || '').toLowerCase())).slice(0, 5);
     const hotLeads = leads.filter(l => l.score >= 80).sort((a, b) => b.score - a.score).slice(0, 5);
-    const missed = callHistory.filter(c => c.outcome === 'Missed').slice(0, 5);
+    const missed = callHistory.filter(c => isNoAnswer(c.outcome)).slice(0, 5);
 
     // AI-style recommendations derived from the data above.
     const recs = [];
@@ -221,7 +225,7 @@
         <td class="text-muted">${esc(c.reason) || '—'}</td>
         <td>
           <div class="flex items-center gap-1">
-            ${callBtn(c.phone, 30)}
+            ${callBtn(c.name, c.phone, c.id, 30)}
             ${logBtn(c.name, c.phone, c.id)}
             <button data-resched="${c.id}" class="btn-icon" title="Reschedule" style="width:30px;height:30px;">
               <i data-lucide="clock" style="width:14px;height:14px;color:var(--text-muted);pointer-events:none;"></i>
@@ -385,7 +389,7 @@
       { label: 'Total calls',   value: total,             icon: 'phone',      tint: '#EFEAFF', color: '#6D5BFF' },
       { label: 'Connect rate',  value: connectRate + '%', icon: 'phone-call', tint: '#E6F8EC', color: '#138A4B' },
       { label: 'Avg. duration', value: avgDur,            icon: 'timer',      tint: '#E7EEFF', color: '#2B57D9' },
-      { label: 'Missed',        value: callHistory.filter(c => c.outcome === 'Missed').length, icon: 'phone-missed', tint: '#FEECEC', color: '#D63333' }
+      { label: 'No Answer',     value: callHistory.filter(c => isNoAnswer(c.outcome)).length, icon: 'phone-missed', tint: '#FEECEC', color: '#D63333' }
     ].map(c => `
       <div class="stat-card col-span-6 md:col-span-3">
         <div class="flex items-center gap-3 mb-3">
@@ -475,8 +479,11 @@
     document.getElementById('calls-body').addEventListener('click', async e => {
       const callT = e.target.closest('[data-call]');
       if (callT) {
-        const tel = LF.telLink(callT.getAttribute('data-call'));
+        const phone = callT.getAttribute('data-call');
+        const tel = LF.telLink(phone);
         if (tel) window.location.href = tel;
+        // Open the log-call modal so the call can be logged afterwards.
+        openLogModal({ name: callT.getAttribute('data-call-name') || '', phone }, callT.getAttribute('data-call-queue'));
         return;
       }
 
