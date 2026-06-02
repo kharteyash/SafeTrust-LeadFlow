@@ -1098,6 +1098,22 @@ app.patch('/api/leads/:id', safe(async (req, res) => {
   }));
 }));
 
+// Manually override a lead's score. Admin-only, and works on any user's lead
+// (the admin can see and curate every lead). Regular edits still auto-rescore.
+app.patch('/api/leads/:id/score', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Only the admin can change a lead score.' });
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid lead id.' });
+  const score = Number((req.body || {}).score);
+  if (!Number.isInteger(score) || score < 0 || score > 100) {
+    return res.status(400).json({ error: 'Score must be a whole number from 0 to 100.' });
+  }
+  const r = await pool.query('UPDATE leads SET score = $1 WHERE id = $2 RETURNING id', [score, id]);
+  if (r.rowCount === 0) return res.status(404).json({ error: 'Lead not found.' });
+  res.json({ ok: true, score });
+}));
+
 app.delete('/api/leads/:id', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
   const id = Number(req.params.id);
