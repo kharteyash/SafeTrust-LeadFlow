@@ -1061,17 +1061,19 @@ app.post('/api/leads/:id/close', safe(async (req, res) => {
     'Email': lead.email || '',
     'Phone': lead.phone || '',
     'State': lead.state || '',
-    'Loan Purpose': lead.lead_type || '',
-    'Buying Timeline': lead.timeline || '',
-    'Lead Score': lead.score != null ? String(lead.score) : '',
-    'Owner': lead.owner || '',
+    // Relationship details captured when closing (shown prominently up top).
     'Birthday': birthday,
     'Loan Anniversary': loanAnniversary,
     "Pet's Name": String(b.petName || '').trim(),
     "Children's Name": String(b.childrenName || '').trim(),
     'Hobbies': String(b.hobbies || '').trim(),
-    'Lead Notes': lead.notes || '',
     'Misc Notes': String(b.miscNotes || '').trim(),
+    // Loan / pipeline context.
+    'Loan Purpose': lead.lead_type || '',
+    'Buying Timeline': lead.timeline || '',
+    'Lead Score': lead.score != null ? String(lead.score) : '',
+    'Owner': lead.owner || '',
+    'Lead Notes': lead.notes || '',
     'Closed Date': serverToday()
   };
   const key = closedDedupeKey(data);
