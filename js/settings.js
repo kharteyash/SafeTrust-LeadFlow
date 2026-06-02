@@ -12,21 +12,13 @@
     { role: 'Team Leader', color: '#2B57D9', tint: '#E7EEFF', desc: 'Builds a team and assigns leads to members.' },
     { role: 'Member',      color: '#138A4B', tint: '#E6F8EC', desc: 'Works their own and assigned leads.' }
   ];
+  // These map directly to what the notifications bell shows (see js/layout.js).
   const NOTIFICATION_GROUPS = [
-    { id: 'reminders', label: 'Reminders', icon: 'alarm-clock', items: [
-      { id: 'task_due',     label: 'Task due reminders',  desc: 'Notify me 30 minutes before a task is due.', on: true },
-      { id: 'followup',     label: 'Follow-up reminders', desc: 'Remind me if a lead hasn’t been contacted in 5 days.', on: true },
-      { id: 'daily_digest', label: 'Daily digest',        desc: 'Send a morning summary of today’s tasks.', on: false }
-    ]},
-    { id: 'emails', label: 'Emails', icon: 'mail', items: [
-      { id: 'new_lead_email', label: 'New lead email', desc: 'Email me when a new lead is assigned.', on: true },
-      { id: 'lead_activity',  label: 'Lead activity',  desc: 'Email me when a lead replies or opens a message.', on: true },
-      { id: 'weekly_summary', label: 'Weekly summary', desc: 'Friday recap with pipeline metrics.', on: false }
-    ]},
-    { id: 'alerts', label: 'Alerts', icon: 'bell-ring', items: [
-      { id: 'missed_call', label: 'Missed calls',    desc: 'Push alert when you miss a call from a lead.', on: true },
-      { id: 'failed_msg',  label: 'Failed messages', desc: 'Alert when an SMS or email fails to send.', on: true },
-      { id: 'system',      label: 'System alerts',   desc: 'Maintenance, downtime, and security alerts.', on: true }
+    { id: 'bell', label: 'In-app notifications', icon: 'bell', items: [
+      { id: 'calls',     label: 'Call reminders',    desc: 'Overdue calls and calls coming up soon from your queue.', on: true },
+      { id: 'tasks',     label: 'Task reminders',    desc: 'Tasks due today and overdue tasks.', on: true },
+      { id: 'meetings',  label: 'Meeting reminders', desc: 'Calendar events starting within the hour.', on: true },
+      { id: 'hot_leads', label: 'Hot leads',         desc: 'High-scoring leads with no call logged yet.', on: true }
     ]}
   ];
 
@@ -601,7 +593,7 @@
     return `
       <div class="mb-5">
         <h2 class="text-[18px] font-bold">Notifications</h2>
-        <p class="text-[13px] text-muted mt-1">Configure reminders, emails, and alerts.</p>
+        <p class="text-[13px] text-muted mt-1">Choose what shows in the notifications bell. Team invitations and lead assignments always notify you.</p>
       </div>
       ${groups}
     `;

@@ -249,6 +249,11 @@ function notifFmtMin(min) {
 function notifReadSet() {
   try { return new Set(JSON.parse(localStorage.getItem('lf-notifs-read') || '[]')); } catch (e) { return new Set(); }
 }
+// Notification category preference (Settings → Notifications). On unless turned off.
+function notifPref(key) {
+  try { const p = JSON.parse(localStorage.getItem('lf-notif-prefs') || '{}'); return p[key] !== false; }
+  catch (e) { return true; }
+}
 function notifSaveRead(set) {
   try { localStorage.setItem('lf-notifs-read', JSON.stringify([...set])); } catch (e) {}
 }
@@ -285,7 +290,7 @@ async function loadNotifications() {
   });
 
   // 1) Call queue — overdue + due soon (date-aware; future-dated calls are skipped).
-  queue.forEach(c => {
+  if (notifPref('bell.calls')) queue.forEach(c => {
     const t = notifLabelMin(c.time);
     if (t == null) return;
     const d = (c.date && c.date.trim()) || todayKey;
@@ -301,7 +306,7 @@ async function loadNotifications() {
   });
 
   // 2) Tasks — due today or overdue, not done.
-  tasks.forEach(t => {
+  if (notifPref('bell.tasks')) tasks.forEach(t => {
     if (t.status === 'done' || !t.due) return;
     if (t.due < todayKey) {
       items.push({ key: `task-${t.id}`, sort: 1, icon: 'check-square', color: '#D63333',
@@ -313,7 +318,7 @@ async function loadNotifications() {
   });
 
   // 3) Calendar — meetings starting within the next hour today.
-  events.forEach(ev => {
+  if (notifPref('bell.meetings')) events.forEach(ev => {
     if (ev.date !== todayKey) return;
     const s = notifHHMMtoMin(ev.start);
     if (s == null || s < nowMin || s - nowMin > NOTIF_SOON_MIN) return;
@@ -322,13 +327,15 @@ async function loadNotifications() {
   });
 
   // 4) Hot leads (80+) with no call logged yet.
-  const calledNames = new Set(calls.map(c => (c.name || '').toLowerCase()));
-  leads.filter(l => l.score >= 80 && !calledNames.has((l.name || '').toLowerCase()))
-    .slice(0, 5)
-    .forEach(l => {
-      items.push({ key: `lead-hot-${l.id}`, sort: 5, icon: 'flame', color: '#E0721B',
-        text: `Hot lead: ${notifEsc(l.name)}`, sub: `Score ${l.score} · no call logged yet`, href: 'leads.html' });
-    });
+  if (notifPref('bell.hot_leads')) {
+    const calledNames = new Set(calls.map(c => (c.name || '').toLowerCase()));
+    leads.filter(l => l.score >= 80 && !calledNames.has((l.name || '').toLowerCase()))
+      .slice(0, 5)
+      .forEach(l => {
+        items.push({ key: `lead-hot-${l.id}`, sort: 5, icon: 'flame', color: '#E0721B',
+          text: `Hot lead: ${notifEsc(l.name)}`, sub: `Score ${l.score} · no call logged yet`, href: 'leads.html' });
+      });
+  }
 
   items.sort((a, b) => a.sort - b.sort);
 
