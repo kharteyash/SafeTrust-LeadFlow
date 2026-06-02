@@ -344,7 +344,11 @@
       if (lead.realtorStatus === 'has') {
         rows.push(detailRow('Realtor name', esc(lead.realtorName) || '—'));
         rows.push(detailRow('Realtor email', esc(lead.realtorEmail) || '—'));
-        rows.push(detailRow('Realtor phone', esc(lead.realtorPhone) || '—'));
+        const rTel = lead.realtorPhone ? LF.telLink(lead.realtorPhone) : '';
+        const rPhoneVal = (lead.realtorPhone && rTel)
+          ? `<a href="${rTel}" title="Call realtor" style="color:var(--accent);font-weight:600;display:inline-flex;align-items:center;gap:4px;"><i data-lucide="phone" style="width:13px;height:13px;"></i>${esc(lead.realtorPhone)}</a>`
+          : (esc(lead.realtorPhone) || '—');
+        rows.push(detailRow('Realtor phone', rPhoneVal));
       }
     }
     rows.push(detailRow('State', esc(lead.state) || '—'));

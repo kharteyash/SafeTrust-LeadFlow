@@ -910,7 +910,7 @@ const LEAD_TYPES = ['Purchase', 'Refinance'];
 const REFI_TYPES = ['Rate & Term', 'Cash Out'];
 const REALTOR_STATUSES = ['has', 'unavailable', 'none'];
 
-function computeLeadScore(timeline, phone, leadType, refiType) {
+function computeLeadScore(timeline, phone, leadType, refiType, preapproved, realtorStatus) {
   const base = {
     'Buying Immediately': 85, '1-3 Months': 70, '3-6 Months': 50, '6+ Months': 35
   }[timeline] || 50;
@@ -918,7 +918,9 @@ function computeLeadScore(timeline, phone, leadType, refiType) {
   // Cash-out refinances are weighted higher than rate & term.
   let refiBonus = 0;
   if (leadType === 'Refinance') refiBonus = refiType === 'Cash Out' ? 15 : 5;
-  return Math.min(100, base + phoneBonus + refiBonus);
+  const preapprovedBonus = preapproved ? 10 : 0;
+  const realtorBonus = realtorStatus === 'has' ? 5 : 0;
+  return Math.min(100, base + phoneBonus + refiBonus + preapprovedBonus + realtorBonus);
 }
 
 // Normalize the lead-type fields from a request body (clears irrelevant ones).
@@ -972,7 +974,7 @@ app.post('/api/leads', safe(async (req, res) => {
 
   const f = normalizeLeadType(req.body || {});
   const state = normalizeState((req.body || {}).state);
-  const score = computeLeadScore(timeline, phone, f.leadType, f.refiType);
+  const score = computeLeadScore(timeline, phone, f.leadType, f.refiType, f.preapproved, f.realtorStatus);
   const row = await one(`
     INSERT INTO leads (user_id, name, email, phone, timeline, score, owner, notes, state,
                        preapproved, lead_type, refi_type, realtor_status, realtor_name, realtor_email, realtor_phone)
@@ -1019,7 +1021,7 @@ app.patch('/api/leads/:id', safe(async (req, res) => {
     realtorPhone:  b.realtorPhone  != null ? b.realtorPhone  : cur.realtor_phone,
     preapproved:   b.preapproved   != null ? b.preapproved   : cur.preapproved
   });
-  const score = computeLeadScore(timeline, phone, f.leadType, f.refiType);
+  const score = computeLeadScore(timeline, phone, f.leadType, f.refiType, f.preapproved, f.realtorStatus);
   await pool.query(`UPDATE leads SET name=$1, email=$2, phone=$3, timeline=$4, owner=$5, notes=$6, score=$7, state=$8,
       preapproved=$9, lead_type=$10, refi_type=$11, realtor_status=$12, realtor_name=$13, realtor_email=$14, realtor_phone=$15
       WHERE id=$16 AND user_id=$17`,
