@@ -49,11 +49,11 @@
     if (!value) return '';
     if (isEmailField(header)) {
       return `<button class="btn-icon" title="Send email" data-email="${escAttr(value)}" style="width:28px;height:28px;">
-        <i data-lucide="mail" style="width:13px;height:13px;color:#6D5BFF;pointer-events:none;"></i></button>`;
+        <i data-lucide="mail" style="width:13px;height:13px;color:#2255a3;pointer-events:none;"></i></button>`;
     }
     if (isPhoneField(header)) {
       return `<button class="btn-icon" title="Call" data-call="${escAttr(value)}" style="width:28px;height:28px;">
-        <i data-lucide="phone" style="width:13px;height:13px;color:#6D5BFF;pointer-events:none;"></i></button>`;
+        <i data-lucide="phone" style="width:13px;height:13px;color:#2255a3;pointer-events:none;"></i></button>`;
     }
     return '';
   }
@@ -194,7 +194,7 @@
       <button class="btn-icon" data-page="prev" style="width:30px;height:30px;" ${state.page === 1 ? 'disabled' : ''}>
         <i data-lucide="chevron-left" style="width:14px;height:14px;color:var(--text-muted);"></i>
       </button>
-      ${pages.map(p => `<button data-page="${p}" class="rounded-md text-[12.5px] font-semibold" style="width:30px;height:30px;${p === state.page ? 'background:#6D5BFF;color:#FFF;' : 'background:var(--surface);color:var(--text);border:1px solid var(--border-strong);'}">${p}</button>`).join('')}
+      ${pages.map(p => `<button data-page="${p}" class="rounded-md text-[12.5px] font-semibold" style="width:30px;height:30px;${p === state.page ? 'background:#2255a3;color:#FFF;' : 'background:var(--surface);color:var(--text);border:1px solid var(--border-strong);'}">${p}</button>`).join('')}
       <button class="btn-icon" data-page="next" style="width:30px;height:30px;" ${state.page === totalPages ? 'disabled' : ''}>
         <i data-lucide="chevron-right" style="width:14px;height:14px;color:var(--text-muted);"></i>
       </button>`;

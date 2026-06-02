@@ -56,7 +56,7 @@
       data-call="${escAttr(phone || '')}" data-call-name="${escAttr(name || '')}"
       ${queueId != null ? `data-call-queue="${queueId}"` : ''}
       style="width:${size}px;height:${size}px;" ${phone ? '' : 'disabled'}>
-      <i data-lucide="phone" style="width:14px;height:14px;color:#6D5BFF;pointer-events:none;"></i>
+      <i data-lucide="phone" style="width:14px;height:14px;color:#2255a3;pointer-events:none;"></i>
     </button>`;
   }
 
@@ -125,7 +125,7 @@
       ? recs.map(r => `
         <div class="flex items-start gap-3 py-2.5" style="border-bottom:1px solid var(--border-soft);">
           <span class="stat-icon" style="background:#EFEAFF;width:30px;height:30px;border-radius:8px;flex-shrink:0;">
-            <i data-lucide="sparkles" style="width:15px;height:15px;color:#6D5BFF;"></i>
+            <i data-lucide="sparkles" style="width:15px;height:15px;color:#2255a3;"></i>
           </span>
           <div class="flex-1 min-w-0">
             <div class="text-[13px] font-medium">${esc(r.text)}</div>
@@ -139,7 +139,7 @@
         ${priorityCard('Not contacted yet', 'clock', '#FFF4D6', '#B07A00', notContactedBody, notContacted.length)}
         ${priorityCard('Hot leads', 'flame', '#FEECEC', '#D63333', hotBody, hotLeads.length)}
         ${priorityCard('Missed callbacks', 'phone-missed', '#FEECEC', '#D63333', missedBody, missed.length)}
-        ${priorityCard('AI recommendations', 'sparkles', '#EFEAFF', '#6D5BFF', aiBody, recs.length)}
+        ${priorityCard('AI recommendations', 'sparkles', '#EFEAFF', '#2255a3', aiBody, recs.length)}
       </div>`;
   }
 
@@ -387,7 +387,7 @@
       .sort((a, b) => b.rate - a.rate);
 
     const cards = [
-      { label: 'Total calls',   value: total,             icon: 'phone',      tint: '#EFEAFF', color: '#6D5BFF' },
+      { label: 'Total calls',   value: total,             icon: 'phone',      tint: '#EFEAFF', color: '#2255a3' },
       { label: 'Connect rate',  value: connectRate + '%', icon: 'phone-call', tint: '#E6F8EC', color: '#138A4B' },
       { label: 'Avg. duration', value: avgDur,            icon: 'timer',      tint: '#E7EEFF', color: '#2B57D9' },
       { label: 'No Answer',     value: callHistory.filter(c => isNoAnswer(c.outcome)).length, icon: 'phone-missed', tint: '#FEECEC', color: '#D63333' }
@@ -407,7 +407,7 @@
           <span class="text-muted">${t.rate}% connect · ${t.total} call${t.total === 1 ? '' : 's'}</span>
         </div>
         <div class="rounded-full" style="height:8px;background:var(--chip);">
-          <div class="rounded-full" style="height:8px;width:${t.rate}%;background:#6D5BFF;"></div>
+          <div class="rounded-full" style="height:8px;width:${t.rate}%;background:#2255a3;"></div>
         </div>
       </div>`).join('') : `<div class="text-[12.5px] text-muted">Not enough data yet.</div>`;
 

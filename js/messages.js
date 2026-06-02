@@ -99,7 +99,7 @@
   function channelMeta(ch) {
     switch (ch) {
       case 'SMS':   return { icon: 'message-square', fg: '#2B57D9', bg: '#E7EEFF', pill: 'pill-blue' };
-      case 'Email': return { icon: 'mail',           fg: '#6D5BFF', bg: '#EFEAFF', pill: 'pill-purple' };
+      case 'Email': return { icon: 'mail',           fg: '#2255a3', bg: '#EFEAFF', pill: 'pill-purple' };
       default:      return { icon: 'message-square', fg: '#5C5C75', bg: 'var(--chip)', pill: 'pill-gray' };
     }
   }
@@ -175,7 +175,7 @@
       <div class="max-w-[760px]">
         <div class="flex items-center gap-2 mb-4">
           <span class="stat-icon" style="background:#EFEAFF;width:34px;height:34px;">
-            <i data-lucide="sparkles" style="width:17px;height:17px;color:#6D5BFF;"></i>
+            <i data-lucide="sparkles" style="width:17px;height:17px;color:#2255a3;"></i>
           </span>
           <div>
             <h3 class="text-[15px] font-semibold">AI Assistant</h3>
@@ -205,7 +205,7 @@
       aiIndex++;
       document.getElementById('ai-output').innerHTML = `
         <div class="rounded-xl p-4" style="border:1px solid var(--border);background:var(--surface-2);">
-          <div class="flex items-center gap-2 mb-2 text-[12px] font-semibold" style="color:#6D5BFF;">
+          <div class="flex items-center gap-2 mb-2 text-[12px] font-semibold" style="color:#2255a3;">
             <i data-lucide="sparkles" style="width:13px;height:13px;"></i> AI suggestion
           </div>
           <p class="text-[13.5px] leading-relaxed">${esc(text)}</p>

@@ -35,7 +35,7 @@
     const interested = leads.filter(l => l.timeline === 'Buying Immediately').length;
     const openTasks = tasks.filter(t => t.status !== 'done').length;
     const cards = [
-      { label: 'Total Leads',      value: leads.length,    icon: 'users',          tint: '#EFEAFF', color: '#6D5BFF' },
+      { label: 'Total Leads',      value: leads.length,    icon: 'users',          tint: '#EFEAFF', color: '#2255a3' },
       { label: 'Contacts',         value: contacts.length, icon: 'contact',        tint: '#E7EEFF', color: '#2B57D9' },
       { label: 'Calls Made',       value: calls.length,    icon: 'phone',          tint: '#E7EEFF', color: '#2B57D9' },
       { label: 'Interested Leads', value: interested,      icon: 'check-circle-2', tint: '#E6F8EC', color: '#138A4B' },
@@ -119,14 +119,14 @@
     const grid = yTicks.map(t => { const y = padT + innerH - (t / top) * innerH; return `<line x1="${padL}" x2="${w - padR}" y1="${y}" y2="${y}" style="stroke:var(--chip)"/>`; }).join('');
     const yLab = yTicks.map(t => { const y = padT + innerH - (t / top) * innerH; return `<text x="${padL - 8}" y="${y + 4}" text-anchor="end" font-size="11" fill="#8A8AA0">${t}</text>`; }).join('');
     const xLab = labels.map((l, i) => l ? `<text x="${padL + i * xStep}" y="${h - 8}" text-anchor="middle" font-size="11" fill="#8A8AA0">${l}</text>` : '').join('');
-    const dots = days === 7 ? pts.map(p => `<circle cx="${p[0]}" cy="${p[1]}" r="4" fill="#6D5BFF" style="stroke:var(--surface)" stroke-width="2"/>`).join('') : '';
+    const dots = days === 7 ? pts.map(p => `<circle cx="${p[0]}" cy="${p[1]}" r="4" fill="#2255a3" style="stroke:var(--surface)" stroke-width="2"/>`).join('') : '';
 
     document.getElementById('trend-chart').innerHTML = `
       <svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}" preserveAspectRatio="none">
-        <defs><linearGradient id="trendFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#6D5BFF" stop-opacity="0.18"/><stop offset="100%" stop-color="#6D5BFF" stop-opacity="0"/></linearGradient></defs>
+        <defs><linearGradient id="trendFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#2255a3" stop-opacity="0.18"/><stop offset="100%" stop-color="#2255a3" stop-opacity="0"/></linearGradient></defs>
         ${grid}${yLab}${xLab}
         <path d="${area}" fill="url(#trendFill)"/>
-        <path d="${path}" fill="none" stroke="#6D5BFF" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+        <path d="${path}" fill="none" stroke="#2255a3" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
         ${dots}
       </svg>`;
   }
@@ -149,7 +149,7 @@
         </div>
         <span class="pill ${scorePill(p.score)} mr-1" style="font-size:11px;">${p.score}</span>
         <button class="btn-icon" title="Call" data-call="${esc(p.phone)}" style="width:32px;height:32px;" ${p.phone ? '' : 'disabled'}>
-          <i data-lucide="phone" style="width:14px;height:14px;color:#6D5BFF;pointer-events:none;"></i>
+          <i data-lucide="phone" style="width:14px;height:14px;color:#2255a3;pointer-events:none;"></i>
         </button>
         <button class="btn-icon" title="WhatsApp" data-wa="${esc(p.phone)}" style="width:32px;height:32px;" ${p.phone ? '' : 'disabled'}>
           <i data-lucide="message-circle" style="width:14px;height:14px;color:#138A4B;pointer-events:none;"></i>
@@ -222,7 +222,7 @@
     const pages = []; for (let p = 1; p <= totalPages; p++) pages.push(p);
     pager.innerHTML = `
       <button class="btn-icon" data-page="prev" style="width:30px;height:30px;" ${state.page === 1 ? 'disabled' : ''}><i data-lucide="chevron-left" style="width:14px;height:14px;color:var(--text-muted);"></i></button>
-      ${pages.map(p => `<button data-page="${p}" class="rounded-md text-[12.5px] font-semibold" style="width:30px;height:30px;${p === state.page ? 'background:#6D5BFF;color:#FFF;' : 'background:var(--surface);color:var(--text);border:1px solid var(--border-strong);'}">${p}</button>`).join('')}
+      ${pages.map(p => `<button data-page="${p}" class="rounded-md text-[12.5px] font-semibold" style="width:30px;height:30px;${p === state.page ? 'background:#2255a3;color:#FFF;' : 'background:var(--surface);color:var(--text);border:1px solid var(--border-strong);'}">${p}</button>`).join('')}
       <button class="btn-icon" data-page="next" style="width:30px;height:30px;" ${state.page === totalPages ? 'disabled' : ''}><i data-lucide="chevron-right" style="width:14px;height:14px;color:var(--text-muted);"></i></button>`;
     pager.querySelectorAll('button[data-page]').forEach(btn => btn.addEventListener('click', () => {
       const v = btn.dataset.page;
@@ -244,7 +244,7 @@
     const today = new Date(); const todayKey = dayKey(today);
     const due = open.filter(t => t.due && t.due === todayKey).length;
     const rows = [
-      { label: 'Open tasks',     count: open.length,                              icon: 'list-checks', tint: '#EFEAFF', color: '#6D5BFF' },
+      { label: 'Open tasks',     count: open.length,                              icon: 'list-checks', tint: '#EFEAFF', color: '#2255a3' },
       { label: 'Due today',      count: due,                                      icon: 'alarm-clock', tint: '#FFF4D6', color: '#B07A00' },
       { label: 'High priority',  count: open.filter(t => t.priority === 'High').length, icon: 'flag', tint: '#FEECEC', color: '#D63333' },
       { label: 'Completed',      count: tasks.filter(t => t.status === 'done').length,  icon: 'check-circle-2', tint: '#E6F8EC', color: '#138A4B' }

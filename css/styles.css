@@ -2,39 +2,39 @@
 
 /* ---------- Theme tokens ---------- */
 :root {
-  --bg: #F7F7FA;
-  --surface: #FFFFFF;      /* panels, cards, topbar, inputs, buttons */
-  --surface-2: #FAFAFC;    /* subtle hover */
-  --surface-3: #F5F5FA;    /* icon chips, readonly inputs */
-  --chip: #F0F0F5;         /* count chips, gridlines, neutral fills */
-  --border: #ECECF2;       /* default borders / dividers */
-  --border-soft: #F2F2F7;  /* table row dividers */
-  --border-strong: #E2E2EB;/* button borders */
-  --text: #1A1A2E;
-  --text-muted: #6A6A82;
-  --text-soft: #8A8AA0;
-  --scroll-thumb: #D8D8E5;
-  --scroll-thumb-hover: #B5B5C8;
-  --shadow: rgba(0,0,0,.10);
-  --accent: #6D5BFF;
+  --bg: #f3f5fa;           /* soft light steel page */
+  --surface: #ffffff;      /* panels, cards, topbar, inputs, buttons */
+  --surface-2: #eef1f7;    /* subtle hover */
+  --surface-3: #e9eef5;    /* icon chips, readonly inputs */
+  --chip: #e9eef5;         /* count chips, gridlines, neutral fills */
+  --border: #d6dfeb;       /* default borders / dividers */
+  --border-soft: #e7ecf3;  /* table row dividers */
+  --border-strong: #acbdd4;/* button borders */
+  --text: #07224b;         /* deep navy */
+  --text-muted: #5c6a82;
+  --text-soft: #9a9a9a;
+  --scroll-thumb: #acbdd4;
+  --scroll-thumb-hover: #547ab2;
+  --shadow: rgba(7,34,75,.12);
+  --accent: #2255a3;
 }
 
 html.dark {
-  --bg: #0C0C14;
-  --surface: #16161F;
-  --surface-2: #1F1F2B;
-  --surface-3: #1C1C28;
-  --chip: #242436;
-  --border: #2A2A3D;
-  --border-soft: #232333;
-  --border-strong: #33334A;
-  --text: #E7E7F0;
-  --text-muted: #9D9DB3;
-  --text-soft: #7C7C92;
-  --scroll-thumb: #33334A;
-  --scroll-thumb-hover: #44445F;
+  --bg: #252627;
+  --surface: #303035;
+  --surface-2: #3a3a41;
+  --surface-3: #2c2d31;
+  --chip: #34353b;
+  --border: #41424a;
+  --border-soft: #34353a;
+  --border-strong: #4a4c54;
+  --text: #f2f4f8;
+  --text-muted: #acbdd4;   /* light steel */
+  --text-soft: #9a9a9a;
+  --scroll-thumb: #45474e;
+  --scroll-thumb-hover: #547ab2;
   --shadow: rgba(0,0,0,.55);
-  --accent: #8B7CFF;
+  --accent: #547ab2;
 }
 
 * {
@@ -53,14 +53,14 @@ html, body {
 ::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--scroll-thumb-hover); }
 
-/* Sidebar dark theme (already dark in both modes) */
+/* Sidebar — deep navy in both modes */
 .sidebar {
-  background: #0E0E1B;
-  color: #B8B8CC;
+  background: #07224b;
+  color: #acbdd4;
   width: 240px;
   transition: width .2s ease;
 }
-html.dark .sidebar { border-right: 1px solid var(--border); }
+html.dark .sidebar { border-right: 1px solid rgba(255,255,255,.06); }
 .sidebar.collapsed { width: 72px; }
 .sidebar.collapsed .nav-label,
 .sidebar.collapsed .brand-text,
@@ -76,14 +76,14 @@ html.dark .sidebar { border-right: 1px solid var(--border); }
   align-items: center;
   justify-content: center;
   border-radius: 10px;
-  background: #1A1830;
-  color: #B8B8CC;
+  background: #0d3163;
+  color: #acbdd4;
   cursor: pointer;
   transition: background .15s, color .15s;
 }
-.sidebar-collapse-btn:hover { background: #2A2745; color: #FFF; }
+.sidebar-collapse-btn:hover { background: #143b73; color: #FFF; }
 .sidebar-collapse-btn svg { width: 18px; height: 18px; }
-.sidebar a, .sidebar button { color: #B8B8CC; }
+.sidebar a, .sidebar button { color: #acbdd4; }
 .sidebar .nav-item {
   display: flex;
   align-items: center;
@@ -95,15 +95,15 @@ html.dark .sidebar { border-right: 1px solid var(--border); }
   transition: background .15s, color .15s;
   cursor: pointer;
 }
-.sidebar .nav-item:hover { background: #1A1830; color: #FFF; }
+.sidebar .nav-item:hover { background: #0d3163; color: #FFF; }
 .sidebar .nav-item.active {
-  background: linear-gradient(90deg, rgba(109,91,255,.18), rgba(109,91,255,.06));
+  background: linear-gradient(90deg, rgba(84,122,178,.34), rgba(84,122,178,.10));
   color: #FFF;
 }
-.sidebar .nav-item.active svg { color: #8B7CFF; }
+.sidebar .nav-item.active svg { color: #acbdd4; }
 .sidebar .nav-item svg { width: 18px; height: 18px; flex-shrink: 0; }
 .sidebar .badge {
-  background: #6D5BFF;
+  background: #2255a3;
   color: #FFF;
   font-size: 11px;
   font-weight: 700;
@@ -115,7 +115,7 @@ html.dark .sidebar { border-right: 1px solid var(--border); }
 .brand-logo {
   width: 32px; height: 32px;
   border-radius: 8px;
-  background: linear-gradient(135deg, #6D5BFF, #B5A6FF);
+  background: linear-gradient(135deg, #2255a3, #547ab2);
   display: flex; align-items: center; justify-content: center;
 }
 
@@ -195,7 +195,7 @@ html.dark .pill-gray   { background: rgba(140,140,160,.18);color: #B6B6C8; }
 
 /* Buttons */
 .btn-primary {
-  background: #6D5BFF;
+  background: #2255a3;
   color: #FFF;
   padding: 9px 16px;
   border-radius: 10px;
@@ -204,7 +204,7 @@ html.dark .pill-gray   { background: rgba(140,140,160,.18);color: #B6B6C8; }
   display: inline-flex; align-items: center; gap: 6px;
   transition: background .15s;
 }
-.btn-primary:hover { background: #5A47E8; }
+.btn-primary:hover { background: #1a4480; }
 .btn-secondary {
   background: var(--surface);
   color: var(--text);
@@ -230,7 +230,7 @@ html.dark .pill-gray   { background: rgba(140,140,160,.18);color: #B6B6C8; }
 .avatar {
   width: 32px; height: 32px;
   border-radius: 999px;
-  background: linear-gradient(135deg, #B5A6FF, #6D5BFF);
+  background: linear-gradient(135deg, #547ab2, #2255a3);
   color: #FFF;
   display: inline-flex; align-items: center; justify-content: center;
   font-size: 11px; font-weight: 700;
@@ -261,7 +261,7 @@ html.dark .pill-gray   { background: rgba(140,140,160,.18);color: #B6B6C8; }
   background: var(--scroll-thumb);
   transition: background .15s;
 }
-.lf-switch.on { background: #6D5BFF; }
+.lf-switch.on { background: #2255a3; }
 .lf-switch::after {
   content: '';
   position: absolute;
@@ -290,8 +290,8 @@ html.dark .pill-gray   { background: rgba(140,140,160,.18);color: #B6B6C8; }
   transition: background .15s, color .15s;
 }
 .settings-tab:hover { background: var(--surface-3); color: var(--text); }
-.settings-tab.active { background: #EFEAFF; color: #6D5BFF; font-weight: 600; }
-html.dark .settings-tab.active { background: rgba(109,91,255,.20); color: #B6A9FF; }
+.settings-tab.active { background: #e3ecf8; color: #2255a3; font-weight: 600; }
+html.dark .settings-tab.active { background: rgba(84,122,178,.22); color: #acbdd4; }
 .settings-tab svg { width: 16px; height: 16px; }
 
 /* Auth pill tabs (login page) */
@@ -320,7 +320,7 @@ html.dark .settings-tab.active { background: rgba(109,91,255,.20); color: #B6A9F
   color: var(--text);
   outline: none;
 }
-.input:focus { border-color: #6D5BFF; box-shadow: 0 0 0 3px rgba(109,91,255,.12); }
+.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(34,85,163,.15); }
 .input::placeholder { color: var(--text-soft); }
 
 /* Misc */

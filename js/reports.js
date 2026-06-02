@@ -58,7 +58,7 @@
     const interested = leads.filter(l => l.timeline === 'Buying Immediately').length;
 
     const cards =
-      statCard('Total leads',  LF.fmtNum(leads.length), 'users',          '#EFEAFF', '#6D5BFF') +
+      statCard('Total leads',  LF.fmtNum(leads.length), 'users',          '#EFEAFF', '#2255a3') +
       statCard('New this month', LF.fmtNum(newThisMonth), 'trending-up',  '#E6F8EC', '#138A4B') +
       statCard('Hot leads (80+)', LF.fmtNum(hot),        'flame',         '#FEECEC', '#D63333') +
       statCard('Interested',   LF.fmtNum(interested),    'check-circle-2','#E7EEFF', '#2B57D9');
@@ -100,7 +100,7 @@
     const doneTasks = tasks.filter(t => t.status === 'done').length;
 
     const cards =
-      statCard('Calls made',  LF.fmtNum(calls.length), 'phone',          '#EFEAFF', '#6D5BFF') +
+      statCard('Calls made',  LF.fmtNum(calls.length), 'phone',          '#EFEAFF', '#2255a3') +
       statCard('Connect rate', connectRate + '%',      'phone-call',     '#E6F8EC', '#138A4B') +
       statCard('Open tasks',  LF.fmtNum(openTasks),    'list-checks',    '#FFF4D6', '#B07A00') +
       statCard('Completed',   LF.fmtNum(doneTasks),    'check-circle-2', '#E7EEFF', '#2B57D9');
@@ -124,7 +124,7 @@
     const bars = months.map(m => {
       const h = Math.round((m.count / maxM) * 130);
       return `<div class="flex flex-col items-center justify-end gap-2 flex-1">
-        <div class="w-full rounded-t-md mx-1" style="height:${Math.max(h, 2)}px;background:linear-gradient(180deg,#8B7CFF,#6D5BFF);" title="${m.count} leads"></div>
+        <div class="w-full rounded-t-md mx-1" style="height:${Math.max(h, 2)}px;background:linear-gradient(180deg,#547ab2,#2255a3);" title="${m.count} leads"></div>
         <span class="text-[11px] text-soft">${m.label}</span>
       </div>`;
     }).join('');

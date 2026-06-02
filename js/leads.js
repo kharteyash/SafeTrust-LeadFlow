@@ -40,7 +40,7 @@
   function renderLeadStats() {
     const all = leads;
     const cards = [
-      { label: 'Total Leads',        value: all.length, icon: 'users',        tint: '#EFEAFF', color: '#6D5BFF' },
+      { label: 'Total Leads',        value: all.length, icon: 'users',        tint: '#EFEAFF', color: '#2255a3' },
       { label: 'Buying Immediately', value: all.filter(l => l.timeline === 'Buying Immediately').length, icon: 'flame',         tint: '#E6F8EC', color: '#138A4B' },
       { label: '1-3 Months',         value: all.filter(l => l.timeline === '1-3 Months').length,         icon: 'clock',         tint: '#FFF4D6', color: '#B07A00' },
       { label: '3-6 Months',         value: all.filter(l => l.timeline === '3-6 Months').length,         icon: 'calendar-clock', tint: '#FEECEC', color: '#D63333' },
@@ -72,8 +72,8 @@
       <div class="tab ${state.tab === t.id ? 'active' : ''}" data-tab="${t.id}">
         ${t.label}
         <span class="ml-1.5 text-[11px] font-semibold rounded-full px-1.5 py-[1px]"
-              style="background:${state.tab === t.id ? 'rgba(109,91,255,0.12)' : 'var(--chip)'};
-                     color:${state.tab === t.id ? '#6D5BFF' : 'var(--text-muted)'};">
+              style="background:${state.tab === t.id ? 'rgba(34,85,163,0.12)' : 'var(--chip)'};
+                     color:${state.tab === t.id ? '#2255a3' : 'var(--text-muted)'};">
           ${counts[t.id]}
         </span>
       </div>
@@ -152,10 +152,10 @@
               <td>
                 <div class="flex items-center gap-1">
                   <button class="btn-icon" title="Call" data-call="${l.phone}" style="width:30px;height:30px;" ${l.phone ? '' : 'disabled'}>
-                    <i data-lucide="phone" style="width:13px;height:13px;color:#6D5BFF;pointer-events:none;"></i>
+                    <i data-lucide="phone" style="width:13px;height:13px;color:#2255a3;pointer-events:none;"></i>
                   </button>
                   <button class="btn-icon" title="Send email" data-email="${l.email}" style="width:30px;height:30px;">
-                    <i data-lucide="mail" style="width:13px;height:13px;color:#6D5BFF;pointer-events:none;"></i>
+                    <i data-lucide="mail" style="width:13px;height:13px;color:#2255a3;pointer-events:none;"></i>
                   </button>
                   ${canAssign ? `<button class="btn-icon" title="Assign / forward to team" data-assign-uid="${l._uid}" style="width:30px;height:30px;">
                     <i data-lucide="forward" style="width:13px;height:13px;color:#2B57D9;pointer-events:none;"></i>
@@ -197,7 +197,7 @@
       ${pages.map(p => {
         const active = p === state.page;
         const style = active
-          ? 'background:#6D5BFF;color:#FFF;'
+          ? 'background:#2255a3;color:#FFF;'
           : 'background:var(--surface);color:var(--text);border:1px solid var(--border-strong);';
         return `<button data-page="${p}" class="rounded-md text-[12.5px] font-semibold" style="width:30px;height:30px;${style}">${p}</button>`;
       }).join('')}
@@ -646,7 +646,7 @@
       const count = leads.filter(l => l.timeline === t).length;
       return `
         <label class="flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer" style="border:1px solid var(--border);">
-          <input type="checkbox" value="${t}" checked style="width:15px;height:15px;accent-color:#6D5BFF;cursor:pointer;" />
+          <input type="checkbox" value="${t}" checked style="width:15px;height:15px;accent-color:#2255a3;cursor:pointer;" />
           <span class="flex-1 text-[13.5px]">${t}</span>
           <span class="text-[12px] text-muted">${count}</span>
         </label>`;

@@ -8,7 +8,7 @@
     { name: 'WhatsApp', category: 'Messaging',         status: 'Not Connected', desc: 'Send and receive WhatsApp Business messages.',  icon: 'message-circle' }
   ];
   const ROLE_LEGEND = [
-    { role: 'Admin',       color: '#6D5BFF', tint: '#EFEAFF', desc: 'Superuser — manages everyone’s role.' },
+    { role: 'Admin',       color: '#2255a3', tint: '#EFEAFF', desc: 'Superuser — manages everyone’s role.' },
     { role: 'Team Leader', color: '#2B57D9', tint: '#E7EEFF', desc: 'Builds a team and assigns leads to members.' },
     { role: 'Member',      color: '#138A4B', tint: '#E6F8EC', desc: 'Works their own and assigned leads.' }
   ];
@@ -193,7 +193,7 @@
     return `
       <div class="flex items-center gap-4 p-4 rounded-xl" style="border:1px solid var(--border);">
         <div class="stat-icon" style="background:var(--surface-3);width:44px;height:44px;border-radius:12px;">
-          <i data-lucide="${i.icon}" style="width:20px;height:20px;color:#6D5BFF;"></i>
+          <i data-lucide="${i.icon}" style="width:20px;height:20px;color:#2255a3;"></i>
         </div>
         <div class="flex-1 min-w-0">
           <div class="flex items-center gap-2 mb-0.5">
@@ -243,7 +243,7 @@
       <div class="p-4 rounded-xl" style="border:1px solid var(--border);">
         <div class="flex items-center gap-4">
           <div class="stat-icon" style="background:var(--surface-3);width:44px;height:44px;border-radius:12px;">
-            <i data-lucide="mail" style="width:20px;height:20px;color:#6D5BFF;"></i>
+            <i data-lucide="mail" style="width:20px;height:20px;color:#2255a3;"></i>
           </div>
           <div class="flex-1 min-w-0">
             <div class="flex items-center gap-2 mb-0.5">
@@ -573,7 +573,7 @@
     const groups = NOTIFICATION_GROUPS.map(g => `
       <div class="mb-6">
         <div class="flex items-center gap-2 mb-3">
-          <i data-lucide="${g.icon}" style="width:16px;height:16px;color:#6D5BFF;"></i>
+          <i data-lucide="${g.icon}" style="width:16px;height:16px;color:#2255a3;"></i>
           <h3 class="text-[14.5px] font-semibold">${g.label}</h3>
         </div>
         <div class="rounded-xl" style="border:1px solid var(--border);">

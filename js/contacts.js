@@ -82,10 +82,10 @@
             <td>
               <div class="flex items-center gap-1">
                 <button class="btn-icon" title="Call" data-call="${escAttr(c.phone)}" style="width:30px;height:30px;" ${c.phone ? '' : 'disabled'}>
-                  <i data-lucide="phone" style="width:13px;height:13px;color:#6D5BFF;pointer-events:none;"></i>
+                  <i data-lucide="phone" style="width:13px;height:13px;color:#2255a3;pointer-events:none;"></i>
                 </button>
                 <button class="btn-icon" title="Send email" data-email="${escAttr(c.email)}" style="width:30px;height:30px;" ${c.email ? '' : 'disabled'}>
-                  <i data-lucide="mail" style="width:13px;height:13px;color:#6D5BFF;pointer-events:none;"></i>
+                  <i data-lucide="mail" style="width:13px;height:13px;color:#2255a3;pointer-events:none;"></i>
                 </button>
                 <button class="btn-icon" title="Delete contact" data-del="${c.id}" style="width:30px;height:30px;border:none;">
                   <i data-lucide="trash-2" style="width:14px;height:14px;color:#D63333;pointer-events:none;"></i>

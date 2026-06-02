@@ -80,7 +80,7 @@
     const overdue = tasks.filter(isOverdueTask).length;
     const done = tasks.filter(t => t.status === 'done').length;
     const cards = [
-      { label: 'Open',      value: open,     icon: 'list-checks',    tint: '#EFEAFF', color: '#6D5BFF' },
+      { label: 'Open',      value: open,     icon: 'list-checks',    tint: '#EFEAFF', color: '#2255a3' },
       { label: 'Due Today', value: dueToday, icon: 'alarm-clock',    tint: '#FFF4D6', color: '#B07A00' },
       { label: 'Overdue',   value: overdue,  icon: 'alert-triangle', tint: '#FEECEC', color: '#D63333' },
       { label: 'Completed', value: done,     icon: 'check-circle-2', tint: '#E6F8EC', color: '#138A4B' }
@@ -102,14 +102,14 @@
     const p = escAttr(phone || '');
     return `
       <button class="btn-icon" title="Call" data-call="${p}" style="width:30px;height:30px;" ${phone ? '' : 'disabled'}>
-        <i data-lucide="phone" style="width:13px;height:13px;color:#6D5BFF;pointer-events:none;"></i>
+        <i data-lucide="phone" style="width:13px;height:13px;color:#2255a3;pointer-events:none;"></i>
       </button>
       <button class="btn-icon" title="WhatsApp" data-wa="${p}" style="width:30px;height:30px;" ${phone ? '' : 'disabled'}>
         <i data-lucide="message-circle" style="width:13px;height:13px;color:#138A4B;pointer-events:none;"></i>
       </button>
       ${withQueueLeadId != null ? `
       <button class="btn-icon" title="Add to call queue" data-queue-lead="${withQueueLeadId}" style="width:30px;height:30px;">
-        <i data-lucide="list-plus" style="width:13px;height:13px;color:#6D5BFF;pointer-events:none;"></i>
+        <i data-lucide="list-plus" style="width:13px;height:13px;color:#2255a3;pointer-events:none;"></i>
       </button>` : ''}`;
   }
 
@@ -187,7 +187,7 @@
       <div class="tab ${state.tab === t.id ? 'active' : ''}" data-tab="${t.id}">
         ${t.label}
         <span class="ml-1.5 text-[11px] font-semibold rounded-full px-1.5 py-[1px]"
-              style="background:${state.tab === t.id ? 'rgba(109,91,255,0.12)' : 'var(--chip)'};color:${state.tab === t.id ? '#6D5BFF' : 'var(--text-muted)'};">${counts[t.id]}</span>
+              style="background:${state.tab === t.id ? 'rgba(34,85,163,0.12)' : 'var(--chip)'};color:${state.tab === t.id ? '#2255a3' : 'var(--text-muted)'};">${counts[t.id]}</span>
       </div>`).join('');
     document.querySelectorAll('#task-tabs .tab').forEach(el => {
       el.addEventListener('click', () => { state.tab = el.dataset.tab; renderTabs(); renderList(); });
@@ -227,7 +227,7 @@
       return `
         <div class="flex items-center gap-3 px-3 py-3 rounded-lg hover:bg-[#FAFAFC]" style="border-bottom:1px solid var(--border-soft);">
           <button data-toggle="${t.id}" class="flex items-center justify-center flex-shrink-0"
-                  style="width:20px;height:20px;border-radius:6px;background:${done ? '#6D5BFF' : 'var(--surface)'};border:1.5px solid ${done ? '#6D5BFF' : 'var(--border-strong)'};">
+                  style="width:20px;height:20px;border-radius:6px;background:${done ? '#2255a3' : 'var(--surface)'};border:1.5px solid ${done ? '#2255a3' : 'var(--border-strong)'};">
             ${done ? '<i data-lucide="check" style="width:12px;height:12px;color:#FFF;pointer-events:none;"></i>' : ''}
           </button>
           <div class="flex-1 min-w-0">

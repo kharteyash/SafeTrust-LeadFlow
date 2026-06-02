@@ -6,7 +6,7 @@
   function channelMeta(ch) {
     return ch === 'SMS'
       ? { icon: 'message-square', fg: '#2B57D9', bg: '#E7EEFF', pill: 'pill-blue' }
-      : { icon: 'mail', fg: '#6D5BFF', bg: '#EFEAFF', pill: 'pill-purple' };
+      : { icon: 'mail', fg: '#2255a3', bg: '#EFEAFF', pill: 'pill-purple' };
   }
 
   async function load() {
@@ -31,7 +31,7 @@
             <div class="text-[14px] font-semibold">${c.label}</div>
             <div class="text-[12px] text-muted">Create a new ${c.ch} campaign</div>
           </div>
-          <i data-lucide="plus" style="width:16px;height:16px;color:#6D5BFF;pointer-events:none;"></i>
+          <i data-lucide="plus" style="width:16px;height:16px;color:#2255a3;pointer-events:none;"></i>
         </div>`;
     }).join('');
 

@@ -53,7 +53,7 @@
 
   // ----- Type styling -----
   function typeStyle(type) {
-    if (type === 'meeting')  return { bg: '#EFEAFF', fg: '#6D5BFF', label: 'Meeting',   icon: 'users' };
+    if (type === 'meeting')  return { bg: '#EFEAFF', fg: '#2255a3', label: 'Meeting',   icon: 'users' };
     if (type === 'call')     return { bg: '#E7EEFF', fg: '#2B57D9', label: 'Call',      icon: 'phone' };
     if (type === 'followup') return { bg: '#E6F8EC', fg: '#138A4B', label: 'Follow-up', icon: 'repeat' };
     return { bg: 'var(--chip)', fg: '#5C5C75', label: 'Event', icon: 'calendar' };
@@ -257,7 +257,7 @@
             <div class="text-center py-2" style="border-left:1px solid var(--border-soft);">
               <div class="text-[11px] text-soft">${DOW[d.getDay()]}</div>
               <div class="text-[15px] font-semibold mt-0.5 mx-auto ${today ? 'text-white' : ''}"
-                   style="${today ? 'background:#6D5BFF;width:28px;height:28px;border-radius:999px;display:flex;align-items:center;justify-content:center;' : ''}">
+                   style="${today ? 'background:#2255a3;width:28px;height:28px;border-radius:999px;display:flex;align-items:center;justify-content:center;' : ''}">
                 ${d.getDate()}
               </div>
             </div>`;
@@ -350,7 +350,7 @@
       <div class="mt-6">
         <div class="flex items-center gap-2 mb-3">
           <span class="stat-icon" style="background:#EFEAFF;width:30px;height:30px;border-radius:8px;">
-            <i data-lucide="check-square" style="width:15px;height:15px;color:#6D5BFF;"></i>
+            <i data-lucide="check-square" style="width:15px;height:15px;color:#2255a3;"></i>
           </span>
           <h3 class="text-[14.5px] font-semibold">Upcoming Tasks</h3>
           <span class="pill pill-gray" style="font-size:11px;">${upcomingTasks.length}</span>

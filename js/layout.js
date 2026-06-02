@@ -266,7 +266,7 @@ async function loadNotifications() {
 
   // 0) Team invitations — actionable (Accept / Decline).
   invites.forEach(inv => {
-    items.push({ key: `invite-${inv.id}`, sort: -2, type: 'invite', actionId: inv.id, icon: 'users', color: '#6D5BFF',
+    items.push({ key: `invite-${inv.id}`, sort: -2, type: 'invite', actionId: inv.id, icon: 'users', color: '#2255a3',
       text: `${notifEsc(inv.leaderName)} invited you to their team`, sub: 'Accept or decline below' });
   });
 
@@ -295,7 +295,7 @@ async function loadNotifications() {
       items.push({ key: `call-overdue-${c.id}`, sort: 0, icon: 'phone-missed', color: '#D63333',
         text: `Overdue call: ${notifEsc(c.name)}`, sub: `Was due ${notifEsc(c.time)}${d < todayKey ? ' · ' + d : ''}`, href: 'calls.html' });
     } else if (d === todayKey && t - nowMin <= NOTIF_SOON_MIN) {
-      items.push({ key: `call-soon-${c.id}`, sort: 2, icon: 'phone', color: '#6D5BFF',
+      items.push({ key: `call-soon-${c.id}`, sort: 2, icon: 'phone', color: '#2255a3',
         text: `Call ${notifEsc(c.name)} soon`, sub: `${notifEsc(c.time)} · in ${t - nowMin} min`, href: 'calls.html' });
     }
   });
@@ -412,7 +412,7 @@ function renderNotifications(items, read) {
 
   list.innerHTML = items.map(i => {
     const isUnread = !read.has(i.key);
-    const bg = isUnread ? 'background:rgba(109,91,255,.05);' : '';
+    const bg = isUnread ? 'background:rgba(34,85,163,.05);' : '';
     // Actionable items (team invites / lead assignments) render with buttons.
     if (i.type === 'invite' || i.type === 'assignment') {
       const acc = i.type === 'invite' ? 'data-invite-accept' : 'data-assign-accept';
@@ -452,7 +452,7 @@ function renderNotifications(items, read) {
           <div class="text-[13px] font-medium leading-snug">${i.text}</div>
           <div class="text-[11.5px] text-muted mt-0.5">${i.sub}</div>
         </div>
-        ${isUnread ? '<span class="flex-shrink-0 rounded-full" style="width:7px;height:7px;background:#6D5BFF;margin-top:5px;"></span>' : ''}
+        ${isUnread ? '<span class="flex-shrink-0 rounded-full" style="width:7px;height:7px;background:#2255a3;margin-top:5px;"></span>' : ''}
       </a>`;
   }).join('');
 
