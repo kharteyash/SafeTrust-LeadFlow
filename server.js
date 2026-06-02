@@ -624,7 +624,7 @@ app.get('/api/call-log', safe(async (req, res) => {
   `, [req.user.id]);
   res.json(rows.map(r => ({
     id: r.id, name: r.name, phone: r.phone || '', direction: r.direction || 'outbound',
-    duration: r.duration || '0:00', outcome: r.outcome, notes: r.notes || '—',
+    duration: r.duration || '', outcome: r.outcome, notes: r.notes || '—',
     agent: r.agent || '', isRealtor: !!r.is_realtor, date: r.logged_at
   })));
 }));
@@ -637,7 +637,9 @@ app.post('/api/call-log', safe(async (req, res) => {
 
   const agent = shortName(req.user.name);
   const loggedAt = fmtCallDate(new Date());
-  const dur = (duration || '0:00').trim() || '0:00';
+  // No conversation happened on a voicemail / no-answer, so leave duration blank.
+  const noTalk = outcome === 'Voicemail' || outcome === 'No Answer' || outcome === 'Missed';
+  const dur = noTalk ? '' : ((duration || '0:00').trim() || '0:00');
   const note = (notes || '').trim() || '—';
   const isRealtor = (req.body || {}).isRealtor === true;
 

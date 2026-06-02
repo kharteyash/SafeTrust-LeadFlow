@@ -380,6 +380,13 @@
 
   // ----- Log a realtor call (dial + log into Call History, flagged Realtor) -----
   let realtorCallName = '', realtorCallPhone = '';
+  // Voicemail / no answer = no conversation, so blank + disable the duration.
+  function syncCallDuration(form) {
+    const o = form.elements['outcome'].value;
+    const dur = form.elements['duration'];
+    if (o === 'No Answer' || o === 'Voicemail') { dur.value = ''; dur.disabled = true; }
+    else { dur.disabled = false; if (!dur.value) dur.value = '0:00'; }
+  }
   function openRealtorCallModal(name, phone) {
     realtorCallName = name || 'Realtor';
     realtorCallPhone = phone || '';
@@ -387,7 +394,7 @@
     const form = document.getElementById('realtor-call-form');
     form.reset();
     form.elements['outcome'].value = 'Connected';
-    form.elements['duration'].value = '0:00';
+    syncCallDuration(form);
     document.getElementById('realtor-call-msg').textContent = '';
     document.getElementById('realtor-call-modal').classList.remove('hidden');
   }
@@ -396,6 +403,7 @@
     document.getElementById('realtor-call-close').addEventListener('click', closeRealtorCallModal);
     document.getElementById('realtor-call-cancel').addEventListener('click', closeRealtorCallModal);
     document.getElementById('realtor-call-backdrop').addEventListener('click', closeRealtorCallModal);
+    document.getElementById('realtor-call-form').elements['outcome'].addEventListener('change', e => syncCallDuration(e.target.form));
 
     // Clicking a realtor phone in the details modal: dial + open the log modal.
     document.getElementById('lead-detail-body').addEventListener('click', e => {
@@ -428,7 +436,6 @@
         const body = await res.json().catch(() => ({}));
         if (!res.ok) { msg.textContent = body.error || `Request failed (HTTP ${res.status}).`; return; }
         closeRealtorCallModal();
-        window.alert('Realtor call logged to Call History.');
       } catch (err) { msg.textContent = 'Network error. Is the server running?'; }
       finally { btn.disabled = false; btn.style.opacity = ''; }
     });

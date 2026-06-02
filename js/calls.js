@@ -421,6 +421,13 @@
   }
 
   // ----- Log call modal -----
+  // Voicemail / no answer = no conversation, so blank + disable the duration.
+  function syncLogDuration(form) {
+    const o = form.elements['outcome'].value;
+    const dur = form.elements['duration'];
+    if (o === 'No Answer' || o === 'Voicemail' || o === 'Missed') { dur.value = ''; dur.disabled = true; }
+    else { dur.disabled = false; if (!dur.value) dur.value = '0:00'; }
+  }
   function openLogModal(prefill, queueId) {
     pendingQueueId = queueId != null ? queueId : null;
     const form = document.getElementById('log-form');
@@ -428,7 +435,7 @@
     form.elements['name'].value = (prefill && prefill.name) || '';
     form.elements['phone'].value = (prefill && prefill.phone) || '';
     form.elements['outcome'].value = 'Connected';
-    form.elements['duration'].value = '0:00';
+    syncLogDuration(form);
     document.getElementById('log-form-msg').textContent = '';
     document.getElementById('log-modal').classList.remove('hidden');
     form.elements[prefill ? 'outcome' : 'name'].focus();
@@ -467,6 +474,7 @@
     document.getElementById('log-modal-close').addEventListener('click', closeLogModal);
     document.getElementById('log-cancel').addEventListener('click', closeLogModal);
     document.getElementById('log-modal-backdrop').addEventListener('click', closeLogModal);
+    document.getElementById('log-form').elements['outcome'].addEventListener('change', e => syncLogDuration(e.target.form));
     // Queue modal controls
     document.getElementById('queue-modal-close').addEventListener('click', closeQueueModal);
     document.getElementById('queue-cancel').addEventListener('click', closeQueueModal);
