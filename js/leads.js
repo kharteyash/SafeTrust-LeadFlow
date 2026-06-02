@@ -725,6 +725,63 @@
     });
   }
 
+  // ----- Import leads from CSV -----
+  // Map a raw CSV row (header->value) to lead fields by detecting column names.
+  function mapImportRow(obj) {
+    const pick = (re) => {
+      for (const k of Object.keys(obj)) { if (re.test(k)) { const v = String(obj[k] || '').trim(); if (v) return v; } }
+      return '';
+    };
+    return {
+      name: pick(/^name$|full name|primary borrower|^borrower$|^contact$|^customer$|^client$/i),
+      email: pick(/e-?mail/i),
+      phone: pick(/phone|mobile|\bcell\b/i),
+      timeline: pick(/timeline|buying/i),
+      owner: pick(/^owner$|^agent$|loan officer name|officer name/i),
+      state: pick(/^state$|subject state/i)
+    };
+  }
+  function importMsg(text, ok) {
+    const el = document.getElementById('import-msg');
+    el.style.color = ok ? '#138A4B' : '#D63333';
+    el.textContent = text || '';
+  }
+  async function handleImportFile(file) {
+    if (!file) return;
+    importMsg('Reading file…', true);
+    let text;
+    try { text = await file.text(); } catch (e) { importMsg('Could not read the file.', false); return; }
+    const { objects } = LF.csvToObjects(text);
+    if (!objects.length) { importMsg('That CSV has no data rows.', false); return; }
+    const mapped = objects.map(mapImportRow).filter(r => r.name);
+    if (!mapped.length) { importMsg('Could not find a Name column to import from.', false); return; }
+    importMsg(`Importing ${mapped.length} lead${mapped.length === 1 ? '' : 's'}…`, true);
+    try {
+      const res = await fetch('/api/leads/import', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+        body: JSON.stringify({ rows: mapped })
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) { importMsg(body.error || `Import failed (HTTP ${res.status}).`, false); return; }
+      await loadLeads();
+      state.tab = 'all'; state.page = 1; state.search = '';
+      const search = document.getElementById('topbar-search'); if (search) search.value = '';
+      renderLeadStats(); renderTabs(); renderTable();
+      if (window.lucide) lucide.createIcons();
+      const dupes = body.skipped || 0;
+      importMsg(`Imported ${body.imported} lead${body.imported === 1 ? '' : 's'}` + (dupes ? ` · ${dupes} skipped (duplicate email or no name)` : ''), true);
+    } catch (e) { importMsg('Network error. Is the server running?', false); }
+  }
+  function bindImport() {
+    const fileInput = document.getElementById('leads-file');
+    document.getElementById('import-btn').addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', e => {
+      const file = e.target.files && e.target.files[0];
+      handleImportFile(file);
+      fileInput.value = ''; // allow re-importing the same file
+    });
+  }
+
   function bindExport() {
     document.getElementById('export-btn').addEventListener('click', openExportModal);
     document.getElementById('export-modal-close').addEventListener('click', closeExportModal);
@@ -751,6 +808,7 @@
     bindAssign();
     bindCloseLead();
     bindRealtorCall();
+    bindImport();
     bindExport();
     if (window.lucide) lucide.createIcons();
   });

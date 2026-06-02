@@ -508,6 +508,39 @@ LF.telLink = function (phone) {
   return d ? 'tel:+' + d : '';
 };
 
+// Parse CSV text into { headers, objects } (quoted fields/newlines safe).
+LF.csvToObjects = function (text) {
+  text = String(text).replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const grid = [];
+  let cur = [], field = '', inQuotes = false, i = 0;
+  while (i < text.length) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') { if (text[i + 1] === '"') { field += '"'; i += 2; continue; } inQuotes = false; i++; continue; }
+      field += c; i++; continue;
+    }
+    if (c === '"') { inQuotes = true; i++; continue; }
+    if (c === ',') { cur.push(field); field = ''; i++; continue; }
+    if (c === '\n') { cur.push(field); grid.push(cur); cur = []; field = ''; i++; continue; }
+    field += c; i++;
+  }
+  if (field !== '' || cur.length > 0) { cur.push(field); grid.push(cur); }
+  const rows = grid.filter(r => r.some(c => String(c).trim() !== ''));
+  if (rows.length === 0) return { headers: [], objects: [] };
+  const seen = {};
+  const headers = rows[0].map(h => {
+    let name = String(h).trim() || 'Column';
+    if (seen[name] == null) { seen[name] = 0; return name; }
+    seen[name]++; return `${name} (${seen[name]})`;
+  });
+  const objects = rows.slice(1).map(r => {
+    const o = {};
+    headers.forEach((h, idx) => { o[h] = r[idx] != null ? String(r[idx]).trim() : ''; });
+    return o;
+  });
+  return { headers, objects };
+};
+
 // Refreshes the topbar avatar + name after profile changes save.
 LF.refreshUserDisplay = function (user) {
   LF_DATA.user = Object.assign({}, LF_DATA.user, {

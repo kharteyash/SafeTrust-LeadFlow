@@ -22,7 +22,8 @@
         <button id="export-btn" class="btn-secondary">
           <i data-lucide="upload" style="width:14px;height:14px;"></i> Export
         </button>
-        <button class="btn-secondary">
+        <input id="leads-file" type="file" accept=".csv,text/csv" class="hidden" />
+        <button id="import-btn" class="btn-secondary">
           <i data-lucide="download" style="width:14px;height:14px;"></i> Import
         </button>
         <button id="add-lead-btn" class="btn-primary">
@@ -30,6 +31,9 @@
         </button>
       </div>
     </div>
+
+    <!-- Import status -->
+    <div id="import-msg" class="text-[12.5px] font-medium mb-3"></div>
 
     <!-- Stat strip for leads -->
     <div id="lead-stats" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-5"></div>

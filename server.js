@@ -995,6 +995,39 @@ app.post('/api/leads', safe(async (req, res) => {
   }));
 }));
 
+// Bulk-import leads from a CSV (rows pre-mapped client-side). Dedupes by email.
+app.post('/api/leads/import', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  const rows = (req.body || {}).rows;
+  if (!Array.isArray(rows) || rows.length === 0) return res.status(400).json({ error: 'No rows to import.' });
+  if (rows.length > 5000) return res.status(400).json({ error: 'Too many rows (max 5000 per import).' });
+
+  const ex = await q(`SELECT lower(email) AS e FROM leads WHERE user_id = $1 AND email IS NOT NULL AND btrim(email) <> ''`, [req.user.id]);
+  const seen = new Set(ex.map(r => r.e));
+
+  let imported = 0, skipped = 0;
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') { skipped++; continue; }
+    const name = String(row.name || '').trim();
+    if (!name) { skipped++; continue; }                       // need at least a name
+    const email = String(row.email || '').trim();
+    const key = email.toLowerCase();
+    if (email && seen.has(key)) { skipped++; continue; }       // duplicate email
+    const phone = String(row.phone || '').trim();
+    const owner = String(row.owner || '').trim();
+    const state = normalizeState(row.state);
+    const timeline = LEAD_TIMELINES.includes(row.timeline) ? row.timeline : '1-3 Months';
+    const score = computeLeadScore(timeline, phone, 'Purchase', null, false, 'none');
+    await pool.query(
+      `INSERT INTO leads (user_id, name, email, phone, timeline, score, owner, state, lead_type, realtor_status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'Purchase','none')`,
+      [req.user.id, name, email, phone, timeline, score, owner, state]);
+    imported++;
+    if (email) seen.add(key);
+  }
+  res.json({ ok: true, imported, skipped });
+}));
+
 app.patch('/api/leads/:id', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
   const id = Number(req.params.id);
