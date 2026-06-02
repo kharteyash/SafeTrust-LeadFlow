@@ -1,6 +1,14 @@
 // Previously Closed leads: imported from CSV, displayed in a dynamic table.
 (function () {
   let closed = []; // [{ id, data: {col: value} }]
+  let query = '';
+
+  // Filter by the search term (matches any field value, so names are covered).
+  function filtered() {
+    const term = query.trim().toLowerCase();
+    if (!term) return closed;
+    return closed.filter(r => Object.values(r.data || {}).some(v => String(v == null ? '' : v).toLowerCase().includes(term)));
+  }
 
   function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
   function escAttr(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
@@ -106,8 +114,11 @@
 
   // ----- Render -----
   function render() {
-    document.getElementById('closed-count').textContent = closed.length ? `(${closed.length})` : '';
     const table = document.getElementById('closed-table');
+    const rows = filtered();
+    document.getElementById('closed-count').textContent = closed.length
+      ? (query.trim() ? `${rows.length} of ${closed.length}` : `(${closed.length})`)
+      : '';
 
     if (closed.length === 0) {
       table.innerHTML = `
@@ -135,7 +146,9 @@
         <tr>${cols.map(c => `<th>${esc(c)}</th>`).join('')}<th>Action</th></tr>
       </thead>
       <tbody>
-        ${closed.map(r => `
+        ${rows.length === 0
+          ? `<tr><td colspan="${cols.length + 1}" class="text-center py-10 text-muted">No closed leads match "${esc(query)}".</td></tr>`
+          : rows.map(r => `
           <tr>
             ${cols.map(c => {
               const val = r.data ? r.data[c] : '';
@@ -207,6 +220,8 @@
   }
 
   function bind() {
+    document.getElementById('closed-search').addEventListener('input', e => { query = e.target.value; render(); });
+
     const fileInput = document.getElementById('closed-file');
     document.getElementById('closed-import-btn').addEventListener('click', () => fileInput.click());
     fileInput.addEventListener('change', e => {
