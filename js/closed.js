@@ -214,8 +214,11 @@
       if (!res.ok) { setMsg(body.error || `Import failed (HTTP ${res.status}).`, false); return; }
       await load();
       render();
-      const dupes = body.skipped || 0;
-      setMsg(`Imported ${body.imported} row${body.imported === 1 ? '' : 's'}` + (dupes ? ` · ${dupes} duplicate${dupes === 1 ? '' : 's'} skipped` : ''), true);
+      const parts = [`${body.imported || 0} new`];
+      if (body.updated) parts.push(`${body.updated} updated`);
+      const unchanged = body.unchanged != null ? body.unchanged : (body.skipped || 0);
+      if (unchanged) parts.push(`${unchanged} unchanged`);
+      setMsg('Import complete · ' + parts.join(' · '), true);
     } catch (e) { setMsg('Network error. Is the server running?', false); }
   }
 

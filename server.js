@@ -1173,20 +1173,27 @@ app.post('/api/closed/import', safe(async (req, res) => {
   if (!Array.isArray(rows) || rows.length === 0) return res.status(400).json({ error: 'No rows to import.' });
   if (rows.length > 5000) return res.status(400).json({ error: 'Too many rows (max 5000 per import).' });
 
-  let imported = 0, skipped = 0;
+  let imported = 0, updated = 0, unchanged = 0;
   for (const row of rows) {
-    if (!row || typeof row !== 'object' || Array.isArray(row)) { skipped++; continue; }
+    if (!row || typeof row !== 'object' || Array.isArray(row)) continue;
     const vals = Object.values(row).map(v => String(v == null ? '' : v).trim());
-    if (vals.every(v => v === '')) { skipped++; continue; } // blank row
+    if (vals.every(v => v === '')) continue; // blank row
     const key = closedDedupeKey(row);
+    // Upsert: insert new rows; update existing ones whose data changed; leave
+    // identical rows untouched. (xmax = 0) marks a fresh insert vs. an update.
     const r = await pool.query(
       `INSERT INTO closed_leads (user_id, data, dedupe_key) VALUES ($1, $2, $3)
-       ON CONFLICT (user_id, dedupe_key) DO NOTHING`,
+       ON CONFLICT (user_id, dedupe_key) DO UPDATE SET data = EXCLUDED.data
+         WHERE closed_leads.data::text IS DISTINCT FROM EXCLUDED.data::text
+       RETURNING (xmax = 0) AS inserted`,
       [req.user.id, JSON.stringify(row), key]
     );
-    if (r.rowCount > 0) imported++; else skipped++;
+    if (r.rowCount === 0) unchanged++;
+    else if (r.rows[0].inserted) imported++;
+    else updated++;
   }
-  res.json({ ok: true, imported, skipped });
+  // `skipped` kept for backward compatibility (= unchanged duplicates).
+  res.json({ ok: true, imported, updated, unchanged, skipped: unchanged });
 }));
 
 app.delete('/api/closed/:id', safe(async (req, res) => {
