@@ -3,6 +3,51 @@
   let closed = []; // [{ id, data: {col: value} }]
 
   function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  function escAttr(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+  // ----- Column type detection -----
+  function isEmailField(h) { return /e-?mail/i.test(h); }
+  function isPhoneField(h) { return /phone|mobile|\bcell\b|\btel\b/i.test(h); }
+  function detectColumn(cols, patterns) {
+    for (const p of patterns) { const c = cols.find(col => p.test(col)); if (c) return c; }
+    return null;
+  }
+  // Curated, leads-like subset of columns for the table (the modal shows all).
+  function pickColumns(allCols) {
+    const used = new Set(), out = [];
+    const add = (c) => { if (c && !used.has(c)) { used.add(c); out.push(c); } };
+    add(detectColumn(allCols, [/^primary borrower$/i, /borrower name/i, /full name/i, /^name$/i, /^customer$/i, /^client$/i]) || allCols[0]);
+    [
+      [/e-?mail/i], [/phone|mobile|\bcell\b/i],
+      [/loan purpose|^purpose$/i], [/total loan amount|loan amount|^amount$/i],
+      [/stage name|^stage$|^status$/i], [/subject state|^state$/i],
+      [/loan officer name|officer name|^owner$/i], [/loan funded|closing date|funding date/i]
+    ].forEach(pats => add(detectColumn(allCols, pats)));
+    for (const c of allCols) { if (out.length >= 7) break; add(c); }
+    return out.slice(0, 7);
+  }
+  // The name column / value (for the modal title + clickable cell).
+  function nameColumn(allCols) {
+    return detectColumn(allCols, [/^primary borrower$/i, /borrower name/i, /full name/i, /^name$/i, /^customer$/i, /^client$/i]) || allCols[0];
+  }
+
+  // ----- Action buttons (call / email) used in the detail modal -----
+  function gmailChooser(to) {
+    const compose = 'https://mail.google.com/mail/?view=cm&fs=1&to=' + encodeURIComponent(to);
+    return 'https://accounts.google.com/AccountChooser?continue=' + encodeURIComponent(compose);
+  }
+  function actionFor(header, value) {
+    if (!value) return '';
+    if (isEmailField(header)) {
+      return `<button class="btn-icon" title="Send email" data-email="${escAttr(value)}" style="width:28px;height:28px;">
+        <i data-lucide="mail" style="width:13px;height:13px;color:#6D5BFF;pointer-events:none;"></i></button>`;
+    }
+    if (isPhoneField(header)) {
+      return `<button class="btn-icon" title="Call" data-call="${escAttr(value)}" style="width:28px;height:28px;">
+        <i data-lucide="phone" style="width:13px;height:13px;color:#6D5BFF;pointer-events:none;"></i></button>`;
+    }
+    return '';
+  }
 
   // ----- CSV parsing (handles quoted fields, commas, and newlines in quotes) -----
   function parseCSV(text) {
@@ -82,7 +127,9 @@
       return;
     }
 
-    const cols = computeColumns();
+    const allCols = computeColumns();
+    const cols = pickColumns(allCols);
+    const nameCol = nameColumn(allCols);
     table.innerHTML = `
       <thead>
         <tr>${cols.map(c => `<th>${esc(c)}</th>`).join('')}<th>Action</th></tr>
@@ -90,7 +137,13 @@
       <tbody>
         ${closed.map(r => `
           <tr>
-            ${cols.map(c => `<td class="${c === cols[0] ? 'font-semibold' : 'text-muted'}">${esc(r.data ? r.data[c] : '') || '<span class="text-soft">—</span>'}</td>`).join('')}
+            ${cols.map(c => {
+              const val = r.data ? r.data[c] : '';
+              if (c === nameCol) {
+                return `<td><span class="font-semibold" data-view-id="${r.id}" style="cursor:pointer;color:var(--accent);">${esc(val) || '(no name)'}</span></td>`;
+              }
+              return `<td class="text-muted">${esc(val) || '<span class="text-soft">—</span>'}</td>`;
+            }).join('')}
             <td>
               <button class="btn-icon" title="Remove" data-del="${r.id}" style="width:30px;height:30px;border:none;">
                 <i data-lucide="trash-2" style="width:14px;height:14px;color:#D63333;pointer-events:none;"></i>
@@ -100,6 +153,28 @@
       </tbody>`;
     if (window.lucide) lucide.createIcons();
   }
+
+  // ----- Detail modal: all imported fields, with call/email buttons -----
+  function openDetail(rec) {
+    const data = rec.data || {};
+    const keys = Object.keys(data);
+    const nameCol = nameColumn(keys);
+    document.getElementById('closed-detail-title').textContent = data[nameCol] || 'Closed lead';
+    document.getElementById('closed-detail-body').innerHTML = keys.map(k => {
+      const v = data[k];
+      const action = actionFor(k, v);
+      return `
+        <div class="flex items-start justify-between gap-3 py-2" style="border-bottom:1px solid var(--border-soft);">
+          <span class="text-[12px] text-muted flex-shrink-0" style="max-width:42%;">${esc(k)}</span>
+          <span class="text-[13px] font-medium text-right" style="word-break:break-word;display:flex;align-items:center;gap:6px;justify-content:flex-end;">
+            ${esc(v) || '<span class="text-soft">—</span>'}${action}
+          </span>
+        </div>`;
+    }).join('');
+    document.getElementById('closed-detail-modal').classList.remove('hidden');
+    if (window.lucide) lucide.createIcons();
+  }
+  function closeDetail() { document.getElementById('closed-detail-modal').classList.add('hidden'); }
 
   function setMsg(text, ok) {
     const el = document.getElementById('closed-msg');
@@ -141,6 +216,12 @@
     });
 
     document.getElementById('closed-table').addEventListener('click', async e => {
+      const view = e.target.closest('[data-view-id]');
+      if (view) {
+        const rec = closed.find(r => String(r.id) === view.getAttribute('data-view-id'));
+        if (rec) openDetail(rec);
+        return;
+      }
       const del = e.target.closest('[data-del]');
       if (!del) return;
       const id = del.getAttribute('data-del');
@@ -151,6 +232,16 @@
       } catch (err) { window.alert('Network error.'); return; }
       closed = closed.filter(r => String(r.id) !== String(id));
       render();
+    });
+
+    // Detail modal controls + call/email actions.
+    document.getElementById('closed-detail-close').addEventListener('click', closeDetail);
+    document.getElementById('closed-detail-backdrop').addEventListener('click', closeDetail);
+    document.getElementById('closed-detail-body').addEventListener('click', e => {
+      const callBtn = e.target.closest('[data-call]');
+      if (callBtn) { const tel = LF.telLink(callBtn.getAttribute('data-call')); if (tel) window.location.href = tel; return; }
+      const emailBtn = e.target.closest('[data-email]');
+      if (emailBtn) { window.open(gmailChooser(emailBtn.getAttribute('data-email')), '_blank'); return; }
     });
   }
 

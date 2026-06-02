@@ -1143,12 +1143,19 @@ app.post('/api/assignments/outcomes/:id/seen', safe(async (req, res) => {
 }));
 
 // ----- Previously closed leads (CSV import) -----
-// Dedupe by email when present, else by a hash of the whole normalized row.
+// Dedupe by email, else a loan/record id (not the officer's NMLS, which
+// repeats across rows), else a hash of the whole normalized row.
 function closedDedupeKey(row) {
-  for (const [k, v] of Object.entries(row)) {
+  const entries = Object.entries(row);
+  for (const [k, v] of entries) {
     if (/e-?mail/i.test(k) && v != null && String(v).trim()) return 'email:' + String(v).trim().toLowerCase();
   }
-  const norm = Object.entries(row)
+  for (const [k, v] of entries) {
+    if (/(loan\s*id|loan\s*number|loan\s*#|record\s*id|^id$)/i.test(k) && !/nmls/i.test(k) && v != null && String(v).trim()) {
+      return 'id:' + String(k).toLowerCase() + ':' + String(v).trim().toLowerCase();
+    }
+  }
+  const norm = entries
     .map(([k, v]) => String(k).toLowerCase() + '=' + String(v == null ? '' : v).trim().toLowerCase())
     .join('|');
   return 'row:' + crypto.createHash('sha1').update(norm).digest('hex');
