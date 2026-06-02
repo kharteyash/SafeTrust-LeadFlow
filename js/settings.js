@@ -32,15 +32,12 @@
 
   const SECTIONS = [
     { id: 'profile',         label: 'Profile',             icon: 'user-circle' },
-    { id: 'integrations',    label: 'Integrations',        icon: 'plug' },
     { id: 'roles',           label: 'Roles & Permissions', icon: 'shield' },
     { id: 'notifications',   label: 'Notifications',       icon: 'bell' },
     { id: 'changepassword',  label: 'Change Password',     icon: 'key-round' }
   ];
 
-  // Open the Integrations section directly when returning from Google OAuth.
-  const gmailParam = new URLSearchParams(window.location.search).get('gmail');
-  const state = { section: gmailParam ? 'integrations' : 'profile' };
+  const state = { section: 'profile' };
 
   // ----- Section nav -----
   function renderNav() {
@@ -568,7 +565,18 @@
     }));
   }
 
-  // ----- Notifications -----
+  // ----- Notifications (preferences persisted in localStorage) -----
+  function notifPrefs() {
+    try { return JSON.parse(localStorage.getItem('lf-notif-prefs') || '{}'); } catch (e) { return {}; }
+  }
+  function saveNotifPref(gid, iid, on) {
+    const p = notifPrefs(); p[gid + '.' + iid] = !!on;
+    try { localStorage.setItem('lf-notif-prefs', JSON.stringify(p)); } catch (e) {}
+  }
+  function notifItemOn(gid, it) {
+    const p = notifPrefs(), k = gid + '.' + it.id;
+    return (k in p) ? !!p[k] : !!it.on; // saved value, else the default
+  }
   function renderNotifications() {
     const groups = NOTIFICATION_GROUPS.map(g => `
       <div class="mb-6">
@@ -583,7 +591,7 @@
                 <div class="text-[13.5px] font-medium">${it.label}</div>
                 <div class="text-[12.5px] text-muted">${it.desc}</div>
               </div>
-              <div class="lf-switch ${it.on ? 'on' : ''}" data-group="${g.id}" data-item="${it.id}"></div>
+              <div class="lf-switch ${notifItemOn(g.id, it) ? 'on' : ''}" data-group="${g.id}" data-item="${it.id}"></div>
             </div>
           `).join('')}
         </div>
@@ -602,12 +610,9 @@
   function bindToggles() {
     document.querySelectorAll('#settings-content .lf-switch').forEach(el => {
       el.addEventListener('click', () => {
-        const gid = el.dataset.group, iid = el.dataset.item;
-        const group = NOTIFICATION_GROUPS.find(g => g.id === gid);
-        const item = group && group.items.find(i => i.id === iid);
-        if (!item) return;
-        item.on = !item.on;
-        el.classList.toggle('on', item.on);
+        const newOn = !el.classList.contains('on');
+        el.classList.toggle('on', newOn);
+        saveNotifPref(el.dataset.group, el.dataset.item, newOn);
       });
     });
   }
@@ -705,16 +710,14 @@
     const out = document.getElementById('settings-content');
     const map = {
       profile:        renderProfile,
-      integrations:   renderIntegrations,
       roles:          renderRoles,
       notifications:  renderNotifications,
       changepassword: renderChangePassword
     };
-    out.innerHTML = map[state.section]();
+    out.innerHTML = (map[state.section] || renderProfile)();
 
     // Section-specific bindings.
     if (state.section === 'profile')        bindProfile();
-    if (state.section === 'integrations')   bindIntegrations();
     if (state.section === 'roles')          bindRoles();
     if (state.section === 'notifications')  bindToggles();
     if (state.section === 'changepassword') bindChangePassword();
