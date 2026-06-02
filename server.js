@@ -971,19 +971,27 @@ function leadRowToJson(r) {
     realtorStatus: r.realtor_status || 'none', realtorName: r.realtor_name || '',
     realtorEmail: r.realtor_email || '', realtorPhone: r.realtor_phone || '',
     assignedByName: r.assigned_by_name || '',
+    ownerUserName: r.owner_user_name || '',
     last: 'Just now', created: r.created_at
   };
 }
 
 app.get('/api/leads', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  // The admin (superuser) sees every lead across all users and team leaders;
+  // everyone else sees only their own. The owning user's name is joined in so
+  // the admin view can tag each lead with a "lead owner" pill.
+  const isAdmin = req.user.role === 'admin';
   const rows = await q(`
     SELECT le.id, le.name, le.email, le.phone, le.timeline, le.score, le.owner, le.notes, le.state,
            le.preapproved, le.lead_type, le.refi_type, le.realtor_status, le.realtor_name, le.realtor_email, le.realtor_phone,
-           le.created_at, ab.name AS assigned_by_name
-    FROM leads le LEFT JOIN users ab ON ab.id = le.assigned_by
-    WHERE le.user_id = $1 ORDER BY le.id DESC
-  `, [req.user.id]);
+           le.created_at, ab.name AS assigned_by_name, ou.name AS owner_user_name
+    FROM leads le
+    LEFT JOIN users ab ON ab.id = le.assigned_by
+    LEFT JOIN users ou ON ou.id = le.user_id
+    ${isAdmin ? '' : 'WHERE le.user_id = $1'}
+    ORDER BY le.id DESC
+  `, isAdmin ? [] : [req.user.id]);
   res.json(rows.map(leadRowToJson));
 }));
 
@@ -1231,7 +1239,9 @@ app.post('/api/assignments/:id/respond', safe(async (req, res) => {
     WHERE id=$1 AND to_user_id=$2 AND status='pending' RETURNING lead_id, from_user_id, group_id`, [id, req.user.id]);
   if (!claimed) return res.status(409).json({ error: 'This lead was already taken.' });
 
-  await q('UPDATE leads SET user_id=$1, owner=$2, assigned_by=$3 WHERE id=$4',
+  // A forwarded/assigned lead is automatically treated as high priority: bump
+  // its score into the "hot" tier (>=80) without ever lowering an already-high one.
+  await q('UPDATE leads SET user_id=$1, owner=$2, assigned_by=$3, score=GREATEST(COALESCE(score,0), 90) WHERE id=$4',
     [req.user.id, req.user.name, claimed.from_user_id, claimed.lead_id]);
   await q(`UPDATE lead_assignments SET status='cancelled' WHERE group_id=$1 AND status='pending' AND id<>$2`, [claimed.group_id, id]);
   res.json({ ok: true, status: 'accepted' });

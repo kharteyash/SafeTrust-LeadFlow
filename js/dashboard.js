@@ -257,12 +257,27 @@
       </div>`).join('');
   }
 
+  // ----- Header date range (current week, Sunday–Saturday) -----
+  function renderDateRange() {
+    const el = document.getElementById('dash-date-range');
+    if (!el) return;
+    const MS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay());
+    const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6);
+    const left = `${MS[start.getMonth()]} ${start.getDate()}`;
+    const right = start.getMonth() === end.getMonth()
+      ? `${end.getDate()}` : `${MS[end.getMonth()]} ${end.getDate()}`;
+    el.textContent = `${left} – ${right}, ${end.getFullYear()}`;
+  }
+
   // ----- Mount -----
   document.addEventListener('DOMContentLoaded', async function () {
     await LF.renderLayout({ active: 'dashboard' });
     const first = ((LF_DATA.user && LF_DATA.user.name) || '').split(' ')[0] || 'there';
     const wm = document.getElementById('welcome-msg');
     if (wm) wm.textContent = `Welcome back, ${first}! Here's what's happening with your leads.`;
+    renderDateRange();
 
     await loadAll();
     renderStatCards();

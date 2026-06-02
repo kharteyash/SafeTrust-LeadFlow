@@ -17,6 +17,9 @@
     pageSize: 10
   };
 
+  // The admin (superuser) sees every user's leads, each tagged with an owner pill.
+  const isAdmin = !!(D.user && D.user.rawRole === 'admin');
+
   // Working list = the user's saved leads (DB) + demo leads. Loaded on mount.
   // Each gets a client-side _uid so any row can be referenced for deletion.
   let leadUid = 0;
@@ -100,7 +103,8 @@
         l.name.toLowerCase().includes(q) ||
         l.email.toLowerCase().includes(q) ||
         l.phone.toLowerCase().includes(q) ||
-        l.owner.toLowerCase().includes(q)
+        l.owner.toLowerCase().includes(q) ||
+        (l.ownerUserName || '').toLowerCase().includes(q)
       );
     });
   }
@@ -137,7 +141,7 @@
         <tbody>
           ${pageRows.map(l => `
             <tr>
-              <td><span class="font-semibold" data-view-uid="${l._uid}" style="cursor:pointer;color:var(--accent);">${l.name}</span>${l.preapproved ? ' <span class="pill pill-green" style="font-size:10px;">Pre-approved</span>' : ''}${l.assignedByName ? ` <span class="pill pill-blue" style="font-size:10px;">From ${esc(l.assignedByName)}</span>` : ''}</td>
+              <td><span class="font-semibold" data-view-uid="${l._uid}" style="cursor:pointer;color:var(--accent);">${l.name}</span>${l.preapproved ? ' <span class="pill pill-green" style="font-size:10px;">Pre-approved</span>' : ''}${l.assignedByName ? ` <span class="pill pill-blue" style="font-size:10px;">From ${esc(l.assignedByName)}</span>` : ''}${isAdmin && l.ownerUserName ? ` <span class="pill pill-purple" style="font-size:10px;">${esc(l.ownerUserName)}</span>` : ''}</td>
               <td class="text-muted">${l.email}</td>
               <td>${l.phone}</td>
               <td><span class="pill ${LF.timelinePill(l.timeline)}">${l.timeline}</span></td>
