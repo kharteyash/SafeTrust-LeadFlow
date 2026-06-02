@@ -106,9 +106,11 @@ const SCHEMA = `
     outcome     TEXT NOT NULL,
     notes       TEXT,
     agent       TEXT,
+    is_realtor  BOOLEAN DEFAULT false,
     logged_at   TEXT NOT NULL,
     created_at  TIMESTAMPTZ DEFAULT now()
   );
+  ALTER TABLE call_log ADD COLUMN IF NOT EXISTS is_realtor BOOLEAN DEFAULT false;
 
   CREATE TABLE IF NOT EXISTS scheduled_messages (
     id          SERIAL PRIMARY KEY,
@@ -617,13 +619,13 @@ function shortName(name) {
 app.get('/api/call-log', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
   const rows = await q(`
-    SELECT id, name, phone, direction, duration, outcome, notes, agent, logged_at
+    SELECT id, name, phone, direction, duration, outcome, notes, agent, is_realtor, logged_at
     FROM call_log WHERE user_id = $1 ORDER BY id DESC
   `, [req.user.id]);
   res.json(rows.map(r => ({
     id: r.id, name: r.name, phone: r.phone || '', direction: r.direction || 'outbound',
     duration: r.duration || '0:00', outcome: r.outcome, notes: r.notes || '—',
-    agent: r.agent || '', date: r.logged_at
+    agent: r.agent || '', isRealtor: !!r.is_realtor, date: r.logged_at
   })));
 }));
 
@@ -637,15 +639,16 @@ app.post('/api/call-log', safe(async (req, res) => {
   const loggedAt = fmtCallDate(new Date());
   const dur = (duration || '0:00').trim() || '0:00';
   const note = (notes || '').trim() || '—';
+  const isRealtor = (req.body || {}).isRealtor === true;
 
   const row = await one(`
-    INSERT INTO call_log (user_id, name, phone, direction, duration, outcome, notes, agent, logged_at)
-    VALUES ($1, $2, $3, 'outbound', $4, $5, $6, $7, $8) RETURNING id
-  `, [req.user.id, name.trim(), (phone || '').trim(), dur, outcome, note, agent, loggedAt]);
+    INSERT INTO call_log (user_id, name, phone, direction, duration, outcome, notes, agent, is_realtor, logged_at)
+    VALUES ($1, $2, $3, 'outbound', $4, $5, $6, $7, $8, $9) RETURNING id
+  `, [req.user.id, name.trim(), (phone || '').trim(), dur, outcome, note, agent, isRealtor, loggedAt]);
 
   res.json({
     id: row.id, name: name.trim(), phone: (phone || '').trim(), direction: 'outbound',
-    duration: dur, outcome, notes: note, agent, date: loggedAt
+    duration: dur, outcome, notes: note, agent, isRealtor, date: loggedAt
   });
 }));
 

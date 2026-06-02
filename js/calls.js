@@ -268,6 +268,7 @@
             <i data-lucide="${c.direction === 'inbound' ? 'phone-incoming' : 'phone-outgoing'}"
                style="width:14px;height:14px;color:${c.direction === 'inbound' ? '#2B57D9' : '#138A4B'};"></i>
             <span class="font-semibold text-[13px]">${esc(c.name)}</span>
+            ${c.isRealtor ? '<span class="pill pill-purple" style="font-size:10px;">Realtor</span>' : ''}
           </div>
         </td>
         <td class="text-muted">${esc(c.date)}</td>

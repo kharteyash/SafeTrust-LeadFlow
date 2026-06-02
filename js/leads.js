@@ -24,6 +24,7 @@
   let leads = [];
 
   function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  function escAttr(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 
   // Assignment / forwarding state (works for team leaders and members).
   let canAssign = false;
@@ -346,7 +347,9 @@
         rows.push(detailRow('Realtor email', esc(lead.realtorEmail) || '—'));
         const rTel = lead.realtorPhone ? LF.telLink(lead.realtorPhone) : '';
         const rPhoneVal = (lead.realtorPhone && rTel)
-          ? `<a href="${rTel}" title="Call realtor" style="color:var(--accent);font-weight:600;display:inline-flex;align-items:center;gap:4px;"><i data-lucide="phone" style="width:13px;height:13px;"></i>${esc(lead.realtorPhone)}</a>`
+          ? `<button type="button" data-call-realtor="${escAttr(lead.realtorPhone)}" data-realtor-name="${escAttr(lead.realtorName || 'Realtor')}" title="Call realtor & log it"
+               style="color:var(--accent);font-weight:600;display:inline-flex;align-items:center;gap:4px;cursor:pointer;background:none;border:none;padding:0;">
+               <i data-lucide="phone" style="width:13px;height:13px;pointer-events:none;"></i>${esc(lead.realtorPhone)}</button>`
           : (esc(lead.realtorPhone) || '—');
         rows.push(detailRow('Realtor phone', rPhoneVal));
       }
@@ -374,6 +377,62 @@
     if (window.lucide) lucide.createIcons();
   }
   function closeLeadDetail() { document.getElementById('lead-detail-modal').classList.add('hidden'); }
+
+  // ----- Log a realtor call (dial + log into Call History, flagged Realtor) -----
+  let realtorCallName = '', realtorCallPhone = '';
+  function openRealtorCallModal(name, phone) {
+    realtorCallName = name || 'Realtor';
+    realtorCallPhone = phone || '';
+    document.getElementById('realtor-call-name').textContent = realtorCallName;
+    const form = document.getElementById('realtor-call-form');
+    form.reset();
+    form.elements['outcome'].value = 'Connected';
+    form.elements['duration'].value = '0:00';
+    document.getElementById('realtor-call-msg').textContent = '';
+    document.getElementById('realtor-call-modal').classList.remove('hidden');
+  }
+  function closeRealtorCallModal() { document.getElementById('realtor-call-modal').classList.add('hidden'); }
+  function bindRealtorCall() {
+    document.getElementById('realtor-call-close').addEventListener('click', closeRealtorCallModal);
+    document.getElementById('realtor-call-cancel').addEventListener('click', closeRealtorCallModal);
+    document.getElementById('realtor-call-backdrop').addEventListener('click', closeRealtorCallModal);
+
+    // Clicking a realtor phone in the details modal: dial + open the log modal.
+    document.getElementById('lead-detail-body').addEventListener('click', e => {
+      const btn = e.target.closest('[data-call-realtor]');
+      if (!btn) return;
+      const phone = btn.getAttribute('data-call-realtor');
+      const name = btn.getAttribute('data-realtor-name') || 'Realtor';
+      const tel = LF.telLink(phone);
+      if (tel) window.location.href = tel;
+      closeLeadDetail();
+      openRealtorCallModal(name, phone);
+    });
+
+    const form = document.getElementById('realtor-call-form');
+    const msg = document.getElementById('realtor-call-msg');
+    form.addEventListener('submit', async e => {
+      e.preventDefault();
+      msg.textContent = '';
+      const data = Object.fromEntries(new FormData(form));
+      const btn = form.querySelector('button[type="submit"]');
+      btn.disabled = true; btn.style.opacity = '0.7';
+      try {
+        const res = await fetch('/api/call-log', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+          body: JSON.stringify({
+            name: realtorCallName, phone: realtorCallPhone,
+            outcome: data.outcome, duration: data.duration || '0:00', notes: data.notes || '', isRealtor: true
+          })
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) { msg.textContent = body.error || `Request failed (HTTP ${res.status}).`; return; }
+        closeRealtorCallModal();
+        window.alert('Realtor call logged to Call History.');
+      } catch (err) { msg.textContent = 'Network error. Is the server running?'; }
+      finally { btn.disabled = false; btn.style.opacity = ''; }
+    });
+  }
 
   // ----- Close a lead (move it to Previously Closed) -----
   let closingLeadId = null;
@@ -684,6 +743,7 @@
     bindDeleteLead();
     bindAssign();
     bindCloseLead();
+    bindRealtorCall();
     bindExport();
     if (window.lucide) lucide.createIcons();
   });
