@@ -165,6 +165,7 @@ const SCHEMA = `
   ALTER TABLE leads ADD COLUMN IF NOT EXISTS realtor_name TEXT;
   ALTER TABLE leads ADD COLUMN IF NOT EXISTS realtor_email TEXT;
   ALTER TABLE leads ADD COLUMN IF NOT EXISTS realtor_phone TEXT;
+  ALTER TABLE leads ADD COLUMN IF NOT EXISTS state TEXT;
   ALTER TABLE leads ADD COLUMN IF NOT EXISTS assigned_by INTEGER REFERENCES users(id) ON DELETE SET NULL;
 
   -- Lead assignments from a team leader to members (one or all), with accept/reject.
@@ -895,6 +896,16 @@ app.delete('/api/scheduled/:id', safe(async (req, res) => {
 
 // ----- Leads -----
 const LEAD_TIMELINES = ['Buying Immediately', '1-3 Months', '3-6 Months', '6+ Months'];
+const US_STATES = [
+  'Alabama','Alaska','Arizona','Arkansas','California','Colorado','Connecticut','Delaware',
+  'District of Columbia','Florida','Georgia','Hawaii','Idaho','Illinois','Indiana','Iowa','Kansas',
+  'Kentucky','Louisiana','Maine','Maryland','Massachusetts','Michigan','Minnesota','Mississippi',
+  'Missouri','Montana','Nebraska','Nevada','New Hampshire','New Jersey','New Mexico','New York',
+  'North Carolina','North Dakota','Ohio','Oklahoma','Oregon','Pennsylvania','Rhode Island',
+  'South Carolina','South Dakota','Tennessee','Texas','Utah','Vermont','Virginia','Washington',
+  'West Virginia','Wisconsin','Wyoming'
+];
+const normalizeState = (s) => (US_STATES.includes(s) ? s : '');
 const LEAD_TYPES = ['Purchase', 'Refinance'];
 const REFI_TYPES = ['Rate & Term', 'Cash Out'];
 const REALTOR_STATUSES = ['has', 'unavailable', 'none'];
@@ -931,6 +942,7 @@ function leadRowToJson(r) {
   return {
     id: r.id, name: r.name, email: r.email || '', phone: r.phone || '',
     timeline: r.timeline, score: r.score, owner: r.owner || '', notes: r.notes || '',
+    state: r.state || '',
     preapproved: !!r.preapproved, leadType: r.lead_type || 'Purchase', refiType: r.refi_type || '',
     realtorStatus: r.realtor_status || 'none', realtorName: r.realtor_name || '',
     realtorEmail: r.realtor_email || '', realtorPhone: r.realtor_phone || '',
@@ -942,7 +954,7 @@ function leadRowToJson(r) {
 app.get('/api/leads', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
   const rows = await q(`
-    SELECT le.id, le.name, le.email, le.phone, le.timeline, le.score, le.owner, le.notes,
+    SELECT le.id, le.name, le.email, le.phone, le.timeline, le.score, le.owner, le.notes, le.state,
            le.preapproved, le.lead_type, le.refi_type, le.realtor_status, le.realtor_name, le.realtor_email, le.realtor_phone,
            le.created_at, ab.name AS assigned_by_name
     FROM leads le LEFT JOIN users ab ON ab.id = le.assigned_by
@@ -959,17 +971,18 @@ app.post('/api/leads', safe(async (req, res) => {
   if (!LEAD_TIMELINES.includes(timeline)) return res.status(400).json({ error: 'Invalid buying timeline.' });
 
   const f = normalizeLeadType(req.body || {});
+  const state = normalizeState((req.body || {}).state);
   const score = computeLeadScore(timeline, phone, f.leadType, f.refiType);
   const row = await one(`
-    INSERT INTO leads (user_id, name, email, phone, timeline, score, owner, notes,
+    INSERT INTO leads (user_id, name, email, phone, timeline, score, owner, notes, state,
                        preapproved, lead_type, refi_type, realtor_status, realtor_name, realtor_email, realtor_phone)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id
-  `, [req.user.id, name.trim(), email.trim(), (phone || '').trim(), timeline, score, (owner || '').trim(), (notes || '').trim(),
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id
+  `, [req.user.id, name.trim(), email.trim(), (phone || '').trim(), timeline, score, (owner || '').trim(), (notes || '').trim(), state,
       f.preapproved, f.leadType, f.refiType, f.realtorStatus, f.realtorName, f.realtorEmail, f.realtorPhone]);
 
   res.json(leadRowToJson({
     id: row.id, name: name.trim(), email: email.trim(), phone: (phone || '').trim(),
-    timeline, score, owner: (owner || '').trim(), notes: (notes || '').trim(),
+    timeline, score, owner: (owner || '').trim(), notes: (notes || '').trim(), state,
     preapproved: f.preapproved, lead_type: f.leadType, refi_type: f.refiType,
     realtor_status: f.realtorStatus, realtor_name: f.realtorName, realtor_email: f.realtorEmail, realtor_phone: f.realtorPhone
   }));
@@ -979,7 +992,7 @@ app.patch('/api/leads/:id', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid lead id.' });
-  const cur = await one(`SELECT name, email, phone, timeline, owner, notes,
+  const cur = await one(`SELECT name, email, phone, timeline, owner, notes, state,
     preapproved, lead_type, refi_type, realtor_status, realtor_name, realtor_email, realtor_phone
     FROM leads WHERE id = $1 AND user_id = $2`, [id, req.user.id]);
   if (!cur) return res.status(404).json({ error: 'Lead not found.' });
@@ -991,6 +1004,7 @@ app.patch('/api/leads/:id', safe(async (req, res) => {
   const timeline = b.timeline != null ? b.timeline             : cur.timeline;
   const owner    = b.owner    != null ? String(b.owner).trim() : (cur.owner || '');
   const notes    = b.notes    != null ? String(b.notes).trim() : (cur.notes || '');
+  const state    = b.state    != null ? normalizeState(b.state) : (cur.state || '');
   if (!name)  return res.status(400).json({ error: 'Name is required.' });
   if (!email) return res.status(400).json({ error: 'Email is required.' });
   if (!LEAD_TIMELINES.includes(timeline)) return res.status(400).json({ error: 'Invalid buying timeline.' });
@@ -1006,14 +1020,14 @@ app.patch('/api/leads/:id', safe(async (req, res) => {
     preapproved:   b.preapproved   != null ? b.preapproved   : cur.preapproved
   });
   const score = computeLeadScore(timeline, phone, f.leadType, f.refiType);
-  await pool.query(`UPDATE leads SET name=$1, email=$2, phone=$3, timeline=$4, owner=$5, notes=$6, score=$7,
-      preapproved=$8, lead_type=$9, refi_type=$10, realtor_status=$11, realtor_name=$12, realtor_email=$13, realtor_phone=$14
-      WHERE id=$15 AND user_id=$16`,
-    [name, email, phone, timeline, owner, notes, score,
+  await pool.query(`UPDATE leads SET name=$1, email=$2, phone=$3, timeline=$4, owner=$5, notes=$6, score=$7, state=$8,
+      preapproved=$9, lead_type=$10, refi_type=$11, realtor_status=$12, realtor_name=$13, realtor_email=$14, realtor_phone=$15
+      WHERE id=$16 AND user_id=$17`,
+    [name, email, phone, timeline, owner, notes, score, state,
      f.preapproved, f.leadType, f.refiType, f.realtorStatus, f.realtorName, f.realtorEmail, f.realtorPhone, id, req.user.id]);
 
   res.json(leadRowToJson({
-    id, name, email, phone, timeline, score, owner, notes,
+    id, name, email, phone, timeline, score, owner, notes, state,
     preapproved: f.preapproved, lead_type: f.leadType, refi_type: f.refiType,
     realtor_status: f.realtorStatus, realtor_name: f.realtorName, realtor_email: f.realtorEmail, realtor_phone: f.realtorPhone
   }));

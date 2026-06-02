@@ -293,6 +293,7 @@
       form.elements['phone'].value = lead.phone || '';
       form.elements['owner'].value = lead.owner || '';
       form.elements['timeline'].value = lead.timeline || 'Buying Immediately';
+      form.elements['state'].value = lead.state || '';
       form.elements['notes'].value = lead.notes || '';
       form.elements['lead_type'].value = lead.leadType || 'Purchase';
       form.elements['refi_type'].value = lead.refiType || 'Rate & Term';
@@ -346,6 +347,7 @@
         rows.push(detailRow('Realtor phone', esc(lead.realtorPhone) || '—'));
       }
     }
+    rows.push(detailRow('State', esc(lead.state) || '—'));
     rows.push(detailRow('Owner', esc(lead.owner) || '—'));
 
     const notesBlock = lead.notes
@@ -401,6 +403,7 @@
       const payload = {
         name: data.name, email: data.email, phone: data.phone || '',
         timeline: data.timeline, owner: data.owner || '', notes: data.notes || '',
+        state: data.state || '',
         preapproved: data.preapproved === 'yes',
         leadType: data.lead_type,
         refiType: data.refi_type,
@@ -421,7 +424,7 @@
           if (!res.ok) { msg.textContent = body.error || `Request failed (HTTP ${res.status}).`; return; }
           Object.assign(lead, {
             name: body.name, email: body.email, phone: body.phone,
-            timeline: body.timeline, owner: body.owner, notes: body.notes, score: body.score,
+            timeline: body.timeline, owner: body.owner, notes: body.notes, score: body.score, state: body.state,
             preapproved: body.preapproved, leadType: body.leadType, refiType: body.refiType,
             realtorStatus: body.realtorStatus, realtorName: body.realtorName,
             realtorEmail: body.realtorEmail, realtorPhone: body.realtorPhone
