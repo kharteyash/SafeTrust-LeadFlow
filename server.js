@@ -63,11 +63,13 @@ const SCHEMA = `
     bio           TEXT,
     role          TEXT DEFAULT 'user',
     leader_id     INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    photo         TEXT,
     created_at    TIMESTAMPTZ DEFAULT now()
   );
   CREATE UNIQUE INDEX IF NOT EXISTS users_email_lower_idx ON users (lower(email));
   ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'user';
   ALTER TABLE users ADD COLUMN IF NOT EXISTS leader_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS photo TEXT;
 
   -- Team join invitations (a leader invites a user; the user accepts/rejects).
   CREATE TABLE IF NOT EXISTS team_invites (
@@ -257,7 +259,7 @@ async function createSession(userId) {
 async function loadUserFromSession(sid) {
   if (!sid) return null;
   const row = await one(`
-    SELECT u.id, u.email, u.name, u.phone, u.title, u.bio, u.role, u.leader_id,
+    SELECT u.id, u.email, u.name, u.phone, u.title, u.bio, u.role, u.leader_id, u.photo,
            l.name AS leader_name
     FROM sessions s JOIN users u ON u.id = s.user_id
     LEFT JOIN users l ON l.id = u.leader_id
@@ -267,7 +269,8 @@ async function loadUserFromSession(sid) {
   return {
     id: row.id, email: row.email, name: row.name,
     phone: row.phone || '', title: row.title || '', bio: row.bio || '',
-    role: row.role || 'user', leaderId: row.leader_id || null, leaderName: row.leader_name || ''
+    role: row.role || 'user', leaderId: row.leader_id || null, leaderName: row.leader_name || '',
+    photo: row.photo || ''
   };
 }
 
@@ -425,6 +428,20 @@ app.post('/api/change-password', safe(async (req, res) => {
   const newHash = bcrypt.hashSync(newPassword, 10);
   await q('UPDATE users SET password_hash = $1 WHERE id = $2', [newHash, req.user.id]);
   res.json({ ok: true });
+}));
+
+// Set or remove the profile photo (a small resized data URL, or empty to clear).
+app.post('/api/profile/photo', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  let photo = (req.body && req.body.photo) ? String(req.body.photo) : '';
+  if (photo) {
+    if (!/^data:image\/(png|jpeg|jpg|webp|gif);base64,/.test(photo)) {
+      return res.status(400).json({ error: 'Photo must be a PNG, JPG, WebP, or GIF image.' });
+    }
+    if (photo.length > 700000) return res.status(400).json({ error: 'Image is too large after processing.' });
+  }
+  await q('UPDATE users SET photo = $1 WHERE id = $2', [photo || null, req.user.id]);
+  res.json({ ok: true, photo });
 }));
 
 // ----- Roles, teams & invitations -----

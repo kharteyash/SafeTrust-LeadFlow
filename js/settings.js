@@ -68,15 +68,16 @@
       <form id="profile-form">
         <!-- Photo -->
         <div class="flex items-center gap-4 mb-6">
-          <div class="avatar avatar-lg" style="width:64px;height:64px;font-size:20px;">${u.initials}</div>
+          <div id="profile-avatar" class="avatar avatar-lg" style="width:64px;height:64px;font-size:20px;${u.photo ? `background-image:url('${u.photo}');background-size:cover;background-position:center;` : ''}">${u.photo ? '' : u.initials}</div>
+          <input id="photo-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif" class="hidden" />
           <div class="flex flex-col gap-2">
             <div class="flex items-center gap-2">
-              <button type="button" class="btn-primary" style="padding:7px 14px;font-size:13px;">
+              <button type="button" id="photo-upload-btn" class="btn-primary" style="padding:7px 14px;font-size:13px;">
                 <i data-lucide="upload" style="width:13px;height:13px;"></i> Upload new photo
               </button>
-              <button type="button" class="btn-secondary" style="padding:7px 14px;font-size:13px;">Remove</button>
+              <button type="button" id="photo-remove-btn" class="btn-secondary" style="padding:7px 14px;font-size:13px;">Remove</button>
             </div>
-            <span class="text-[12px] text-soft">PNG or JPG, max 2MB.</span>
+            <span id="photo-msg" class="text-[12px] text-soft">PNG, JPG, WebP, or GIF.</span>
           </div>
         </div>
 
@@ -115,10 +116,77 @@
     `;
   }
 
+  // Resize an image file to a small square-ish JPEG data URL (longest side = max).
+  function resizeImageToDataUrl(file, max) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('read'));
+      reader.onload = () => {
+        const img = new Image();
+        img.onerror = () => reject(new Error('decode'));
+        img.onload = () => {
+          const scale = Math.min(1, max / Math.max(img.width, img.height));
+          const w = Math.max(1, Math.round(img.width * scale)), h = Math.max(1, Math.round(img.height * scale));
+          const canvas = document.createElement('canvas');
+          canvas.width = w; canvas.height = h;
+          canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+          resolve(canvas.toDataURL('image/jpeg', 0.85));
+        };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
   function bindProfile() {
     const form = document.getElementById('profile-form');
     if (!form) return;
     const msg = document.getElementById('profile-msg');
+
+    // ----- Profile photo: upload + remove -----
+    const photoMsg = document.getElementById('photo-msg');
+    const setPhotoMsg = (t, kind) => {
+      if (!photoMsg) return;
+      photoMsg.style.color = kind === 'err' ? '#D63333' : kind === 'ok' ? '#138A4B' : 'var(--text-soft)';
+      photoMsg.textContent = t;
+    };
+    const fileInput = document.getElementById('photo-file');
+    const uploadBtn = document.getElementById('photo-upload-btn');
+    const removeBtn = document.getElementById('photo-remove-btn');
+    if (uploadBtn) uploadBtn.addEventListener('click', () => fileInput.click());
+    if (fileInput) fileInput.addEventListener('change', async (e) => {
+      const file = e.target.files && e.target.files[0];
+      fileInput.value = '';
+      if (!file) return;
+      if (!/^image\//.test(file.type)) { setPhotoMsg('Please choose an image file.', 'err'); return; }
+      setPhotoMsg('Processing…');
+      let dataUrl;
+      try { dataUrl = await resizeImageToDataUrl(file, 256); } catch (err) { setPhotoMsg('Could not read that image.', 'err'); return; }
+      try {
+        const res = await fetch('/api/profile/photo', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+          body: JSON.stringify({ photo: dataUrl })
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) { setPhotoMsg(body.error || 'Upload failed.', 'err'); return; }
+        LF.setUserPhoto(dataUrl);
+        LF.applyAvatar(document.getElementById('profile-avatar'), D.user);
+        setPhotoMsg('Photo updated.', 'ok');
+      } catch (err) { setPhotoMsg('Network error. Is the server running?', 'err'); }
+    });
+    if (removeBtn) removeBtn.addEventListener('click', async () => {
+      if (!D.user.photo) { setPhotoMsg('No photo to remove.', 'err'); return; }
+      try {
+        const res = await fetch('/api/profile/photo', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+          body: JSON.stringify({ photo: '' })
+        });
+        if (!res.ok) { setPhotoMsg('Could not remove the photo.', 'err'); return; }
+        LF.setUserPhoto('');
+        LF.applyAvatar(document.getElementById('profile-avatar'), D.user);
+        setPhotoMsg('Photo removed.', 'ok');
+      } catch (err) { setPhotoMsg('Network error.', 'err'); }
+    });
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();

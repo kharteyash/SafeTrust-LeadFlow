@@ -59,6 +59,7 @@ LF.renderLayout = async function ({ active }) {
     role:  LF.roleLabel(user.role),
     leaderId: user.leaderId || null,
     leaderName: user.leaderName || '',
+    photo: user.photo || '',
     initials: getInitials(user.name)
   };
 
@@ -207,10 +208,32 @@ LF.renderLayout = async function ({ active }) {
     }
   });
 
+  // Show the profile photo (or initials) in the topbar avatar.
+  LF.applyAvatar(document.getElementById('lf-user-avatar'), LF_DATA.user);
+
   if (window.lucide) lucide.createIcons();
 
   // Populate notifications from real data (non-blocking).
   loadNotifications();
+};
+
+// Render an .avatar element as a photo (if set) or fall back to initials.
+LF.applyAvatar = function (el, user) {
+  if (!el) return;
+  if (user && user.photo) {
+    el.textContent = '';
+    el.style.backgroundImage = `url('${user.photo}')`;
+    el.style.backgroundSize = 'cover';
+    el.style.backgroundPosition = 'center';
+  } else {
+    el.style.backgroundImage = '';
+    el.textContent = (user && user.initials) || '?';
+  }
+};
+// Update the stored photo and refresh the topbar avatar.
+LF.setUserPhoto = function (photo) {
+  LF_DATA.user.photo = photo || '';
+  LF.applyAvatar(document.getElementById('lf-user-avatar'), LF_DATA.user);
 };
 
 // ---------------------------------------------------------------------------
@@ -551,10 +574,9 @@ LF.refreshUserDisplay = function (user) {
     bio:   user.bio   || '',
     initials: getInitials(user.name)
   });
-  const avatar = document.getElementById('lf-user-avatar');
   const nameEl = document.getElementById('lf-user-name');
-  if (avatar) avatar.textContent = LF_DATA.user.initials;
   if (nameEl) nameEl.textContent = LF_DATA.user.name;
+  LF.applyAvatar(document.getElementById('lf-user-avatar'), LF_DATA.user);
 };
 LF.scorePill = (score) => {
   if (score >= 80) return 'pill-green';
