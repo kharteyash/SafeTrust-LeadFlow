@@ -22,18 +22,15 @@ services:
         sync: false
       - key: GOOGLE_REDIRECT_URI
         sync: false
-      # Email sending. Preferred: SMTP (Google Workspace) — set SMTP_USER to your
-      # Workspace email and SMTP_PASS to a Google App Password. Leave blank to fall
-      # back to Resend (RESEND_API_KEY/RESEND_FROM), or blank for reminders only.
+      # Email sending. Primary path is per-user Gmail (Connect Google account),
+      # which uses the GOOGLE_* vars above. These optional SMTP vars are only a
+      # shared fallback for users who haven't connected Google. Leave blank to
+      # require each user to connect their own account.
       - key: SMTP_USER
         sync: false
       - key: SMTP_PASS
         sync: false
       - key: SMTP_FROM
-        sync: false
-      - key: RESEND_API_KEY
-        sync: false
-      - key: RESEND_FROM
         sync: false
       # Protects /api/cron/dispatch. Render generates a random value; copy it
       # from the dashboard into your external cron's URL as ?key=...

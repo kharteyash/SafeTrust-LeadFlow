@@ -828,9 +828,9 @@ app.post('/api/scheduled', safe(async (req, res) => {
 }));
 
 // ----- Email delivery -----
-// Two backends are supported. SMTP (e.g. Google Workspace) is preferred when
-// configured because the sending domain is already trusted by the provider;
-// Resend is used otherwise. Both throw on misconfig/failure.
+// Primary path is per-user Gmail (OAuth) so each user sends as themselves.
+// An optional shared SMTP backend (e.g. a Google Workspace mailbox) covers
+// system/automated mail from users who haven't connected their own account.
 function envClean(name) { return (process.env[name] || '').trim().replace(/^["']|["']$/g, ''); }
 
 function smtpConfig() {
@@ -869,27 +869,14 @@ async function sendEmailViaSMTP({ to, subject, text }) {
   });
 }
 
-// Sends one email through Resend (https://resend.com).
-async function sendEmailViaResend({ to, subject, text }) {
-  const key = envClean('RESEND_API_KEY');
-  const from = envClean('RESEND_FROM');
-  if (!key || !from) throw new Error('Email sending not configured (set RESEND_API_KEY and RESEND_FROM, or SMTP_USER/SMTP_PASS).');
-  if (!key.startsWith('re_')) throw new Error('RESEND_API_KEY looks wrong — it should start with "re_".');
-  const r = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: { 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from, to, subject: subject || '(no subject)', text: text || '' })
-  });
-  if (!r.ok) {
-    const t = await r.text().catch(() => '');
-    throw new Error(`Resend ${r.status}: ${t.slice(0, 200)}`);
-  }
-}
-
-// Unified sender: prefer SMTP when configured, else fall back to Resend.
-function emailProvider() { return smtpConfig() ? 'smtp' : (envClean('RESEND_API_KEY') ? 'resend' : 'none'); }
+// Shared backend: the optional SMTP mailbox. Used only when a user hasn't
+// connected their own Google account. Throws a clear, actionable error otherwise.
+function emailProvider() { return smtpConfig() ? 'smtp' : 'none'; }
 async function sendEmail(opts) {
-  return emailProvider() === 'smtp' ? sendEmailViaSMTP(opts) : sendEmailViaResend(opts);
+  if (!smtpConfig()) {
+    throw new Error('Email isn’t set up. Connect your Google account on the Messages page to send as yourself.');
+  }
+  return sendEmailViaSMTP(opts);
 }
 
 // ----- Per-user sending via the Gmail API (OAuth, no app passwords) -----
@@ -987,27 +974,19 @@ app.post('/api/cron/dispatch', safe(dispatchScheduled));
 // Email config status (no secrets leaked) so the UI can show what's wired up.
 app.get('/api/email/status', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
-  const provider = emailProvider();         // 'smtp' | 'resend' | 'none'
   const smtp = smtpConfig();
-  const resendKey = envClean('RESEND_API_KEY');
-  const resendFrom = envClean('RESEND_FROM');
-  const from = provider === 'smtp' ? (smtp ? smtp.from : '') : resendFrom;
-  const sharedReady = provider !== 'none' && (provider === 'smtp' ? true : resendKey.startsWith('re_') && !!resendFrom);
+  const sharedReady = !!smtp;
   const gAcct = await one('SELECT email FROM google_accounts WHERE user_id = $1', [req.user.id]);
   res.json({
     // Per-user Gmail (preferred — sends as the user themselves).
     gmailConfigured: googleConfigured(),
     gmailConnected: !!gAcct,
     gmailEmail: gAcct ? gAcct.email : '',
-    // Shared fallback backend (used when a user hasn't connected Google).
-    provider,
-    ready: gAcct ? true : sharedReady,       // can this user send right now?
+    // Optional shared SMTP fallback (used when a user hasn't connected Google).
     sharedReady,
-    from,                                    // the From address is not a secret
     smtpHost: smtp ? smtp.host : '',
-    // Resend test domain only delivers to the account owner's own address.
-    usingTestDomain: provider === 'resend' && /@resend\.dev$/i.test(resendFrom),
-    resendKeyOk: resendKey ? resendKey.startsWith('re_') : true,
+    from: smtp ? smtp.from : '',
+    ready: gAcct ? true : sharedReady,       // can this user send right now?
     cronSet: !!process.env.CRON_SECRET
   });
 }));
