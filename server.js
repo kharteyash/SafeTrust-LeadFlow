@@ -32,6 +32,7 @@ const GOOGLE = {
   scopes: [
     'openid', 'email', 'profile',
     'https://www.googleapis.com/auth/gmail.readonly',
+    'https://www.googleapis.com/auth/gmail.send',
     'https://www.googleapis.com/auth/contacts.readonly'
   ]
 };
@@ -887,6 +888,60 @@ async function sendEmail(opts) {
   return emailProvider() === 'smtp' ? sendEmailViaSMTP(opts) : sendEmailViaResend(opts);
 }
 
+// ----- Per-user sending via the Gmail API (OAuth, no app passwords) -----
+// Each user connects their own Google account once; we then send on their
+// behalf so the email comes from their own name/address. This is the path that
+// lets many users each send as themselves.
+function mimeFromHeader(name, email) {
+  const clean = String(name || '').replace(/[\r\n"]/g, '').trim();
+  return clean ? `"${clean}" <${email}>` : email;
+}
+function base64url(str) {
+  return Buffer.from(str, 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+// RFC 2047 encode a header value so non-ASCII subjects survive.
+function encodeHeader(v) {
+  const s = String(v || '');
+  return /[^\x00-\x7F]/.test(s) ? `=?UTF-8?B?${Buffer.from(s, 'utf8').toString('base64')}?=` : s;
+}
+async function sendEmailViaGmail(userId, { to, subject, text, replyTo }) {
+  const acct = await one(
+    `SELECT g.email AS gmail, u.name AS name FROM google_accounts g JOIN users u ON u.id = g.user_id WHERE g.user_id = $1`,
+    [userId]
+  );
+  if (!acct) throw new Error('No connected Google account for this user.');
+  const token = await getGoogleToken(userId);
+  if (!token) throw new Error('Google account needs to be reconnected.');
+  const headers = [
+    `From: ${mimeFromHeader(acct.name, acct.gmail)}`,
+    `To: ${to}`,
+    `Subject: ${encodeHeader(subject || '(no subject)')}`,
+    'MIME-Version: 1.0',
+    'Content-Type: text/plain; charset="UTF-8"'
+  ];
+  if (replyTo) headers.push(`Reply-To: ${replyTo}`);
+  const raw = base64url(headers.join('\r\n') + '\r\n\r\n' + (text || ''));
+  const r = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ raw })
+  });
+  if (!r.ok) {
+    const t = await r.text().catch(() => '');
+    throw new Error(`Gmail API ${r.status}: ${t.slice(0, 200)}`);
+  }
+  return acct.gmail;
+}
+async function userHasGmail(userId) {
+  if (!userId) return false;
+  return !!(await one('SELECT 1 AS x FROM google_accounts WHERE user_id = $1', [userId]));
+}
+// Send as the given user when they've connected Google; else use the shared backend.
+async function sendEmailAsUser(userId, opts) {
+  if (await userHasGmail(userId)) return sendEmailViaGmail(userId, opts);
+  return sendEmail(opts);
+}
+
 // Cron-triggered dispatcher: sends due pending emails. Protected by CRON_SECRET
 // (passed as ?key=... or "Authorization: Bearer ...") since there's no user session.
 // Atomically claims rows as 'sending' so overlapping runs can't double-send.
@@ -904,13 +959,14 @@ async function dispatchScheduled(req, res) {
       WHERE status = 'pending' AND channel = 'Email' AND send_at IS NOT NULL AND send_at <= now()
       ORDER BY send_at LIMIT 50 FOR UPDATE SKIP LOCKED
     )
-    RETURNING id, recipient, type, body
+    RETURNING id, user_id, recipient, type, body
   `, []);
 
   let sent = 0, failed = 0;
   for (const m of due) {
     try {
-      await sendEmail({ to: m.recipient, subject: m.type, text: m.body || '' });
+      // Send as the message's owner (their Gmail) when connected; else shared backend.
+      await sendEmailAsUser(m.user_id, { to: m.recipient, subject: m.type, text: m.body || '' });
       await pool.query(`UPDATE scheduled_messages SET status = 'sent', sent_at = now(), error = NULL WHERE id = $1`, [m.id]);
       sent++;
     } catch (e) {
@@ -932,9 +988,17 @@ app.get('/api/email/status', safe(async (req, res) => {
   const resendKey = envClean('RESEND_API_KEY');
   const resendFrom = envClean('RESEND_FROM');
   const from = provider === 'smtp' ? (smtp ? smtp.from : '') : resendFrom;
+  const sharedReady = provider !== 'none' && (provider === 'smtp' ? true : resendKey.startsWith('re_') && !!resendFrom);
+  const gAcct = await one('SELECT email FROM google_accounts WHERE user_id = $1', [req.user.id]);
   res.json({
+    // Per-user Gmail (preferred — sends as the user themselves).
+    gmailConfigured: googleConfigured(),
+    gmailConnected: !!gAcct,
+    gmailEmail: gAcct ? gAcct.email : '',
+    // Shared fallback backend (used when a user hasn't connected Google).
     provider,
-    ready: provider !== 'none' && (provider === 'smtp' ? true : resendKey.startsWith('re_') && !!resendFrom),
+    ready: gAcct ? true : sharedReady,       // can this user send right now?
+    sharedReady,
     from,                                    // the From address is not a secret
     smtpHost: smtp ? smtp.host : '',
     // Resend test domain only delivers to the account owner's own address.
@@ -950,12 +1014,13 @@ app.post('/api/email/test', safe(async (req, res) => {
   const to = String((req.body || {}).to || '').trim();
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) return res.status(400).json({ error: 'Enter a valid recipient email.' });
   try {
-    await sendEmail({
+    // Sends as the current user (their Gmail) when connected, else shared backend.
+    const sentFrom = await sendEmailAsUser(req.user.id, {
       to,
       subject: 'LeadFlow test email',
       text: 'This is a test email from LeadFlow to confirm email delivery is working.\n\nIf you received this, email sending is configured correctly.'
     });
-    res.json({ ok: true, provider: emailProvider() });
+    res.json({ ok: true, sentVia: (await userHasGmail(req.user.id)) ? 'gmail' : emailProvider(), from: sentFrom || '' });
   } catch (e) {
     res.status(502).json({ error: String((e && e.message) || e) });
   }
@@ -981,7 +1046,7 @@ app.post('/api/scheduled/:id/send', safe(async (req, res) => {
     return res.status(409).json({ error: 'This message is already sending.' });
   }
   try {
-    await sendEmail({ to: m.recipient, subject: m.type, text: m.body || '' });
+    await sendEmailAsUser(req.user.id, { to: m.recipient, subject: m.type, text: m.body || '' });
     await pool.query(`UPDATE scheduled_messages SET status = 'sent', sent_at = now(), error = NULL WHERE id = $1`, [id]);
     res.json({ ok: true, status: 'sent' });
   } catch (e) {
@@ -1567,7 +1632,10 @@ app.get('/api/google/connect', (req, res) => {
     return res.status(500).send('Google OAuth is not configured. Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to your environment and restart the server.');
   }
   const state = crypto.randomBytes(16).toString('hex');
-  oauthStates.set(state, { userId: req.user.id, exp: Date.now() + 10 * 60 * 1000 });
+  // Remember which page to return to (whitelisted) so the button works from anywhere.
+  const fromPages = { messages: '/messages.html', settings: '/settings.html' };
+  const returnTo = fromPages[String(req.query.from || '')] || '/messages.html';
+  oauthStates.set(state, { userId: req.user.id, returnTo, exp: Date.now() + 10 * 60 * 1000 });
   const url = 'https://accounts.google.com/o/oauth2/v2/auth?' + new URLSearchParams({
     client_id: GOOGLE.clientId, redirect_uri: GOOGLE.redirectUri, response_type: 'code',
     scope: GOOGLE.scopes.join(' '), access_type: 'offline', include_granted_scopes: 'true',
@@ -1578,10 +1646,11 @@ app.get('/api/google/connect', (req, res) => {
 
 app.get('/api/google/callback', safe(async (req, res) => {
   const { code, state, error } = req.query;
-  if (error) return res.redirect('/settings.html?gmail=error');
-
   const entry = state && oauthStates.get(state);
-  if (!entry || entry.exp < Date.now()) return res.redirect('/settings.html?gmail=error');
+  const returnTo = (entry && entry.returnTo) || '/messages.html';
+  if (error) return res.redirect(returnTo + '?gmail=error');
+
+  if (!entry || entry.exp < Date.now()) return res.redirect('/messages.html?gmail=error');
   oauthStates.delete(state);
 
   const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
@@ -1593,7 +1662,7 @@ app.get('/api/google/callback', safe(async (req, res) => {
     })
   });
   const tok = await tokenRes.json();
-  if (!tokenRes.ok) { console.error('Google token exchange failed:', tok); return res.redirect('/settings.html?gmail=error'); }
+  if (!tokenRes.ok) { console.error('Google token exchange failed:', tok); return res.redirect(returnTo + '?gmail=error'); }
 
   let email = '';
   try {
@@ -1605,7 +1674,7 @@ app.get('/api/google/callback', safe(async (req, res) => {
 
   const expiresAt = Date.now() + (tok.expires_in || 3600) * 1000;
   await saveGoogleTokens(entry.userId, email, tok.access_token, tok.refresh_token, expiresAt);
-  res.redirect('/settings.html?gmail=connected');
+  res.redirect(returnTo + '?gmail=connected');
 }));
 
 app.post('/api/google/disconnect', safe(async (req, res) => {

@@ -392,27 +392,46 @@
 
     const ready = !!s.ready;
     const myEmail = (LF_DATA.user && LF_DATA.user.email) || '';
-    const providerLabel = s.provider === 'smtp' ? 'SMTP (Google Workspace)'
-      : s.provider === 'resend' ? 'Resend' : 'Not configured';
-    const warn = s.usingTestDomain
-      ? `<div class="text-[12px] mt-2" style="color:#B07A00;">Using Resend's test domain (<b>${esc(s.from)}</b>) — it can only deliver to your own Resend account email. Verify your own domain to send to anyone.</div>`
-      : '';
 
-    const detail = s.provider === 'smtp'
-      ? `<div class="text-[12.5px]">${dot(true)}SMTP host ${esc(s.smtpHost || '—')}</div>
-         <div class="text-[12.5px]">${dot(!!s.from)}From address ${s.from ? esc(s.from) : 'not set'}</div>`
-      : s.provider === 'resend'
-      ? `<div class="text-[12.5px]">${dot(s.resendKeyOk)}API key ${s.resendKeyOk ? 'set' : 'set but looks wrong (should start with re_)'}</div>
-         <div class="text-[12.5px]">${dot(!!s.from)}From address ${s.from ? esc(s.from) : 'not set'}</div>`
-      : `<div class="text-[12.5px]">${dot(false)}No email backend configured — set SMTP_USER/SMTP_PASS (Google Workspace) or RESEND_API_KEY/RESEND_FROM.</div>`;
+    // Per-user Gmail is the primary, recommended path (each user sends as themselves).
+    let primary;
+    if (s.gmailConnected) {
+      primary = `
+        <div class="text-[14px] font-semibold mb-1">Email delivery · Your Google account</div>
+        <div class="text-[12.5px]">${dot(true)}Sending as <b>${esc(s.gmailEmail || myEmail)}</b> — recipients see your own name and address.</div>
+        <div class="mt-2"><button id="gmail-disconnect-btn" class="btn-secondary" style="padding:5px 12px;font-size:12px;">Disconnect Google account</button></div>`;
+    } else if (s.gmailConfigured) {
+      const fallbackNote = s.sharedReady
+        ? `<div class="text-[12px] text-muted mt-1">Until you connect, emails you send use the shared account.</div>` : '';
+      primary = `
+        <div class="text-[14px] font-semibold mb-1">Send emails as yourself</div>
+        <div class="text-[12.5px] text-muted">Connect your Google account once — then everything you send goes out from your own name and address. No password needed.</div>
+        ${fallbackNote}
+        <div class="mt-2"><button id="gmail-connect-btn" class="btn-primary" style="padding:6px 14px;font-size:12.5px;">
+          <i data-lucide="mail" style="width:14px;height:14px;"></i> Connect Google account</button></div>`;
+    } else {
+      // OAuth not configured on the server — fall back to describing the shared backend.
+      const providerLabel = s.provider === 'smtp' ? 'SMTP (Google Workspace)'
+        : s.provider === 'resend' ? 'Resend' : 'Not configured';
+      const warn = s.usingTestDomain
+        ? `<div class="text-[12px] mt-2" style="color:#B07A00;">Using Resend's test domain (<b>${esc(s.from)}</b>) — it can only deliver to your own Resend account email.</div>` : '';
+      const detail = s.provider === 'smtp'
+        ? `<div class="text-[12.5px]">${dot(true)}SMTP host ${esc(s.smtpHost || '—')}</div>
+           <div class="text-[12.5px]">${dot(!!s.from)}From ${s.from ? esc(s.from) : 'not set'}</div>`
+        : s.provider === 'resend'
+        ? `<div class="text-[12.5px]">${dot(s.resendKeyOk)}API key ${s.resendKeyOk ? 'set' : 'looks wrong (should start with re_)'}</div>
+           <div class="text-[12.5px]">${dot(!!s.from)}From ${s.from ? esc(s.from) : 'not set'}</div>`
+        : `<div class="text-[12.5px]">${dot(false)}No email backend configured.</div>`;
+      primary = `
+        <div class="text-[14px] font-semibold mb-1">Email delivery · ${esc(providerLabel)}</div>
+        ${detail}${warn}`;
+    }
 
     box.innerHTML = `
       <div class="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <div class="text-[14px] font-semibold mb-1">Email delivery · ${esc(providerLabel)}</div>
-          ${detail}
-          <div class="text-[12.5px]">${dot(s.cronSet)}Auto-send scheduler ${s.cronSet ? 'enabled' : 'not configured'}</div>
-          ${warn}
+          ${primary}
+          <div class="text-[12.5px] mt-1">${dot(s.cronSet)}Auto-send scheduler ${s.cronSet ? 'enabled' : 'not configured'}</div>
         </div>
         <span class="pill ${ready ? 'pill-green' : 'pill-red'}" style="font-size:11px;">${ready ? 'Ready' : 'Not configured'}</span>
       </div>
@@ -424,6 +443,15 @@
         <span id="email-test-msg" class="text-[12.5px] font-medium"></span>
       </div>`;
     if (window.lucide) lucide.createIcons();
+
+    const connectBtn = document.getElementById('gmail-connect-btn');
+    if (connectBtn) connectBtn.addEventListener('click', () => { window.location.href = '/api/google/connect?from=messages'; });
+    const disconnectBtn = document.getElementById('gmail-disconnect-btn');
+    if (disconnectBtn) disconnectBtn.addEventListener('click', async () => {
+      if (!window.confirm('Disconnect your Google account? Emails will then send from the shared account (if configured).')) return;
+      try { await fetch('/api/google/disconnect', { method: 'POST', credentials: 'same-origin' }); } catch (e) {}
+      renderEmailHealth();
+    });
 
     const btn = document.getElementById('email-test-btn');
     if (btn && ready) {
@@ -452,6 +480,20 @@
     bindCompose();
     bindRemove();
     render();
-    renderEmailHealth();
+    await renderEmailHealth();
+
+    // Show the outcome of a Google connect redirect, then clean the URL.
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const g = params.get('gmail');
+      if (g) {
+        const msg = document.getElementById('email-test-msg');
+        if (msg) {
+          if (g === 'connected') { msg.style.color = '#138A4B'; msg.textContent = 'Google account connected — you can now send as yourself.'; }
+          else { msg.style.color = '#D63333'; msg.textContent = 'Could not connect Google account. Please try again.'; }
+        }
+        window.history.replaceState({}, '', '/messages.html');
+      }
+    } catch (e) {}
   });
 })();
