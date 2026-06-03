@@ -374,11 +374,75 @@
   }
 
   // ----- Mount -----
+  // ----- Email delivery (Resend) health + test -----
+  function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  function escAttr(s) { return esc(s).replace(/"/g, '&quot;'); }
+  function dot(ok) {
+    const c = ok ? '#138A4B' : '#D63333';
+    return `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${c};margin-right:6px;"></span>`;
+  }
+
+  async function renderEmailHealth() {
+    const box = document.getElementById('email-health');
+    if (!box) return;
+    let s = null;
+    try { const r = await fetch('/api/email/status', { credentials: 'same-origin' }); if (r.ok) s = await r.json(); }
+    catch (e) {}
+    if (!s) { box.innerHTML = `<div class="text-[13px] text-muted">Could not load email status.</div>`; return; }
+
+    const ready = s.keySet && s.keyPrefixOk && s.fromSet;
+    const myEmail = (LF_DATA.user && LF_DATA.user.email) || '';
+    const warn = s.usingTestDomain
+      ? `<div class="text-[12px] mt-2" style="color:#B07A00;">Using Resend's test domain (<b>${esc(s.from)}</b>) — it can only deliver to your own Resend account email. Verify your own domain to send to anyone.</div>`
+      : '';
+
+    box.innerHTML = `
+      <div class="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <div class="text-[14px] font-semibold mb-1">Email delivery (Resend)</div>
+          <div class="text-[12.5px]">${dot(s.keySet && s.keyPrefixOk)}API key ${s.keySet ? (s.keyPrefixOk ? 'set' : 'set but looks wrong (should start with re_)') : 'not set'}</div>
+          <div class="text-[12.5px]">${dot(s.fromSet)}From address ${s.fromSet ? esc(s.from) : 'not set'}</div>
+          <div class="text-[12.5px]">${dot(s.cronSet)}Auto-send scheduler ${s.cronSet ? 'enabled' : 'not configured'}</div>
+          ${warn}
+        </div>
+        <span class="pill ${ready ? 'pill-green' : 'pill-red'}" style="font-size:11px;">${ready ? 'Ready' : 'Not configured'}</span>
+      </div>
+      <div class="flex items-center gap-2 mt-3 flex-wrap" style="border-top:1px solid var(--border-soft);padding-top:12px;">
+        <input id="email-test-to" class="input" style="max-width:260px;" placeholder="you@example.com" value="${escAttr(myEmail)}" />
+        <button id="email-test-btn" class="btn-primary" ${ready ? '' : 'disabled style="opacity:.6;cursor:not-allowed;"'}>
+          <i data-lucide="send" style="width:14px;height:14px;"></i> Send test email
+        </button>
+        <span id="email-test-msg" class="text-[12.5px] font-medium"></span>
+      </div>`;
+    if (window.lucide) lucide.createIcons();
+
+    const btn = document.getElementById('email-test-btn');
+    if (btn && ready) {
+      btn.addEventListener('click', async () => {
+        const to = (document.getElementById('email-test-to').value || '').trim();
+        const msg = document.getElementById('email-test-msg');
+        msg.style.color = 'var(--text-muted)'; msg.textContent = 'Sending…';
+        btn.disabled = true; btn.style.opacity = '0.7';
+        try {
+          const res = await fetch('/api/email/test', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+            body: JSON.stringify({ to })
+          });
+          const raw = await res.text(); let body = {}; try { body = raw ? JSON.parse(raw) : {}; } catch (e) {}
+          if (res.ok) { msg.style.color = '#138A4B'; msg.textContent = `Sent to ${to} — check the inbox (and spam).`; }
+          else { msg.style.color = '#D63333'; msg.textContent = body.error || `Failed (HTTP ${res.status}).`; }
+        } catch (e) { msg.style.color = '#D63333'; msg.textContent = 'Network error.'; }
+        finally { btn.disabled = false; btn.style.opacity = ''; }
+      });
+    }
+  }
+
   document.addEventListener('DOMContentLoaded', async function () {
     await LF.renderLayout({ active: 'messages' });
     await loadScheduled();
     bindCompose();
     bindRemove();
     render();
+    renderEmailHealth();
   });
 })();

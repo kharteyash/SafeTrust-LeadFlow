@@ -877,6 +877,38 @@ async function dispatchScheduled(req, res) {
 app.get('/api/cron/dispatch', safe(dispatchScheduled));
 app.post('/api/cron/dispatch', safe(dispatchScheduled));
 
+// Email config status (no secrets leaked) so the UI can show what's wired up.
+app.get('/api/email/status', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  const key = (process.env.RESEND_API_KEY || '').trim().replace(/^["']|["']$/g, '');
+  const from = (process.env.RESEND_FROM || '').trim().replace(/^["']|["']$/g, '');
+  res.json({
+    keySet: !!key,
+    keyPrefixOk: key.startsWith('re_'),
+    fromSet: !!from,
+    from,                                    // the From address is not a secret
+    usingTestDomain: /@resend\.dev$/i.test(from),
+    cronSet: !!process.env.CRON_SECRET
+  });
+}));
+
+// Send a one-off test email through Resend and surface the exact result/error.
+app.post('/api/email/test', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  const to = String((req.body || {}).to || '').trim();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) return res.status(400).json({ error: 'Enter a valid recipient email.' });
+  try {
+    await sendEmailViaResend({
+      to,
+      subject: 'LeadFlow test email',
+      text: 'This is a test email from LeadFlow to confirm Resend delivery is working.\n\nIf you received this, email sending is configured correctly.'
+    });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(502).json({ error: String((e && e.message) || e) });
+  }
+}));
+
 // Send one of the user's own scheduled emails immediately (the "Send now" button).
 app.post('/api/scheduled/:id/send', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
