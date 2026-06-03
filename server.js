@@ -243,6 +243,12 @@ const SCHEMA = `
     replies    INTEGER DEFAULT 0,
     created_at TIMESTAMPTZ DEFAULT now()
   );
+  ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS subject    TEXT;
+  ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS body       TEXT;
+  ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS audience   TEXT;
+  ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS recipients INTEGER DEFAULT 0;
+  ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS failed     INTEGER DEFAULT 0;
+  ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS sent_at    TIMESTAMPTZ;
 `;
 
 // Periodically clear expired sessions.
@@ -741,41 +747,141 @@ app.delete('/api/call-queue/:id', safe(async (req, res) => {
 const CAMPAIGN_CHANNELS = ['Email', 'SMS'];
 const CAMPAIGN_STATUSES = ['Draft', 'Scheduled', 'Active', 'Paused', 'Completed'];
 
+// Audience segments — each is a fixed (no user input) WHERE clause over the
+// sender's own leads. Only leads with a usable email become recipients.
+const CAMPAIGN_AUDIENCES = [
+  { key: 'all',         label: 'All leads',          where: '' },
+  { key: 'buying_now',  label: 'Buying Immediately', where: "timeline = 'Buying Immediately'" },
+  { key: 'm1_3',        label: '1-3 Months',         where: "timeline = '1-3 Months'" },
+  { key: 'm3_6',        label: '3-6 Months',         where: "timeline = '3-6 Months'" },
+  { key: 'm6',          label: '6+ Months',          where: "timeline = '6+ Months'" },
+  { key: 'preapproved', label: 'Pre-approved leads', where: 'preapproved = true' },
+  { key: 'purchase',    label: 'Purchase leads',     where: "lead_type = 'Purchase'" },
+  { key: 'refinance',   label: 'Refinance leads',    where: "lead_type = 'Refinance'" }
+];
+function audienceByKey(k) { return CAMPAIGN_AUDIENCES.find(a => a.key === k) || null; }
+function audienceLabel(k) { const a = audienceByKey(k); return a ? a.label : ''; }
+function audienceWhere(key) {
+  const a = audienceByKey(key);
+  if (!a) return null;
+  const cond = ['user_id = $1', 'email IS NOT NULL', "btrim(email) <> ''"];
+  if (a.where) cond.push(a.where);
+  return cond.join(' AND ');
+}
+async function segmentLeads(userId, key) {
+  const where = audienceWhere(key);
+  if (!where) return [];
+  return q(`SELECT name, email, state FROM leads WHERE ${where} ORDER BY id DESC`, [userId]);
+}
+async function segmentCount(userId, key) {
+  const where = audienceWhere(key);
+  if (!where) return 0;
+  const r = await one(`SELECT COUNT(*)::int AS n FROM leads WHERE ${where}`, [userId]);
+  return r ? r.n : 0;
+}
+// Replace {{first_name}}, {{name}}, {{email}}, {{state}} per recipient.
+function personalize(text, lead) {
+  const first = String(lead.name || '').trim().split(/\s+/)[0] || 'there';
+  return String(text || '')
+    .replace(/\{\{\s*first_name\s*\}\}/gi, first)
+    .replace(/\{\{\s*name\s*\}\}/gi, String(lead.name || ''))
+    .replace(/\{\{\s*email\s*\}\}/gi, String(lead.email || ''))
+    .replace(/\{\{\s*state\s*\}\}/gi, String(lead.state || ''));
+}
+
 function fmtShortDate(value) {
   const d = new Date(value);
   if (isNaN(d.getTime())) return '';
   return `${MONTHS_SHORT[d.getMonth()]} ${d.getDate()}`;
 }
+function campaignToJson(r) {
+  return {
+    id: r.id, name: r.name, type: r.channel, status: r.status,
+    subject: r.subject || '', body: r.body || '',
+    audience: r.audience || 'all', audienceLabel: audienceLabel(r.audience || 'all'),
+    recipients: r.recipients || 0, sent: r.sent || 0, failed: r.failed || 0,
+    opens: r.opens || 0, clicks: r.clicks || 0, replies: r.replies || 0,
+    started: fmtShortDate(r.created_at)
+  };
+}
 
 app.get('/api/campaigns', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
   const rows = await q(`
-    SELECT id, name, channel, status, sent, opens, clicks, replies, created_at
+    SELECT id, name, channel, status, subject, body, audience, recipients, sent, failed, opens, clicks, replies, created_at
     FROM campaigns WHERE user_id = $1 ORDER BY id DESC
   `, [req.user.id]);
-  res.json(rows.map(r => ({
-    id: r.id, name: r.name, type: r.channel, status: r.status,
-    sent: r.sent || 0, opens: r.opens || 0, clicks: r.clicks || 0, replies: r.replies || 0,
-    started: fmtShortDate(r.created_at)
-  })));
+  res.json(rows.map(campaignToJson));
+}));
+
+// Audience options with live recipient counts (for the create form).
+app.get('/api/campaigns/audiences', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  const out = [];
+  for (const a of CAMPAIGN_AUDIENCES) out.push({ key: a.key, label: a.label, count: await segmentCount(req.user.id, a.key) });
+  res.json(out);
 }));
 
 app.post('/api/campaigns', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
-  const { name } = req.body || {};
-  const channel = CAMPAIGN_CHANNELS.includes(req.body && req.body.channel) ? req.body.channel : 'Email';
-  const status = CAMPAIGN_STATUSES.includes(req.body && req.body.status) ? req.body.status : 'Draft';
-  if (!name || !name.trim()) return res.status(400).json({ error: 'Campaign name is required.' });
+  const b = req.body || {};
+  const name = String(b.name || '').trim();
+  const channel = CAMPAIGN_CHANNELS.includes(b.channel) ? b.channel : 'Email';
+  const subject = String(b.subject || '').trim();
+  const body = String(b.body || '').trim();
+  const audience = audienceByKey(b.audience) ? b.audience : 'all';
+  if (!name) return res.status(400).json({ error: 'Campaign name is required.' });
 
   const row = await one(`
-    INSERT INTO campaigns (user_id, name, channel, status)
-    VALUES ($1, $2, $3, $4) RETURNING id, created_at
-  `, [req.user.id, name.trim(), channel, status]);
+    INSERT INTO campaigns (user_id, name, channel, status, subject, body, audience)
+    VALUES ($1, $2, $3, 'Draft', $4, $5, $6)
+    RETURNING id, name, channel, status, subject, body, audience, recipients, sent, failed, opens, clicks, replies, created_at
+  `, [req.user.id, name, channel, subject, body, audience]);
+  res.json(campaignToJson(row));
+}));
 
-  res.json({
-    id: row.id, name: name.trim(), type: channel, status,
-    sent: 0, opens: 0, clicks: 0, replies: 0, started: fmtShortDate(row.created_at)
-  });
+// Background send: personalize and deliver to every recipient via the sender's
+// own Gmail (or shared SMTP). Runs after the response so the request never times out.
+async function runCampaignSend(id, userId, recipients, subject, body) {
+  let sent = 0, failed = 0;
+  for (const lead of recipients) {
+    try {
+      await sendEmailAsUser(userId, { to: lead.email, subject: personalize(subject, lead), text: personalize(body, lead) });
+      sent++;
+    } catch (e) { failed++; }
+    if ((sent + failed) % 10 === 0) {
+      try { await q('UPDATE campaigns SET sent = $2, failed = $3 WHERE id = $1', [id, sent, failed]); } catch (e) {}
+    }
+  }
+  try { await q(`UPDATE campaigns SET sent = $2, failed = $3, status = 'Completed' WHERE id = $1`, [id, sent, failed]); } catch (e) {}
+}
+
+app.post('/api/campaigns/:id/send', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid campaign id.' });
+  const c = await one('SELECT * FROM campaigns WHERE id = $1 AND user_id = $2', [id, req.user.id]);
+  if (!c) return res.status(404).json({ error: 'Campaign not found.' });
+  if (c.channel !== 'Email') return res.status(400).json({ error: 'Only email campaigns can be sent right now.' });
+  if (!String(c.subject || '').trim() || !String(c.body || '').trim()) {
+    return res.status(400).json({ error: 'Add a subject and message before sending.' });
+  }
+  const canSend = (await userHasGmail(req.user.id)) || !!smtpConfig();
+  if (!canSend) return res.status(400).json({ error: 'Connect your Google account on the Messages page before sending campaigns.' });
+
+  const recipients = await segmentLeads(req.user.id, c.audience);
+  if (!recipients.length) return res.status(400).json({ error: 'No recipients with an email in this audience.' });
+
+  // Claim atomically so a double-click can't start two sends.
+  const claimed = await one(
+    `UPDATE campaigns SET status = 'Sending', recipients = $3, sent = 0, failed = 0, sent_at = now()
+     WHERE id = $1 AND user_id = $2 AND status <> 'Sending' RETURNING id`,
+    [id, req.user.id, recipients.length]
+  );
+  if (!claimed) return res.status(409).json({ error: 'This campaign is already sending.' });
+
+  runCampaignSend(id, req.user.id, recipients, c.subject, c.body); // fire-and-forget
+  res.json({ ok: true, recipients: recipients.length, status: 'Sending' });
 }));
 
 app.delete('/api/campaigns/:id', safe(async (req, res) => {

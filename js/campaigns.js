@@ -1,8 +1,10 @@
-// Campaigns page: real per-user campaigns (Postgres-backed CRUD).
+// Campaigns page: create a campaign for a lead audience and send it (personalized)
+// through the sender's own connected Gmail. Real per-user, Postgres-backed.
 (function () {
   let campaigns = [];
+  let audiences = [];   // [{ key, label, count }]
 
-  function esc(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
   function channelMeta(ch) {
     return ch === 'SMS'
       ? { icon: 'message-square', fg: '#2B57D9', bg: '#E7EEFF', pill: 'pill-blue' }
@@ -14,6 +16,12 @@
       const res = await fetch('/api/campaigns', { credentials: 'same-origin' });
       campaigns = res.ok ? await res.json() : [];
     } catch (e) { campaigns = []; }
+  }
+  async function loadAudiences() {
+    try {
+      const res = await fetch('/api/campaigns/audiences', { credentials: 'same-origin' });
+      audiences = res.ok ? await res.json() : [];
+    } catch (e) { audiences = []; }
   }
 
   function render() {
@@ -35,63 +43,105 @@
         </div>`;
     }).join('');
 
+    const rowFor = (c) => {
+      const sending = c.status === 'Sending';
+      const canSend = c.type === 'Email' && c.status !== 'Sending';
+      const failedBadge = c.failed ? ` <span class="text-[11px]" style="color:#D63333;">(${c.failed} failed)</span>` : '';
+      return `
+        <tr>
+          <td class="font-semibold">${esc(c.name)}</td>
+          <td><span class="pill ${channelMeta(c.type).pill}">${esc(c.type)}</span></td>
+          <td class="text-muted">${esc(c.audienceLabel || '—')}</td>
+          <td class="text-muted">${LF.fmtNum(c.recipients)}</td>
+          <td class="text-muted">${LF.fmtNum(c.sent)}${failedBadge}</td>
+          <td><span class="pill ${LF.statusPill(c.status)}">${esc(c.status)}</span></td>
+          <td>
+            <div class="flex items-center gap-1">
+              <button data-send="${c.id}" class="btn-icon" title="${c.type === 'Email' ? 'Send campaign' : 'SMS sending not available'}" style="width:30px;height:30px;border:none;" ${canSend ? '' : 'disabled style="opacity:.4;cursor:not-allowed;width:30px;height:30px;border:none;"'}>
+                <i data-lucide="${sending ? 'loader' : 'send'}" style="width:14px;height:14px;color:#2255a3;pointer-events:none;"></i>
+              </button>
+              <button data-del="${c.id}" class="btn-icon" title="Delete campaign" style="width:30px;height:30px;border:none;">
+                <i data-lucide="trash-2" style="width:14px;height:14px;color:#D63333;pointer-events:none;"></i>
+              </button>
+            </div>
+          </td>
+        </tr>`;
+    };
+
     const tracking = campaigns.length ? `
       <div class="overflow-x-auto rounded-xl" style="border:1px solid var(--border);">
         <table class="lf-table">
-          <thead><tr><th>Campaign</th><th>Type</th><th>Status</th><th>Delivered</th><th>Opened</th><th>Clicked</th><th>Replied</th><th></th></tr></thead>
-          <tbody>
-            ${campaigns.map(c => `
-              <tr>
-                <td class="font-semibold">${esc(c.name)}</td>
-                <td><span class="pill ${channelMeta(c.type).pill}">${esc(c.type)}</span></td>
-                <td><span class="pill ${LF.statusPill(c.status)}">${esc(c.status)}</span></td>
-                <td class="text-muted">${LF.fmtNum(c.sent)}</td>
-                <td class="text-muted">${LF.fmtNum(c.opens)}</td>
-                <td class="text-muted">${LF.fmtNum(c.clicks)}</td>
-                <td class="text-muted">${LF.fmtNum(c.replies)}</td>
-                <td>
-                  <button data-del="${c.id}" class="btn-icon" title="Delete campaign" style="width:30px;height:30px;border:none;">
-                    <i data-lucide="trash-2" style="width:14px;height:14px;color:#D63333;pointer-events:none;"></i>
-                  </button>
-                </td>
-              </tr>`).join('')}
-          </tbody>
+          <thead><tr><th>Campaign</th><th>Type</th><th>Audience</th><th>Recipients</th><th>Sent</th><th>Status</th><th></th></tr></thead>
+          <tbody>${campaigns.map(rowFor).join('')}</tbody>
         </table>
       </div>`
       : `
       <div class="text-center py-12 rounded-xl" style="border:1px dashed var(--border-strong);">
-        <div class="text-[13px] text-muted">No campaigns yet. Create one above to start tracking it.</div>
+        <div class="text-[13px] text-muted">No campaigns yet. Create one above to start sending.</div>
       </div>`;
 
     document.getElementById('campaigns-body').innerHTML = `
       <h3 class="text-[15px] font-semibold mb-3">Create a campaign</h3>
       <div class="grid grid-cols-12 gap-4 mb-6">${createCards}</div>
-      <h3 class="text-[15px] font-semibold mb-3">Tracking</h3>
+      <h3 class="text-[15px] font-semibold mb-3">Campaigns</h3>
       ${tracking}`;
     if (window.lucide) lucide.createIcons();
   }
 
   // ----- Modal -----
+  function fillAudienceSelect() {
+    const sel = document.getElementById('campaign-audience');
+    if (!sel) return;
+    sel.innerHTML = (audiences.length ? audiences : [{ key: 'all', label: 'All leads', count: 0 }])
+      .map(a => `<option value="${a.key}">${esc(a.label)} (${a.count})</option>`).join('');
+  }
   function openModal(channel) {
     const form = document.getElementById('campaign-form');
     form.reset();
+    fillAudienceSelect();
     if (channel) form.elements['channel'].value = channel;
-    form.elements['status'].value = 'Draft';
     document.getElementById('campaign-form-msg').textContent = '';
     document.getElementById('campaign-modal').classList.remove('hidden');
     form.elements['name'].focus();
   }
   function closeModal() { document.getElementById('campaign-modal').classList.add('hidden'); }
 
+  async function sendCampaign(id) {
+    const c = campaigns.find(x => String(x.id) === String(id));
+    if (!c) return;
+    if (!c.subject || !c.body) { window.alert('Add a subject and message to this campaign first (delete and recreate it with content).'); return; }
+    const aud = audiences.find(a => a.key === c.audience);
+    const count = aud ? aud.count : c.recipients;
+    if (!window.confirm(`Send "${c.name}" to ${count} recipient(s) in "${c.audienceLabel}"?\n\nEach email is sent from your connected Google account.`)) return;
+    try {
+      const res = await fetch('/api/campaigns/' + id + '/send', { method: 'POST', credentials: 'same-origin' });
+      const raw = await res.text(); let body = {}; try { body = raw ? JSON.parse(raw) : {}; } catch (e) {}
+      if (!res.ok) { window.alert(body.error || `Could not send (HTTP ${res.status}).`); return; }
+      c.status = 'Sending'; c.recipients = body.recipients || count;
+      render();
+      // Sending happens in the background — refresh a few times to show progress.
+      let polls = 0;
+      const timer = setInterval(async () => {
+        polls++;
+        await load(); render();
+        const cur = campaigns.find(x => String(x.id) === String(id));
+        if (!cur || cur.status !== 'Sending' || polls > 12) clearInterval(timer);
+      }, 2500);
+    } catch (err) { window.alert('Network error.'); }
+  }
+
   function bind() {
     document.getElementById('campaign-modal-close').addEventListener('click', closeModal);
     document.getElementById('campaign-cancel').addEventListener('click', closeModal);
     document.getElementById('campaign-modal-backdrop').addEventListener('click', closeModal);
 
-    // Delegated: create cards + delete buttons (body re-renders).
+    // Delegated: create cards + send + delete buttons (body re-renders).
     document.getElementById('campaigns-body').addEventListener('click', async e => {
       const createCard = e.target.closest('[data-create]');
       if (createCard) { openModal(createCard.getAttribute('data-create')); return; }
+
+      const send = e.target.closest('[data-send]');
+      if (send && !send.disabled) { sendCampaign(send.getAttribute('data-send')); return; }
 
       const del = e.target.closest('[data-del]');
       if (del) {
@@ -114,12 +164,15 @@
       msg.textContent = '';
       const data = Object.fromEntries(new FormData(form));
       if (!data.name.trim()) { msg.textContent = 'Campaign name is required.'; return; }
+      if (data.channel === 'Email' && (!data.subject.trim() || !data.body.trim())) {
+        msg.textContent = 'Add a subject and message for an email campaign.'; return;
+      }
       const btn = form.querySelector('button[type="submit"]');
       btn.disabled = true; btn.style.opacity = '0.7';
       try {
         const res = await fetch('/api/campaigns', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
-          body: JSON.stringify({ name: data.name, channel: data.channel, status: data.status })
+          body: JSON.stringify({ name: data.name, channel: data.channel, audience: data.audience, subject: data.subject, body: data.body })
         });
         const raw = await res.text();
         let body = {}; try { body = raw ? JSON.parse(raw) : {}; } catch (err) {}
@@ -137,7 +190,7 @@
 
   document.addEventListener('DOMContentLoaded', async function () {
     await LF.renderLayout({ active: 'campaigns' });
-    await load();
+    await Promise.all([load(), loadAudiences()]);
     bind();
     render();
   });

@@ -592,7 +592,7 @@ LF.timelinePill = (t) => {
 };
 LF.statusPill = (s) => {
   if (['Active','Connected','Online','Completed'].includes(s)) return 'pill-green';
-  if (['Scheduled','Away','High'].includes(s)) return 'pill-yellow';
+  if (['Scheduled','Away','High','Sending'].includes(s)) return 'pill-yellow';
   if (['Paused','Offline','Not Connected','Low'].includes(s)) return 'pill-gray';
   if (['Missed', 'No Answer'].includes(s)) return 'pill-red';
   return 'pill-blue';
