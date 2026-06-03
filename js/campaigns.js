@@ -100,6 +100,8 @@
     form.reset();
     fillAudienceSelect();
     if (channel) form.elements['channel'].value = channel;
+    // Every message starts with a personalized greeting, prefilled and ready to edit.
+    form.elements['body'].value = 'Hi {{first_name}},\n\n';
     document.getElementById('campaign-form-msg').textContent = '';
     document.getElementById('campaign-modal').classList.remove('hidden');
     form.elements['name'].focus();
