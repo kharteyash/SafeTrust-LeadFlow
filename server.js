@@ -811,6 +811,10 @@ app.post('/api/scheduled', safe(async (req, res) => {
   // sendAt is the precise UTC instant computed client-side from local date+time.
   const sendAtDate = sendAt ? new Date(sendAt) : null;
   const sendAtVal = (sendAtDate && !isNaN(sendAtDate.getTime())) ? sendAtDate.toISOString() : null;
+  // Reject clearly-past send times (small grace for client/server clock skew).
+  if (sendAtVal && sendAtDate.getTime() < Date.now() - 120000) {
+    return res.status(400).json({ error: "That time has already passed — you can't schedule a message in the past." });
+  }
 
   const row = await one(`
     INSERT INTO scheduled_messages (user_id, recipient, channel, type, send_date, send_time, send_at, status, body)

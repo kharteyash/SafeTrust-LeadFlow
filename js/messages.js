@@ -251,6 +251,18 @@
   }
 
   // ----- New message modal -----
+  // Keep the time field's lower bound at "now" whenever today is the chosen date,
+  // so the native picker discourages selecting a moment in the past.
+  function syncTimeMin(form) {
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+    const t = form.elements['time'];
+    if (form.elements['date'].value === todayStr) {
+      t.min = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+    } else {
+      t.removeAttribute('min');
+    }
+  }
   function openMsgModal() {
     const form = document.getElementById('msg-form');
     form.reset();
@@ -258,8 +270,11 @@
     const todayStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
     form.elements['date'].value = todayStr;
     form.elements['date'].min = todayStr;
-    form.elements['time'].value = '09:00';
+    // Default to the next hour so the prefilled time is in the future.
+    const next = new Date(now.getTime() + 60 * 60 * 1000);
+    form.elements['time'].value = `${pad(next.getHours())}:00`;
     form.elements['channel'].value = 'Email';
+    syncTimeMin(form);
     document.getElementById('msg-form-msg').textContent = '';
     document.getElementById('msg-modal').classList.remove('hidden');
     form.elements['recipient'].focus();
@@ -274,6 +289,7 @@
 
     const form = document.getElementById('msg-form');
     const msg = document.getElementById('msg-form-msg');
+    form.elements['date'].addEventListener('change', () => syncTimeMin(form));
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       msg.textContent = '';
@@ -288,13 +304,17 @@
 
       // Convert the chosen local date+time into a precise UTC instant so the
       // server can send it at the right moment regardless of timezone.
-      let sendAt = '';
-      if (data.date && data.time) {
-        const [yy, mm, dd] = data.date.split('-').map(Number);
-        const [hh, mi] = data.time.split(':').map(Number);
-        const dt = new Date(yy, mm - 1, dd, hh, mi);
-        if (!isNaN(dt.getTime())) sendAt = dt.toISOString();
+      if (!data.date || !data.time) { msg.textContent = 'Pick a send date and time.'; return; }
+      const [yy, mm, dd] = data.date.split('-').map(Number);
+      const [hh, mi] = data.time.split(':').map(Number);
+      const dt = new Date(yy, mm - 1, dd, hh, mi);
+      if (isNaN(dt.getTime())) { msg.textContent = 'Pick a valid send date and time.'; return; }
+      // Can't schedule into the past — the moment has to be in the future.
+      if (dt.getTime() <= Date.now()) {
+        msg.textContent = "That time has already passed. Pick a future date and time.";
+        return;
       }
+      const sendAt = dt.toISOString();
 
       const btn = form.querySelector('button[type="submit"]');
       btn.disabled = true; btn.style.opacity = '0.7';
@@ -382,96 +402,47 @@
     return `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${c};margin-right:6px;"></span>`;
   }
 
+  // Per-user "send as yourself" connection. Only surfaced when Google sign-in is
+  // configured on the server; otherwise the card is hidden entirely.
   async function renderEmailHealth() {
     const box = document.getElementById('email-health');
     if (!box) return;
     let s = null;
     try { const r = await fetch('/api/email/status', { credentials: 'same-origin' }); if (r.ok) s = await r.json(); }
     catch (e) {}
-    if (!s) { box.innerHTML = `<div class="text-[13px] text-muted">Could not load email status.</div>`; return; }
+    if (!s || !s.gmailConfigured) { box.style.display = 'none'; box.innerHTML = ''; return; }
+    box.style.display = '';
 
-    const ready = !!s.ready;
-    const myEmail = (LF_DATA.user && LF_DATA.user.email) || '';
-
-    // Per-user Gmail is the primary, recommended path (each user sends as themselves).
-    let primary;
     if (s.gmailConnected) {
-      primary = `
-        <div class="text-[14px] font-semibold mb-1">Email delivery · Your Google account</div>
-        <div class="text-[12.5px]">${dot(true)}Sending as <b>${esc(s.gmailEmail || myEmail)}</b> — recipients see your own name and address.</div>
-        <div class="mt-2"><button id="gmail-disconnect-btn" class="btn-secondary" style="padding:5px 12px;font-size:12px;">Disconnect Google account</button></div>`;
-    } else if (s.gmailConfigured) {
-      const fallbackNote = s.sharedReady
-        ? `<div class="text-[12px] text-muted mt-1">Until you connect, emails you send use the shared account.</div>` : '';
-      primary = `
-        <div class="text-[14px] font-semibold mb-1">Send emails as yourself</div>
-        <div class="text-[12.5px] text-muted">Connect your Google account once — then everything you send goes out from your own name and address. No password needed.</div>
-        ${fallbackNote}
-        <div class="mt-2"><button id="gmail-connect-btn" class="btn-primary" style="padding:6px 14px;font-size:12.5px;">
-          <i data-lucide="mail" style="width:14px;height:14px;"></i> Connect Google account</button></div>`;
+      box.innerHTML = `
+        <div class="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <div class="text-[14px] font-semibold mb-1">Sending email as yourself</div>
+            <div class="text-[12.5px]">${dot(true)}Connected — emails you send go out from <b>${esc(s.gmailEmail || '')}</b>.</div>
+          </div>
+          <button id="gmail-disconnect-btn" class="btn-secondary" style="padding:5px 12px;font-size:12px;">Disconnect</button>
+        </div>`;
     } else {
-      // OAuth not configured on the server — fall back to describing the shared backend.
-      const providerLabel = s.provider === 'smtp' ? 'SMTP (Google Workspace)'
-        : s.provider === 'resend' ? 'Resend' : 'Not configured';
-      const warn = s.usingTestDomain
-        ? `<div class="text-[12px] mt-2" style="color:#B07A00;">Using Resend's test domain (<b>${esc(s.from)}</b>) — it can only deliver to your own Resend account email.</div>` : '';
-      const detail = s.provider === 'smtp'
-        ? `<div class="text-[12.5px]">${dot(true)}SMTP host ${esc(s.smtpHost || '—')}</div>
-           <div class="text-[12.5px]">${dot(!!s.from)}From ${s.from ? esc(s.from) : 'not set'}</div>`
-        : s.provider === 'resend'
-        ? `<div class="text-[12.5px]">${dot(s.resendKeyOk)}API key ${s.resendKeyOk ? 'set' : 'looks wrong (should start with re_)'}</div>
-           <div class="text-[12.5px]">${dot(!!s.from)}From ${s.from ? esc(s.from) : 'not set'}</div>`
-        : `<div class="text-[12.5px]">${dot(false)}No email backend configured.</div>`;
-      primary = `
-        <div class="text-[14px] font-semibold mb-1">Email delivery · ${esc(providerLabel)}</div>
-        ${detail}${warn}`;
+      box.innerHTML = `
+        <div class="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <div class="text-[14px] font-semibold mb-1">Send emails as yourself</div>
+            <div class="text-[12.5px] text-muted">Connect your Google account once — then everything you send comes from your own name and address. No password needed.</div>
+          </div>
+          <button id="gmail-connect-btn" class="btn-primary" style="padding:6px 14px;font-size:12.5px;white-space:nowrap;">
+            <i data-lucide="mail" style="width:14px;height:14px;"></i> Connect Google account</button>
+        </div>`;
     }
-
-    box.innerHTML = `
-      <div class="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          ${primary}
-          <div class="text-[12.5px] mt-1">${dot(s.cronSet)}Auto-send scheduler ${s.cronSet ? 'enabled' : 'not configured'}</div>
-        </div>
-        <span class="pill ${ready ? 'pill-green' : 'pill-red'}" style="font-size:11px;">${ready ? 'Ready' : 'Not configured'}</span>
-      </div>
-      <div class="flex items-center gap-2 mt-3 flex-wrap" style="border-top:1px solid var(--border-soft);padding-top:12px;">
-        <input id="email-test-to" class="input" style="max-width:260px;" placeholder="you@example.com" value="${escAttr(myEmail)}" />
-        <button id="email-test-btn" class="btn-primary" ${ready ? '' : 'disabled style="opacity:.6;cursor:not-allowed;"'}>
-          <i data-lucide="send" style="width:14px;height:14px;"></i> Send test email
-        </button>
-        <span id="email-test-msg" class="text-[12.5px] font-medium"></span>
-      </div>`;
     if (window.lucide) lucide.createIcons();
 
     const connectBtn = document.getElementById('gmail-connect-btn');
     if (connectBtn) connectBtn.addEventListener('click', () => { window.location.href = '/api/google/connect?from=messages'; });
     const disconnectBtn = document.getElementById('gmail-disconnect-btn');
     if (disconnectBtn) disconnectBtn.addEventListener('click', async () => {
-      if (!window.confirm('Disconnect your Google account? Emails will then send from the shared account (if configured).')) return;
+      if (!window.confirm('Disconnect your Google account?')) return;
       try { await fetch('/api/google/disconnect', { method: 'POST', credentials: 'same-origin' }); } catch (e) {}
       renderEmailHealth();
     });
-
-    const btn = document.getElementById('email-test-btn');
-    if (btn && ready) {
-      btn.addEventListener('click', async () => {
-        const to = (document.getElementById('email-test-to').value || '').trim();
-        const msg = document.getElementById('email-test-msg');
-        msg.style.color = 'var(--text-muted)'; msg.textContent = 'Sending…';
-        btn.disabled = true; btn.style.opacity = '0.7';
-        try {
-          const res = await fetch('/api/email/test', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
-            body: JSON.stringify({ to })
-          });
-          const raw = await res.text(); let body = {}; try { body = raw ? JSON.parse(raw) : {}; } catch (e) {}
-          if (res.ok) { msg.style.color = '#138A4B'; msg.textContent = `Sent to ${to} — check the inbox (and spam).`; }
-          else { msg.style.color = '#D63333'; msg.textContent = body.error || `Failed (HTTP ${res.status}).`; }
-        } catch (e) { msg.style.color = '#D63333'; msg.textContent = 'Network error.'; }
-        finally { btn.disabled = false; btn.style.opacity = ''; }
-      });
-    }
   }
 
   document.addEventListener('DOMContentLoaded', async function () {
@@ -487,11 +458,7 @@
       const params = new URLSearchParams(window.location.search);
       const g = params.get('gmail');
       if (g) {
-        const msg = document.getElementById('email-test-msg');
-        if (msg) {
-          if (g === 'connected') { msg.style.color = '#138A4B'; msg.textContent = 'Google account connected — you can now send as yourself.'; }
-          else { msg.style.color = '#D63333'; msg.textContent = 'Could not connect Google account. Please try again.'; }
-        }
+        if (g === 'error') window.alert('Could not connect your Google account. Please try again.');
         window.history.replaceState({}, '', '/messages.html');
       }
     } catch (e) {}
