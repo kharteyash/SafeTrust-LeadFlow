@@ -6,6 +6,7 @@ const cookieParser = require('cookie-parser');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const path = require('path');
+const nodemailer = require('nodemailer');
 const { Pool } = require('pg');
 
 // Load environment variables from .env (DATABASE_URL, Google OAuth, etc.).
@@ -821,13 +822,53 @@ app.post('/api/scheduled', safe(async (req, res) => {
   });
 }));
 
-// ----- Scheduled email delivery -----
-// Sends one email through Resend (https://resend.com). Throws on misconfig/failure.
+// ----- Email delivery -----
+// Two backends are supported. SMTP (e.g. Google Workspace) is preferred when
+// configured because the sending domain is already trusted by the provider;
+// Resend is used otherwise. Both throw on misconfig/failure.
+function envClean(name) { return (process.env[name] || '').trim().replace(/^["']|["']$/g, ''); }
+
+function smtpConfig() {
+  const user = envClean('SMTP_USER');
+  const pass = envClean('SMTP_PASS') || envClean('SMTP_APP_PASSWORD');
+  if (!user || !pass) return null;
+  return {
+    host: envClean('SMTP_HOST') || 'smtp.gmail.com',
+    port: Number(envClean('SMTP_PORT')) || 587,
+    user,
+    pass,
+    from: envClean('SMTP_FROM') || user
+  };
+}
+
+let _smtpTransport = null;
+function getSmtpTransport(cfg) {
+  if (!_smtpTransport) {
+    _smtpTransport = nodemailer.createTransport({
+      host: cfg.host, port: cfg.port,
+      secure: cfg.port === 465,          // 465 = implicit TLS; 587 = STARTTLS
+      auth: { user: cfg.user, pass: cfg.pass }
+    });
+  }
+  return _smtpTransport;
+}
+
+// Sends one email through an authenticated SMTP server (Google Workspace, etc.).
+async function sendEmailViaSMTP({ to, subject, text }) {
+  const cfg = smtpConfig();
+  if (!cfg) throw new Error('SMTP not configured (set SMTP_USER and SMTP_PASS).');
+  // Gmail app passwords are shown with spaces; strip them so auth doesn't fail.
+  cfg.pass = cfg.pass.replace(/\s+/g, '');
+  await getSmtpTransport(cfg).sendMail({
+    from: cfg.from, to, subject: subject || '(no subject)', text: text || ''
+  });
+}
+
+// Sends one email through Resend (https://resend.com).
 async function sendEmailViaResend({ to, subject, text }) {
-  // Trim whitespace/newlines and strip accidental wrapping quotes from env values.
-  const key = (process.env.RESEND_API_KEY || '').trim().replace(/^["']|["']$/g, '');
-  const from = (process.env.RESEND_FROM || '').trim().replace(/^["']|["']$/g, '');
-  if (!key || !from) throw new Error('Email sending not configured (set RESEND_API_KEY and RESEND_FROM).');
+  const key = envClean('RESEND_API_KEY');
+  const from = envClean('RESEND_FROM');
+  if (!key || !from) throw new Error('Email sending not configured (set RESEND_API_KEY and RESEND_FROM, or SMTP_USER/SMTP_PASS).');
   if (!key.startsWith('re_')) throw new Error('RESEND_API_KEY looks wrong — it should start with "re_".');
   const r = await fetch('https://api.resend.com/emails', {
     method: 'POST',
@@ -838,6 +879,12 @@ async function sendEmailViaResend({ to, subject, text }) {
     const t = await r.text().catch(() => '');
     throw new Error(`Resend ${r.status}: ${t.slice(0, 200)}`);
   }
+}
+
+// Unified sender: prefer SMTP when configured, else fall back to Resend.
+function emailProvider() { return smtpConfig() ? 'smtp' : (envClean('RESEND_API_KEY') ? 'resend' : 'none'); }
+async function sendEmail(opts) {
+  return emailProvider() === 'smtp' ? sendEmailViaSMTP(opts) : sendEmailViaResend(opts);
 }
 
 // Cron-triggered dispatcher: sends due pending emails. Protected by CRON_SECRET
@@ -863,7 +910,7 @@ async function dispatchScheduled(req, res) {
   let sent = 0, failed = 0;
   for (const m of due) {
     try {
-      await sendEmailViaResend({ to: m.recipient, subject: m.type, text: m.body || '' });
+      await sendEmail({ to: m.recipient, subject: m.type, text: m.body || '' });
       await pool.query(`UPDATE scheduled_messages SET status = 'sent', sent_at = now(), error = NULL WHERE id = $1`, [m.id]);
       sent++;
     } catch (e) {
@@ -880,30 +927,35 @@ app.post('/api/cron/dispatch', safe(dispatchScheduled));
 // Email config status (no secrets leaked) so the UI can show what's wired up.
 app.get('/api/email/status', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
-  const key = (process.env.RESEND_API_KEY || '').trim().replace(/^["']|["']$/g, '');
-  const from = (process.env.RESEND_FROM || '').trim().replace(/^["']|["']$/g, '');
+  const provider = emailProvider();         // 'smtp' | 'resend' | 'none'
+  const smtp = smtpConfig();
+  const resendKey = envClean('RESEND_API_KEY');
+  const resendFrom = envClean('RESEND_FROM');
+  const from = provider === 'smtp' ? (smtp ? smtp.from : '') : resendFrom;
   res.json({
-    keySet: !!key,
-    keyPrefixOk: key.startsWith('re_'),
-    fromSet: !!from,
+    provider,
+    ready: provider !== 'none' && (provider === 'smtp' ? true : resendKey.startsWith('re_') && !!resendFrom),
     from,                                    // the From address is not a secret
-    usingTestDomain: /@resend\.dev$/i.test(from),
+    smtpHost: smtp ? smtp.host : '',
+    // Resend test domain only delivers to the account owner's own address.
+    usingTestDomain: provider === 'resend' && /@resend\.dev$/i.test(resendFrom),
+    resendKeyOk: resendKey ? resendKey.startsWith('re_') : true,
     cronSet: !!process.env.CRON_SECRET
   });
 }));
 
-// Send a one-off test email through Resend and surface the exact result/error.
+// Send a one-off test email and surface the exact result/error.
 app.post('/api/email/test', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
   const to = String((req.body || {}).to || '').trim();
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) return res.status(400).json({ error: 'Enter a valid recipient email.' });
   try {
-    await sendEmailViaResend({
+    await sendEmail({
       to,
       subject: 'LeadFlow test email',
-      text: 'This is a test email from LeadFlow to confirm Resend delivery is working.\n\nIf you received this, email sending is configured correctly.'
+      text: 'This is a test email from LeadFlow to confirm email delivery is working.\n\nIf you received this, email sending is configured correctly.'
     });
-    res.json({ ok: true });
+    res.json({ ok: true, provider: emailProvider() });
   } catch (e) {
     res.status(502).json({ error: String((e && e.message) || e) });
   }
@@ -929,7 +981,7 @@ app.post('/api/scheduled/:id/send', safe(async (req, res) => {
     return res.status(409).json({ error: 'This message is already sending.' });
   }
   try {
-    await sendEmailViaResend({ to: m.recipient, subject: m.type, text: m.body || '' });
+    await sendEmail({ to: m.recipient, subject: m.type, text: m.body || '' });
     await pool.query(`UPDATE scheduled_messages SET status = 'sent', sent_at = now(), error = NULL WHERE id = $1`, [id]);
     res.json({ ok: true, status: 'sent' });
   } catch (e) {

@@ -11,9 +11,10 @@
     "dev": "node --watch server.js"
   },
   "dependencies": {
-    "express": "^4.19.2",
-    "cookie-parser": "^1.4.7",
     "bcryptjs": "^2.4.3",
+    "cookie-parser": "^1.4.7",
+    "express": "^4.19.2",
+    "nodemailer": "^8.0.10",
     "pg": "^8.13.1"
   }
 }

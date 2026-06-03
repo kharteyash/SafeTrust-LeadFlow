@@ -22,8 +22,15 @@ services:
         sync: false
       - key: GOOGLE_REDIRECT_URI
         sync: false
-      # Scheduled email sending via Resend (optional). Leave blank to keep
-      # scheduled messages as reminders only.
+      # Email sending. Preferred: SMTP (Google Workspace) — set SMTP_USER to your
+      # Workspace email and SMTP_PASS to a Google App Password. Leave blank to fall
+      # back to Resend (RESEND_API_KEY/RESEND_FROM), or blank for reminders only.
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_FROM
+        sync: false
       - key: RESEND_API_KEY
         sync: false
       - key: RESEND_FROM

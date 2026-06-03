@@ -390,18 +390,27 @@
     catch (e) {}
     if (!s) { box.innerHTML = `<div class="text-[13px] text-muted">Could not load email status.</div>`; return; }
 
-    const ready = s.keySet && s.keyPrefixOk && s.fromSet;
+    const ready = !!s.ready;
     const myEmail = (LF_DATA.user && LF_DATA.user.email) || '';
+    const providerLabel = s.provider === 'smtp' ? 'SMTP (Google Workspace)'
+      : s.provider === 'resend' ? 'Resend' : 'Not configured';
     const warn = s.usingTestDomain
       ? `<div class="text-[12px] mt-2" style="color:#B07A00;">Using Resend's test domain (<b>${esc(s.from)}</b>) — it can only deliver to your own Resend account email. Verify your own domain to send to anyone.</div>`
       : '';
 
+    const detail = s.provider === 'smtp'
+      ? `<div class="text-[12.5px]">${dot(true)}SMTP host ${esc(s.smtpHost || '—')}</div>
+         <div class="text-[12.5px]">${dot(!!s.from)}From address ${s.from ? esc(s.from) : 'not set'}</div>`
+      : s.provider === 'resend'
+      ? `<div class="text-[12.5px]">${dot(s.resendKeyOk)}API key ${s.resendKeyOk ? 'set' : 'set but looks wrong (should start with re_)'}</div>
+         <div class="text-[12.5px]">${dot(!!s.from)}From address ${s.from ? esc(s.from) : 'not set'}</div>`
+      : `<div class="text-[12.5px]">${dot(false)}No email backend configured — set SMTP_USER/SMTP_PASS (Google Workspace) or RESEND_API_KEY/RESEND_FROM.</div>`;
+
     box.innerHTML = `
       <div class="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <div class="text-[14px] font-semibold mb-1">Email delivery (Resend)</div>
-          <div class="text-[12.5px]">${dot(s.keySet && s.keyPrefixOk)}API key ${s.keySet ? (s.keyPrefixOk ? 'set' : 'set but looks wrong (should start with re_)') : 'not set'}</div>
-          <div class="text-[12.5px]">${dot(s.fromSet)}From address ${s.fromSet ? esc(s.from) : 'not set'}</div>
+          <div class="text-[14px] font-semibold mb-1">Email delivery · ${esc(providerLabel)}</div>
+          ${detail}
           <div class="text-[12.5px]">${dot(s.cronSet)}Auto-send scheduler ${s.cronSet ? 'enabled' : 'not configured'}</div>
           ${warn}
         </div>
