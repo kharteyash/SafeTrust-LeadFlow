@@ -5,6 +5,7 @@
   const queuedLeadIds = new Set(); // leads added to the queue from here this session
   let editingId = null;            // task being edited, if any
   let assignInfo = { canAssign: false, canAssignAll: false, targets: [] };
+  const assignSelected = new Set(); // ids chosen in the assign modal
   const state = { tab: 'all' };
 
   function isOverdueTask(t) { return t.status !== 'done' && t.due && t.due < todayStr(); }
@@ -279,15 +280,44 @@
   }
   function closeModal() { document.getElementById('task-modal').classList.add('hidden'); editingId = null; }
 
-  // ----- Assign task (team leaders / admin) -----
+  // ----- Assign task (team leaders / admin) — searchable multi-select -----
+  function assignFilteredTargets() {
+    const term = (document.getElementById('assign-search').value || '').trim().toLowerCase();
+    return assignInfo.targets.filter(t =>
+      !term || t.name.toLowerCase().includes(term) || t.role.toLowerCase().includes(term));
+  }
+  function updateAssignCount() {
+    const el = document.getElementById('assign-selected-count');
+    if (el) el.textContent = assignSelected.size ? `${assignSelected.size} selected` : 'No one selected yet';
+  }
+  function renderAssignList() {
+    const host = document.getElementById('assign-list');
+    if (!assignInfo.targets.length) {
+      host.innerHTML = '<div class="px-3 py-3 text-[12.5px] text-muted">No one to assign to.</div>';
+      return;
+    }
+    const list = assignFilteredTargets();
+    const allChecked = list.length > 0 && list.every(t => assignSelected.has(t.id));
+    const term = (document.getElementById('assign-search').value || '').trim();
+    host.innerHTML = `
+      <label class="flex items-center gap-2 px-3 py-2 cursor-pointer" style="border-bottom:1px solid var(--border-soft);background:var(--surface-2);">
+        <input type="checkbox" id="assign-all" ${allChecked ? 'checked' : ''} style="accent-color:#2255a3;" />
+        <span class="text-[12.5px] font-semibold">Select all${term ? ' matching' : ''} (${list.length})</span>
+      </label>
+      ${list.length ? list.map(t => `
+        <label class="flex items-center gap-2 px-3 py-2 cursor-pointer" style="border-bottom:1px solid var(--border-soft);">
+          <input type="checkbox" data-assignee="${t.id}" ${assignSelected.has(t.id) ? 'checked' : ''} style="accent-color:#2255a3;" />
+          <span class="flex-1 text-[13px] truncate">${esc(t.name)}</span>
+          <span class="text-[11.5px] text-muted">${esc(t.role)}</span>
+        </label>`).join('') : '<div class="px-3 py-3 text-[12.5px] text-muted">No matches.</div>'}`;
+    updateAssignCount();
+  }
   function openAssignModal() {
     const form = document.getElementById('assign-form');
     form.reset();
-    const sel = document.getElementById('assign-assignee');
-    const everyone = assignInfo.canAssignAll
-      ? `<option value="all">Everyone (${assignInfo.targets.length})</option>` : '';
-    sel.innerHTML = everyone + assignInfo.targets.map(t =>
-      `<option value="${t.id}">${esc(t.name)} · ${esc(t.role)}</option>`).join('');
+    assignSelected.clear();
+    document.getElementById('assign-search').value = '';
+    renderAssignList();
     form.elements['priority'].value = 'Medium';
     form.elements['due'].min = todayStr();
     document.getElementById('assign-form-msg').textContent = '';
@@ -302,6 +332,22 @@
     document.getElementById('assign-modal-close').addEventListener('click', closeAssignModal);
     document.getElementById('assign-cancel').addEventListener('click', closeAssignModal);
     document.getElementById('assign-modal-backdrop').addEventListener('click', closeAssignModal);
+    document.getElementById('assign-search').addEventListener('input', renderAssignList);
+    document.getElementById('assign-list').addEventListener('change', e => {
+      if (e.target.id === 'assign-all') {
+        const list = assignFilteredTargets();
+        if (e.target.checked) list.forEach(t => assignSelected.add(t.id));
+        else list.forEach(t => assignSelected.delete(t.id));
+        renderAssignList();
+        return;
+      }
+      const cb = e.target.closest('[data-assignee]');
+      if (cb) {
+        const id = Number(cb.getAttribute('data-assignee'));
+        if (cb.checked) assignSelected.add(id); else assignSelected.delete(id);
+        renderAssignList();
+      }
+    });
 
     const form = document.getElementById('assign-form');
     const msg = document.getElementById('assign-form-msg');
@@ -310,9 +356,8 @@
       msg.textContent = '';
       const data = Object.fromEntries(new FormData(form));
       if (!data.title.trim()) { msg.textContent = 'Title is required.'; return; }
-      const payload = { title: data.title, due: data.due || '', priority: data.priority };
-      if (data.assignee === 'all') payload.assignToAll = true;
-      else payload.assigneeId = Number(data.assignee);
+      if (!assignSelected.size) { msg.textContent = 'Select at least one person to assign to.'; return; }
+      const payload = { title: data.title, due: data.due || '', priority: data.priority, assigneeIds: Array.from(assignSelected) };
       const sbtn = document.getElementById('assign-submit');
       sbtn.disabled = true; sbtn.style.opacity = '0.7';
       try {

@@ -1957,13 +1957,14 @@ app.post('/api/tasks/assign', safe(async (req, res) => {
   if (!roster.length) return res.status(403).json({ error: 'You don’t have anyone to assign tasks to.' });
   const allowed = new Set(roster.map(r => r.id));
 
-  let targetIds;
-  if (b.assignToAll) targetIds = roster.map(r => r.id);
-  else {
-    const aid = Number(b.assigneeId);
-    if (!Number.isInteger(aid) || !allowed.has(aid)) return res.status(400).json({ error: 'You can only assign to your team.' });
-    targetIds = [aid];
-  }
+  // Accept a list of assignees (preferred), a single id, or "everyone".
+  let ids;
+  if (b.assignToAll) ids = roster.map(r => r.id);
+  else if (Array.isArray(b.assigneeIds)) ids = b.assigneeIds.map(Number);
+  else ids = [Number(b.assigneeId)];
+  const targetIds = [...new Set(ids.filter(id => Number.isInteger(id) && allowed.has(id)))];
+  if (!targetIds.length) return res.status(400).json({ error: 'Pick at least one teammate to assign to.' });
+
   for (const tid of targetIds) {
     await q(`INSERT INTO tasks (user_id, title, due_date, priority, status, assigned_by)
              VALUES ($1, $2, $3, $4, 'todo', $5)`, [tid, title, due, priority, req.user.id]);

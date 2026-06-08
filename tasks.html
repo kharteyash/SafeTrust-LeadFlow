@@ -94,7 +94,9 @@
           <form id="assign-form" class="flex flex-col gap-3">
             <div>
               <label class="text-[12px] font-semibold text-muted">Assign to</label>
-              <select name="assignee" id="assign-assignee" class="input mt-1" style="cursor:pointer;"></select>
+              <input id="assign-search" class="input mt-1" placeholder="Search people…" autocomplete="off" />
+              <div id="assign-list" class="mt-2 rounded-xl" style="border:1px solid var(--border);max-height:210px;overflow-y:auto;"></div>
+              <div id="assign-selected-count" class="text-[11.5px] text-muted mt-1">No one selected yet</div>
             </div>
             <div>
               <label class="text-[12px] font-semibold text-muted">Title</label>
