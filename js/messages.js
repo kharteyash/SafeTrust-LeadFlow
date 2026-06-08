@@ -157,7 +157,7 @@
           }).join('')}
         </div>
       </div>`).join('')
-      : `<div class="text-center py-12 text-muted text-[13px]">No messages scheduled. Click “New message” to add one.</div>`;
+      : `<div class="text-center py-12 text-muted text-[13px]">No messages scheduled. Click “Schedule message” to add one.</div>`;
 
     document.getElementById('msg-body').innerHTML = `
       <div class="flex items-center justify-between mb-4">

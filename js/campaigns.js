@@ -4,12 +4,9 @@
   let campaigns = [];
   let audiences = [];   // [{ key, label, count }]
 
+  let editingId = null;   // null = creating, otherwise the campaign being edited
+
   function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
-  function channelMeta(ch) {
-    return ch === 'SMS'
-      ? { icon: 'message-square', fg: '#2B57D9', bg: '#E7EEFF', pill: 'pill-blue' }
-      : { icon: 'mail', fg: '#2255a3', bg: '#EFEAFF', pill: 'pill-purple' };
-  }
 
   async function load() {
     try {
@@ -25,40 +22,36 @@
   }
 
   function render() {
-    const createCards = [
-      { label: 'Email campaign', icon: 'mail',           ch: 'Email' },
-      { label: 'SMS campaign',   icon: 'message-square', ch: 'SMS' }
-    ].map(c => {
-      const m = channelMeta(c.ch);
-      return `
-        <div class="col-span-12 md:col-span-6 rounded-xl p-5 flex items-center gap-3 cursor-pointer hover:bg-[#FAFAFC]" style="border:1px solid var(--border);" data-create="${c.ch}">
-          <span class="stat-icon" style="background:${m.bg};width:40px;height:40px;">
-            <i data-lucide="${c.icon}" style="width:18px;height:18px;color:${m.fg};"></i>
-          </span>
-          <div class="flex-1">
-            <div class="text-[14px] font-semibold">${c.label}</div>
-            <div class="text-[12px] text-muted">Create a new ${c.ch} campaign</div>
-          </div>
-          <i data-lucide="plus" style="width:16px;height:16px;color:#2255a3;pointer-events:none;"></i>
-        </div>`;
-    }).join('');
+    const createCard = `
+      <div class="rounded-xl p-5 flex items-center gap-3 cursor-pointer hover:bg-[#FAFAFC]" style="border:1px solid var(--border);" data-create="1">
+        <span class="stat-icon" style="background:#EFEAFF;width:40px;height:40px;">
+          <i data-lucide="mail" style="width:18px;height:18px;color:#2255a3;"></i>
+        </span>
+        <div class="flex-1">
+          <div class="text-[14px] font-semibold">New email campaign</div>
+          <div class="text-[12px] text-muted">Write once, send personalized to a lead audience</div>
+        </div>
+        <i data-lucide="plus" style="width:16px;height:16px;color:#2255a3;pointer-events:none;"></i>
+      </div>`;
 
     const rowFor = (c) => {
       const sending = c.status === 'Sending';
-      const canSend = c.type === 'Email' && c.status !== 'Sending';
+      const canSend = c.status !== 'Sending';
       const failedBadge = c.failed ? ` <span class="text-[11px]" style="color:#D63333;">(${c.failed} failed)</span>` : '';
       return `
         <tr>
           <td class="font-semibold">${esc(c.name)}</td>
-          <td><span class="pill ${channelMeta(c.type).pill}">${esc(c.type)}</span></td>
           <td class="text-muted">${esc(c.audienceLabel || '—')}</td>
           <td class="text-muted">${LF.fmtNum(c.recipients)}</td>
           <td class="text-muted">${LF.fmtNum(c.sent)}${failedBadge}</td>
           <td><span class="pill ${LF.statusPill(c.status)}">${esc(c.status)}</span></td>
           <td>
             <div class="flex items-center gap-1">
-              <button data-send="${c.id}" class="btn-icon" title="${c.type === 'Email' ? 'Send campaign' : 'SMS sending not available'}" style="width:30px;height:30px;border:none;" ${canSend ? '' : 'disabled style="opacity:.4;cursor:not-allowed;width:30px;height:30px;border:none;"'}>
+              <button data-send="${c.id}" class="btn-icon" title="Send campaign" style="width:30px;height:30px;border:none;" ${canSend ? '' : 'disabled style="opacity:.4;cursor:not-allowed;width:30px;height:30px;border:none;"'}>
                 <i data-lucide="${sending ? 'loader' : 'send'}" style="width:14px;height:14px;color:#2255a3;pointer-events:none;"></i>
+              </button>
+              <button data-edit="${c.id}" class="btn-icon" title="Edit campaign" style="width:30px;height:30px;border:none;">
+                <i data-lucide="pencil" style="width:14px;height:14px;color:var(--text-muted);pointer-events:none;"></i>
               </button>
               <button data-del="${c.id}" class="btn-icon" title="Delete campaign" style="width:30px;height:30px;border:none;">
                 <i data-lucide="trash-2" style="width:14px;height:14px;color:#D63333;pointer-events:none;"></i>
@@ -71,7 +64,7 @@
     const tracking = campaigns.length ? `
       <div class="overflow-x-auto rounded-xl" style="border:1px solid var(--border);">
         <table class="lf-table">
-          <thead><tr><th>Campaign</th><th>Type</th><th>Audience</th><th>Recipients</th><th>Sent</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th>Campaign</th><th>Audience</th><th>Recipients</th><th>Sent</th><th>Status</th><th></th></tr></thead>
           <tbody>${campaigns.map(rowFor).join('')}</tbody>
         </table>
       </div>`
@@ -82,7 +75,7 @@
 
     document.getElementById('campaigns-body').innerHTML = `
       <h3 class="text-[15px] font-semibold mb-3">Create a campaign</h3>
-      <div class="grid grid-cols-12 gap-4 mb-6">${createCards}</div>
+      <div class="mb-6">${createCard}</div>
       <h3 class="text-[15px] font-semibold mb-3">Campaigns</h3>
       ${tracking}`;
     if (window.lucide) lucide.createIcons();
@@ -95,13 +88,22 @@
     sel.innerHTML = (audiences.length ? audiences : [{ key: 'all', label: 'All leads', count: 0 }])
       .map(a => `<option value="${a.key}">${esc(a.label)} (${a.count})</option>`).join('');
   }
-  function openModal(channel) {
+  function openModal(campaign) {
     const form = document.getElementById('campaign-form');
     form.reset();
     fillAudienceSelect();
-    if (channel) form.elements['channel'].value = channel;
-    // Every message starts with a personalized greeting, prefilled and ready to edit.
-    form.elements['body'].value = 'Hi {{first_name}},\n\n';
+    editingId = campaign ? campaign.id : null;
+    document.getElementById('campaign-modal-title').textContent = campaign ? 'Edit campaign' : 'New campaign';
+    document.getElementById('campaign-submit').textContent = campaign ? 'Save changes' : 'Create campaign';
+    if (campaign) {
+      form.elements['name'].value = campaign.name || '';
+      form.elements['audience'].value = campaign.audience || 'all';
+      form.elements['subject'].value = campaign.subject || '';
+      form.elements['body'].value = campaign.body || '';
+    } else {
+      // New campaigns start with a personalized greeting, ready to edit.
+      form.elements['body'].value = 'Hi {{first_name}},\n\n';
+    }
     document.getElementById('campaign-form-msg').textContent = '';
     document.getElementById('campaign-modal').classList.remove('hidden');
     form.elements['name'].focus();
@@ -137,13 +139,20 @@
     document.getElementById('campaign-cancel').addEventListener('click', closeModal);
     document.getElementById('campaign-modal-backdrop').addEventListener('click', closeModal);
 
-    // Delegated: create cards + send + delete buttons (body re-renders).
+    // Delegated: create card + send + edit + delete buttons (body re-renders).
     document.getElementById('campaigns-body').addEventListener('click', async e => {
       const createCard = e.target.closest('[data-create]');
-      if (createCard) { openModal(createCard.getAttribute('data-create')); return; }
+      if (createCard) { openModal(null); return; }
 
       const send = e.target.closest('[data-send]');
       if (send && !send.disabled) { sendCampaign(send.getAttribute('data-send')); return; }
+
+      const edit = e.target.closest('[data-edit]');
+      if (edit) {
+        const c = campaigns.find(x => String(x.id) === String(edit.getAttribute('data-edit')));
+        if (c) openModal(c);
+        return;
+      }
 
       const del = e.target.closest('[data-del]');
       if (del) {
@@ -166,20 +175,26 @@
       msg.textContent = '';
       const data = Object.fromEntries(new FormData(form));
       if (!data.name.trim()) { msg.textContent = 'Campaign name is required.'; return; }
-      if (data.channel === 'Email' && (!data.subject.trim() || !data.body.trim())) {
-        msg.textContent = 'Add a subject and message for an email campaign.'; return;
+      if (!data.subject.trim() || !data.body.trim()) {
+        msg.textContent = 'Add a subject and message.'; return;
       }
-      const btn = form.querySelector('button[type="submit"]');
+      const btn = document.getElementById('campaign-submit');
       btn.disabled = true; btn.style.opacity = '0.7';
+      const payload = { name: data.name, audience: data.audience, subject: data.subject, body: data.body };
       try {
-        const res = await fetch('/api/campaigns', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
-          body: JSON.stringify({ name: data.name, channel: data.channel, audience: data.audience, subject: data.subject, body: data.body })
+        const res = await fetch(editingId ? '/api/campaigns/' + editingId : '/api/campaigns', {
+          method: editingId ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+          body: JSON.stringify(payload)
         });
         const raw = await res.text();
         let body = {}; try { body = raw ? JSON.parse(raw) : {}; } catch (err) {}
         if (!res.ok) { msg.textContent = body.error || `Request failed (HTTP ${res.status}).`; return; }
-        campaigns.unshift(body);
+        if (editingId) {
+          const i = campaigns.findIndex(x => String(x.id) === String(editingId));
+          if (i >= 0) campaigns[i] = body;
+        } else {
+          campaigns.unshift(body);
+        }
         closeModal();
         render();
       } catch (err) {

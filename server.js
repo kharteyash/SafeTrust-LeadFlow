@@ -770,7 +770,7 @@ app.delete('/api/call-queue/:id', safe(async (req, res) => {
 }));
 
 // ----- Campaigns -----
-const CAMPAIGN_CHANNELS = ['Email', 'SMS'];
+// Email only — SMS campaigns were removed.
 const CAMPAIGN_STATUSES = ['Draft', 'Scheduled', 'Active', 'Paused', 'Completed'];
 
 // Audience segments — each is a fixed (no user input) WHERE clause over the
@@ -850,9 +850,10 @@ function campaignToJson(r) {
 
 app.get('/api/campaigns', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  // SMS campaigns were removed — hide any legacy ones.
   const rows = await q(`
     SELECT id, name, channel, status, subject, body, audience, recipients, sent, failed, opens, clicks, replies, created_at
-    FROM campaigns WHERE user_id = $1 ORDER BY id DESC
+    FROM campaigns WHERE user_id = $1 AND channel IS DISTINCT FROM 'SMS' ORDER BY id DESC
   `, [req.user.id]);
   res.json(rows.map(campaignToJson));
 }));
@@ -869,7 +870,6 @@ app.post('/api/campaigns', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
   const b = req.body || {};
   const name = String(b.name || '').trim();
-  const channel = CAMPAIGN_CHANNELS.includes(b.channel) ? b.channel : 'Email';
   const subject = String(b.subject || '').trim();
   const body = String(b.body || '').trim();
   const audience = audienceByKey(b.audience) ? b.audience : 'all';
@@ -877,9 +877,32 @@ app.post('/api/campaigns', safe(async (req, res) => {
 
   const row = await one(`
     INSERT INTO campaigns (user_id, name, channel, status, subject, body, audience)
-    VALUES ($1, $2, $3, 'Draft', $4, $5, $6)
+    VALUES ($1, $2, 'Email', 'Draft', $3, $4, $5)
     RETURNING id, name, channel, status, subject, body, audience, recipients, sent, failed, opens, clicks, replies, created_at
-  `, [req.user.id, name, channel, subject, body, audience]);
+  `, [req.user.id, name, subject, body, audience]);
+  res.json(campaignToJson(row));
+}));
+
+// Edit a campaign's name, audience, subject, or body.
+app.patch('/api/campaigns/:id', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid campaign id.' });
+  const cur = await one('SELECT * FROM campaigns WHERE id = $1 AND user_id = $2', [id, req.user.id]);
+  if (!cur) return res.status(404).json({ error: 'Campaign not found.' });
+
+  const b = req.body || {};
+  const name     = b.name     != null ? String(b.name).trim()    : cur.name;
+  const subject  = b.subject  != null ? String(b.subject).trim() : (cur.subject || '');
+  const body     = b.body     != null ? String(b.body).trim()    : (cur.body || '');
+  const audience = audienceByKey(b.audience) ? b.audience : (cur.audience || 'all');
+  if (!name) return res.status(400).json({ error: 'Campaign name is required.' });
+
+  const row = await one(`
+    UPDATE campaigns SET name = $1, subject = $2, body = $3, audience = $4
+    WHERE id = $5 AND user_id = $6
+    RETURNING id, name, channel, status, subject, body, audience, recipients, sent, failed, opens, clicks, replies, created_at
+  `, [name, subject, body, audience, id, req.user.id]);
   res.json(campaignToJson(row));
 }));
 
