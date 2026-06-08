@@ -92,6 +92,25 @@
         <div id="tasks-overview" class="flex flex-col gap-2"></div>
       </div>
     </div>
+
+    <!-- Lead detail modal (read-only) -->
+    <div id="dash-lead-modal" class="hidden" style="position:fixed;inset:0;z-index:50;">
+      <div id="dash-lead-backdrop" style="position:absolute;inset:0;background:rgba(14,14,27,.45);"></div>
+      <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:100%;max-width:480px;" class="px-4">
+        <div class="bg-white rounded-2xl p-6 shadow-2xl">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-[17px] font-bold">Lead details</h3>
+            <button id="dash-lead-close" class="btn-icon" style="width:32px;height:32px;border:none;">
+              <i data-lucide="x" style="width:16px;height:16px;color:var(--text-muted);"></i>
+            </button>
+          </div>
+          <div id="dash-lead-body"></div>
+          <div class="flex items-center justify-end gap-2 mt-4">
+            <a href="leads.html" class="btn-secondary"><i data-lucide="external-link" style="width:13px;height:13px;"></i> Open in Leads</a>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script src="js/data.js"></script>

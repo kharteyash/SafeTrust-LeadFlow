@@ -438,10 +438,16 @@ app.post('/api/profile', safe(async (req, res) => {
   if (typeof name !== 'string' || !name.trim()) return res.status(400).json({ error: 'Name is required.' });
   if (name.trim().length > 80) return res.status(400).json({ error: 'Name is too long.' });
 
+  const prev = await one('SELECT name FROM users WHERE id = $1', [req.user.id]);
   const updated = await one(`
     UPDATE users SET name = $1, phone = $2, title = $3, bio = $4 WHERE id = $5
     RETURNING id, email, name, phone, title, bio
   `, [name.trim(), (phone || '').trim(), (title || '').trim(), (bio || '').trim(), req.user.id]);
+
+  // Keep the lead "Owner" column in sync for this user's own leads.
+  if (prev && prev.name && prev.name !== name.trim()) {
+    await q('UPDATE leads SET owner = $1 WHERE user_id = $2 AND owner = $3', [name.trim(), req.user.id, prev.name]);
+  }
 
   res.json({
     id: updated.id, email: updated.email, name: updated.name,

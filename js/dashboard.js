@@ -28,6 +28,7 @@
     [leads, calls, tasks, contacts] = await Promise.all([
       get('/api/leads'), get('/api/call-log'), get('/api/tasks'), get('/api/contacts')
     ]);
+    leads = leads.map((l, i) => Object.assign({ _uid: i + 1 }, l));
   }
 
   // ----- Stat cards -----
@@ -199,7 +200,7 @@
       <tbody>
         ${pageRows.map(l => `
           <tr>
-            <td class="font-semibold">${esc(l.name)}</td>
+            <td><span class="font-semibold" data-detail-uid="${l._uid}" style="cursor:pointer;color:var(--accent);">${esc(l.name)}</span></td>
             <td class="text-muted">${esc(l.email)}</td>
             <td>${esc(l.phone)}</td>
             <td><span class="pill ${timelinePill(l.timeline)}">${esc(l.timeline)}</span></td>
@@ -236,6 +237,66 @@
     const sel = document.getElementById('rows-per-page');
     sel.value = String(state.pageSize);
     sel.addEventListener('change', e => { state.pageSize = parseInt(e.target.value, 10); state.page = 1; renderLeadsTable(); if (window.lucide) lucide.createIcons(); });
+  }
+
+  // ----- Lead detail modal (read-only, opened by clicking a name) -----
+  function escAttr(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  function realtorLabel(s) { return s === 'has' ? 'Has a realtor' : s === 'unavailable' ? 'Not available' : 'None'; }
+  function detailRow(label, value) {
+    return `<div class="flex justify-between gap-4 py-2" style="border-bottom:1px solid var(--border-soft);">
+      <span class="text-[12.5px] text-muted flex-shrink-0">${label}</span>
+      <span class="text-[13px] font-medium text-right" style="word-break:break-word;">${value}</span>
+    </div>`;
+  }
+  function openLeadDetail(lead) {
+    const type = lead.leadType || 'Purchase';
+    const tel = (lead.phone && LF.telLink) ? LF.telLink(lead.phone) : '';
+    const rows = [];
+    rows.push(detailRow('Email', lead.email ? `<a href="mailto:${escAttr(lead.email)}" style="color:var(--accent);">${esc(lead.email)}</a>` : '—'));
+    rows.push(detailRow('Phone', (lead.phone && tel) ? `<a href="${tel}" style="color:var(--accent);font-weight:600;">${esc(lead.phone)}</a>` : (esc(lead.phone) || '—')));
+    rows.push(detailRow('Buying timeline', `<span class="pill ${timelinePill(lead.timeline)}">${esc(lead.timeline)}</span>`));
+    rows.push(detailRow('Lead score', `<span class="pill ${scorePill(lead.score)}">${lead.score}</span>`));
+    rows.push(detailRow('Pre-approved', lead.preapproved ? 'Yes' : 'No'));
+    rows.push(detailRow('Lead type', esc(type)));
+    if (type === 'Refinance') {
+      rows.push(detailRow('Refinance type', esc(lead.refiType) || '—'));
+    } else {
+      rows.push(detailRow('Realtor', realtorLabel(lead.realtorStatus)));
+      if (lead.realtorStatus === 'has') {
+        rows.push(detailRow('Realtor name', esc(lead.realtorName) || '—'));
+        rows.push(detailRow('Realtor email', esc(lead.realtorEmail) || '—'));
+        const rtel = (lead.realtorPhone && LF.telLink) ? LF.telLink(lead.realtorPhone) : '';
+        rows.push(detailRow('Realtor phone', (lead.realtorPhone && rtel) ? `<a href="${rtel}" style="color:var(--accent);font-weight:600;">${esc(lead.realtorPhone)}</a>` : (esc(lead.realtorPhone) || '—')));
+      }
+    }
+    rows.push(detailRow('State', esc(lead.state) || '—'));
+    rows.push(detailRow('Owner', esc(lead.owner) || '—'));
+    const notesBlock = lead.notes
+      ? `<div class="mt-3"><div class="text-[12.5px] text-muted mb-1">Notes</div><div class="text-[13px]" style="white-space:pre-wrap;">${esc(lead.notes)}</div></div>` : '';
+
+    document.getElementById('dash-lead-body').innerHTML = `
+      <div class="flex items-center gap-3 mb-3">
+        <div class="avatar avatar-lg">${esc(initials(lead.name))}</div>
+        <div>
+          <div class="text-[16px] font-bold">${esc(lead.name)}</div>
+          ${lead.preapproved ? '<span class="pill pill-green" style="font-size:10.5px;">Pre-approved</span>' : ''}
+        </div>
+      </div>
+      ${rows.join('')}${notesBlock}`;
+    document.getElementById('dash-lead-modal').classList.remove('hidden');
+    if (window.lucide) lucide.createIcons();
+  }
+  function closeLeadDetail() { document.getElementById('dash-lead-modal').classList.add('hidden'); }
+  function bindLeadDetail() {
+    document.getElementById('dash-lead-close').addEventListener('click', closeLeadDetail);
+    document.getElementById('dash-lead-backdrop').addEventListener('click', closeLeadDetail);
+    // Delegated on the table element (survives re-renders / paging).
+    document.getElementById('leads-table').addEventListener('click', e => {
+      const el = e.target.closest('[data-detail-uid]');
+      if (!el) return;
+      const lead = leads.find(l => String(l._uid) === String(el.getAttribute('data-detail-uid')));
+      if (lead) openLeadDetail(lead);
+    });
   }
 
   // ----- Tasks overview (real counts) -----
@@ -288,6 +349,7 @@
     renderLeadTabs();
     renderLeadsTable();
     bindRowsPerPage();
+    bindLeadDetail();
     renderTasksOverview();
     if (window.lucide) lucide.createIcons();
   });
