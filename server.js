@@ -883,6 +883,7 @@ const CAMPAIGN_AUDIENCES = [
   { key: 'preapproved', label: 'Pre-approved leads', where: 'preapproved = true' },
   { key: 'purchase',    label: 'Purchase leads',     where: "lead_type = 'Purchase'" },
   { key: 'refinance',   label: 'Refinance leads',    where: "lead_type = 'Refinance'" },
+  { key: 'realtors',    label: 'Realtors (from leads)', realtors: true },
   { key: 'closed',      label: 'Previously Closed clients', closed: true }
 ];
 function audienceByKey(k) { return CAMPAIGN_AUDIENCES.find(a => a.key === k) || null; }
@@ -891,11 +892,21 @@ function audienceLabel(k) { const a = audienceByKey(k); return a ? a.label : '';
 // everyone else is scoped to their own leads.
 function audienceWhere(key, isAdmin) {
   const a = audienceByKey(key);
-  if (!a || a.closed) return null;
+  if (!a || a.closed || a.realtors) return null;
   const cond = ['email IS NOT NULL', "btrim(email) <> ''"];
   if (!isAdmin) cond.push('user_id = $1');
   if (a.where) cond.push(a.where);
   return cond.join(' AND ');
+}
+// Realtors attached to leads (deduped by email). Recipient = the realtor; the
+// lead's state is carried for {{state}}. Admin reaches every lead's realtor.
+async function realtorRecipients(user) {
+  const isAdmin = user.role === 'admin';
+  const cond = ["realtor_status = 'has'", 'realtor_email IS NOT NULL', "btrim(realtor_email) <> ''"];
+  if (!isAdmin) cond.push('user_id = $1');
+  return q(`SELECT DISTINCT ON (lower(realtor_email)) realtor_name AS name, realtor_email AS email, state
+            FROM leads WHERE ${cond.join(' AND ')} ORDER BY lower(realtor_email), id DESC`,
+    isAdmin ? [] : [user.id]);
 }
 // Closed clients live in closed_leads as free-form JSON — extract email/name/state.
 // Admin reaches every closed client; others only their own.
@@ -916,6 +927,7 @@ async function closedRecipients(user) {
 async function segmentLeads(user, key) {
   const a = audienceByKey(key);
   if (a && a.closed) return closedRecipients(user);
+  if (a && a.realtors) return realtorRecipients(user);
   const isAdmin = user.role === 'admin';
   const where = audienceWhere(key, isAdmin);
   if (!where) return [];
@@ -924,6 +936,7 @@ async function segmentLeads(user, key) {
 async function segmentCount(user, key) {
   const a = audienceByKey(key);
   if (a && a.closed) return (await closedRecipients(user)).length;
+  if (a && a.realtors) return (await realtorRecipients(user)).length;
   const isAdmin = user.role === 'admin';
   const where = audienceWhere(key, isAdmin);
   if (!where) return 0;
