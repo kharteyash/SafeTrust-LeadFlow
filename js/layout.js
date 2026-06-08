@@ -538,11 +538,22 @@ LF.fmtNum = (n) => n.toLocaleString('en-US');
 
 // Build a tel: URI from a phone number (US default: prefix 1 for 10 digits).
 // Returns '' when there are no digits, so callers can disable the button.
-LF.telLink = function (phone) {
-  let d = String(phone || '').replace(/\D/g, '');
-  if (d.length === 10) d = '1' + d;
-  return d ? 'tel:+' + d : '';
+// Normalize any common phone format to an E.164-style "+<digits>" number.
+// Accepts: +xxxxxxxxxx (E.164), +1-xxx-xxx-xxxx, +1 (xxx) xxx-xxxx,
+// xxx-xxx-xxxx, (xxx) xxx-xxxx, and similar — punctuation/spaces are ignored.
+LF.normalizePhone = function (phone) {
+  const raw = String(phone || '').trim();
+  const hadPlus = raw.startsWith('+');
+  const d = raw.replace(/\D/g, '');
+  if (!d) return '';
+  if (hadPlus) return '+' + d;                          // already international — trust it
+  if (d.length === 10) return '+1' + d;                 // bare US 10-digit
+  if (d.length === 11 && d[0] === '1') return '+' + d;  // US with country code
+  return '+' + d;                                       // other lengths — best effort
 };
+LF.telLink = function (phone) { const n = LF.normalizePhone(phone); return n ? 'tel:' + n : ''; };
+LF.smsLink = function (phone) { const n = LF.normalizePhone(phone); return n ? 'sms:' + n : ''; };
+LF.waLink  = function (phone) { const n = LF.normalizePhone(phone); return n ? 'https://wa.me/' + n.replace(/\D/g, '') : ''; };
 
 // Parse CSV text into { headers, objects } (quoted fields/newlines safe).
 LF.csvToObjects = function (text) {

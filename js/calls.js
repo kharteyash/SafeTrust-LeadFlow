@@ -25,11 +25,7 @@
   function outcomePill(o) { return o === 'Connected' ? 'pill-green' : o === 'Voicemail' ? 'pill-yellow' : isNoAnswer(o) ? 'pill-red' : 'pill-gray'; }
   function scorePill(s) { return s >= 80 ? 'pill-green' : s >= 60 ? 'pill-yellow' : 'pill-red'; }
 
-  function waLink(phone) {
-    let d = String(phone || '').replace(/\D/g, '');
-    if (d.length === 10) d = '1' + d;
-    return 'https://wa.me/' + d;
-  }
+  function waLink(phone) { return LF.waLink(phone); }
 
   // ----- Load all data -----
   async function loadAll() {

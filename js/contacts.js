@@ -14,9 +14,9 @@
   function initials(name) {
     return (name || '?').trim().split(/\s+/).map(s => s[0]).slice(0, 2).join('').toUpperCase() || '?';
   }
-  // wa.me needs a country code; assume US (1) for bare 10-digit numbers.
-  function waLink(phone) { let d = String(phone || '').replace(/\D/g, ''); if (d.length === 10) d = '1' + d; return 'https://wa.me/' + d; }
-  function smsLink(phone) { return 'sms:' + String(phone || '').replace(/[^\d+]/g, ''); }
+  // Shared, format-tolerant phone helpers (accept +1, (xxx), E.164, etc.).
+  function waLink(phone) { return LF.waLink(phone); }
+  function smsLink(phone) { return LF.smsLink(phone); }
   function gmailCompose(to) {
     const compose = 'https://mail.google.com/mail/?view=cm&fs=1&to=' + encodeURIComponent(to);
     return 'https://accounts.google.com/AccountChooser?continue=' + encodeURIComponent(compose);

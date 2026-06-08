@@ -349,10 +349,9 @@
         const tel = LF.telLink(l.phone); if (tel) window.location.href = tel;
         openCallLogModal(l.name, l.phone, false); // dial + log into Call History
       } else if (action === 'Text (SMS)') {
-        window.location.href = 'sms:' + String(l.phone).replace(/[^\d+]/g, '');
+        const sms = LF.smsLink(l.phone); if (sms) window.location.href = sms;
       } else if (action === 'WhatsApp') {
-        let d = String(l.phone).replace(/\D/g, ''); if (d.length === 10) d = '1' + d;
-        window.open('https://wa.me/' + d, '_blank');
+        const wa = LF.waLink(l.phone); if (wa) window.open(wa, '_blank');
       } else if (action === 'Email') {
         window.open(gmailComposeViaChooser(l.email), '_blank');
       }
