@@ -430,7 +430,9 @@ function renderNotifications(items, read) {
   const readAll = document.getElementById('lf-notif-readall');
   if (!list || !badge) return;
 
-  const unread = items.filter(i => !read.has(i.key)).length;
+  // Only unread notifications are shown — once read (or cleared), they disappear.
+  const shown = items.filter(i => !read.has(i.key));
+  const unread = shown.length;
   if (unread > 0) {
     badge.textContent = unread > 9 ? '9+' : String(unread);
     badge.classList.remove('hidden');
@@ -440,7 +442,7 @@ function renderNotifications(items, read) {
     badge.classList.remove('flex');
   }
 
-  if (items.length === 0) {
+  if (shown.length === 0) {
     list.innerHTML = `<div class="px-4 py-10 text-center text-[12.5px] text-muted">You're all caught up. 🎉</div>`;
     if (readAll) readAll.style.visibility = 'hidden';
     return;
@@ -451,9 +453,9 @@ function renderNotifications(items, read) {
       <i data-lucide="${i.icon}" style="width:15px;height:15px;color:${i.color};"></i>
     </span>`;
 
-  list.innerHTML = items.map(i => {
-    const isUnread = !read.has(i.key);
-    const bg = isUnread ? 'background:rgba(34,85,163,.05);' : '';
+  list.innerHTML = shown.map(i => {
+    const isUnread = true; // only unread items are rendered
+    const bg = 'background:rgba(34,85,163,.05);';
     // Actionable items (team invites / lead assignments) render with buttons.
     if (i.type === 'invite' || i.type === 'assignment') {
       const acc = i.type === 'invite' ? 'data-invite-accept' : 'data-assign-accept';
