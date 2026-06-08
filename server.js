@@ -33,6 +33,7 @@ const GOOGLE = {
     'openid', 'email', 'profile',
     'https://www.googleapis.com/auth/gmail.readonly',
     'https://www.googleapis.com/auth/gmail.send',
+    'https://www.googleapis.com/auth/calendar.events',
     'https://www.googleapis.com/auth/contacts.readonly'
   ]
 };
@@ -99,6 +100,8 @@ const SCHEMA = `
     with_person TEXT,
     created_at  TIMESTAMPTZ DEFAULT now()
   );
+  -- Links a LeadFlow event to its mirror in the user's Google Calendar.
+  ALTER TABLE events ADD COLUMN IF NOT EXISTS google_event_id TEXT;
 
   CREATE TABLE IF NOT EXISTS call_log (
     id          SERIAL PRIMARY KEY,
@@ -617,6 +620,54 @@ app.post('/api/invites/:id/respond', safe(async (req, res) => {
 }));
 
 // ----- Events -----
+// ----- Google Calendar sync (two-way) -----
+function gcalDateTime(date, hhmm) { return `${date}T${hhmm || '00:00'}:00`; }
+async function gcalTimezone(userId) {
+  try { const s = await autoSettingsFor(userId); return s.tz || 'America/New_York'; }
+  catch (e) { return 'America/New_York'; }
+}
+// Create the event in the user's primary Google Calendar; returns its id, or
+// null if not connected / on failure (mirroring is best-effort).
+async function gcalCreate(userId, ev) {
+  const token = await getGoogleToken(userId);
+  if (!token) return null;
+  const tz = await gcalTimezone(userId);
+  try {
+    const r = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        summary: ev.title,
+        description: ev.with ? `With: ${ev.with}` : undefined,
+        start: { dateTime: gcalDateTime(ev.date, ev.start), timeZone: tz },
+        end:   { dateTime: gcalDateTime(ev.date, ev.end),   timeZone: tz }
+      })
+    });
+    if (!r.ok) { console.error('gcal create', r.status, (await r.text().catch(() => '')).slice(0, 200)); return null; }
+    return (await r.json()).id || null;
+  } catch (e) { console.error('gcal create err', e); return null; }
+}
+async function gcalDelete(userId, googleEventId) {
+  if (!googleEventId) return;
+  const token = await getGoogleToken(userId);
+  if (!token) return;
+  try {
+    await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events/' + encodeURIComponent(googleEventId), {
+      method: 'DELETE', headers: { Authorization: 'Bearer ' + token }
+    });
+  } catch (e) { console.error('gcal delete err', e); }
+}
+// Map a Google event to the app's {date,start,end} shape (its local wall-clock).
+function parseGcalTime(g) {
+  const s = g.start || {}, e = g.end || {};
+  if (s.dateTime) {
+    const sm = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/.exec(s.dateTime);
+    const em = /T(\d{2}:\d{2})/.exec(e.dateTime || '');
+    return { date: sm ? sm[1] : '', start: sm ? sm[2] : '00:00', end: em ? em[1] : (sm ? sm[2] : '00:00') };
+  }
+  return { date: s.date || '', start: '00:00', end: '23:59' }; // all-day
+}
+
 app.get('/api/events', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
   const rows = await q(`
@@ -625,8 +676,40 @@ app.get('/api/events', safe(async (req, res) => {
   `, [req.user.id]);
   res.json(rows.map(r => ({
     id: r.id, date: r.date, start: r.start_time, end: r.end_time,
-    title: r.title, type: r.type, with: r.with_person || ''
+    title: r.title, type: r.type, with: r.with_person || '', source: 'leadflow'
   })));
+}));
+
+// Pull the user's Google Calendar events (read-only in-app), excluding the ones
+// that are mirrors of LeadFlow events so they aren't shown twice.
+app.get('/api/calendar/google', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  const token = await getGoogleToken(req.user.id);
+  if (!token) return res.json({ connected: false, events: [] });
+
+  const mine = await q(`SELECT google_event_id FROM events WHERE user_id = $1 AND google_event_id IS NOT NULL`, [req.user.id]);
+  const mirrored = new Set(mine.map(r => r.google_event_id));
+
+  const timeMin = new Date(Date.now() - 60 * 86400000).toISOString();
+  const timeMax = new Date(Date.now() + 180 * 86400000).toISOString();
+  const url = 'https://www.googleapis.com/calendar/v3/calendars/primary/events?' + new URLSearchParams({
+    timeMin, timeMax, singleEvents: 'true', orderBy: 'startTime', maxResults: '250'
+  });
+  let items = [];
+  try {
+    const r = await fetch(url, { headers: { Authorization: 'Bearer ' + token } });
+    if (r.ok) items = (await r.json()).items || [];
+    else return res.status(502).json({ connected: true, events: [], error: `Calendar ${r.status}` });
+  } catch (e) { return res.status(502).json({ connected: true, events: [], error: 'Calendar fetch failed.' }); }
+
+  const events = items
+    .filter(g => g.status !== 'cancelled' && !mirrored.has(g.id))
+    .map(g => {
+      const t = parseGcalTime(g);
+      return t.date ? { gid: g.id, date: t.date, start: t.start, end: t.end, title: g.summary || '(no title)', type: 'meeting', with: '', source: 'google' } : null;
+    })
+    .filter(Boolean);
+  res.json({ connected: true, events });
 }));
 
 app.post('/api/events', safe(async (req, res) => {
@@ -649,15 +732,22 @@ app.post('/api/events', safe(async (req, res) => {
     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id
   `, [req.user.id, date, start, end, title.trim(), type, withPerson.trim()]);
 
-  res.json({ id: row.id, date, start, end, title: title.trim(), type, with: withPerson.trim() });
+  // Mirror into the user's Google Calendar (best-effort; doesn't block the event).
+  const gid = await gcalCreate(req.user.id, { title: title.trim(), with: withPerson.trim(), date, start, end });
+  if (gid) await q('UPDATE events SET google_event_id = $1 WHERE id = $2', [gid, row.id]);
+
+  res.json({ id: row.id, date, start, end, title: title.trim(), type, with: withPerson.trim(), source: 'leadflow' });
 }));
 
 app.delete('/api/events/:id', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid event id.' });
+  const existing = await one('SELECT google_event_id FROM events WHERE id = $1 AND user_id = $2', [id, req.user.id]);
   const r = await pool.query('DELETE FROM events WHERE id = $1 AND user_id = $2', [id, req.user.id]);
   if (r.rowCount === 0) return res.status(404).json({ error: 'Event not found.' });
+  // Remove the mirror from Google Calendar too (best-effort).
+  if (existing && existing.google_event_id) await gcalDelete(req.user.id, existing.google_event_id);
   res.json({ ok: true });
 }));
 
