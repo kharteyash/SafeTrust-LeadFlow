@@ -1776,6 +1776,61 @@ app.patch('/api/leads/:id/score', safe(async (req, res) => {
   res.json({ ok: true, score });
 }));
 
+// Create a Google Meet link (via the user's Google Calendar) and email it to the lead.
+app.post('/api/leads/:id/meet', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid lead id.' });
+  const isAdmin = req.user.role === 'admin';
+  const lead = isAdmin
+    ? await one('SELECT name, email FROM leads WHERE id = $1', [id])
+    : await one('SELECT name, email FROM leads WHERE id = $1 AND user_id = $2', [id, req.user.id]);
+  if (!lead) return res.status(404).json({ error: 'Lead not found.' });
+  if (!lead.email || !/@/.test(lead.email)) return res.status(400).json({ error: 'This lead has no email to send the link to.' });
+
+  const token = await getGoogleToken(req.user.id);
+  if (!token) return res.status(400).json({ error: 'Connect your Google account on the Messages page first.' });
+
+  // A 30-minute slot starting shortly from now (the Meet link works anytime).
+  const startAt = new Date(Date.now() + 2 * 60000);
+  const endAt = new Date(startAt.getTime() + 30 * 60000);
+  let ev;
+  try {
+    const r = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events?conferenceDataVersion=1', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        summary: `Video call with ${lead.name}`,
+        start: { dateTime: startAt.toISOString() },
+        end: { dateTime: endAt.toISOString() },
+        conferenceData: { createRequest: { requestId: crypto.randomBytes(12).toString('hex'), conferenceSolutionKey: { type: 'hangoutsMeet' } } }
+      })
+    });
+    if (!r.ok) {
+      const t = (await r.text().catch(() => '')).slice(0, 200);
+      const msg = r.status === 403 ? 'Reconnect your Google account to allow calendar/Meet access.' : 'Could not create the meeting.';
+      return res.status(502).json({ error: msg, detail: t });
+    }
+    ev = await r.json();
+  } catch (e) { return res.status(502).json({ error: 'Could not reach Google to create the meeting.' }); }
+
+  const meetLink = ev.hangoutLink ||
+    ((ev.conferenceData && ev.conferenceData.entryPoints) || []).find(p => p.entryPointType === 'video')?.uri || '';
+  if (!meetLink) return res.status(502).json({ error: 'Meeting created but no Meet link was returned.' });
+
+  const first = String(lead.name || '').trim().split(/\s+/)[0] || 'there';
+  try {
+    await sendEmailAsUser(req.user.id, {
+      to: lead.email,
+      subject: 'Video call invitation',
+      text: `Hi ${first},\n\nHere's the link to join our video call:\n${meetLink}\n\nJust click the link at our agreed time to join. Looking forward to speaking with you!`
+    });
+  } catch (e) {
+    return res.status(502).json({ error: 'Meeting created, but the email couldn’t be sent: ' + String((e && e.message) || e).slice(0, 200), meetLink });
+  }
+  res.json({ ok: true, meetLink, sentTo: lead.email });
+}));
+
 app.delete('/api/leads/:id', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
   const id = Number(req.params.id);

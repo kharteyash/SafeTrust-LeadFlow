@@ -318,7 +318,10 @@
       items.push(leadMenuItem('message-square', 'Text (SMS)', '#2255a3'));
       items.push(leadMenuItem('message-circle', 'WhatsApp', '#138A4B'));
     }
-    if (lead.email) items.push(leadMenuItem('mail', 'Email', '#2255a3'));
+    if (lead.email) {
+      items.push(leadMenuItem('mail', 'Email', '#2255a3'));
+      items.push(leadMenuItem('video', 'Google Meet', '#138A4B'));
+    }
     menu.innerHTML = items.join('');
     menu.classList.remove('hidden');
     const r = anchor.getBoundingClientRect();
@@ -331,6 +334,18 @@
     const menu = document.getElementById('lead-contact-menu');
     if (menu) menu.classList.add('hidden');
     menuLead = null;
+  }
+  // Create a Google Meet link for the lead and email it to them.
+  async function createMeet(lead) {
+    if (!lead || !lead.id) { window.alert('This lead can’t host a meeting (no saved record).'); return; }
+    if (!window.confirm(`Create a Google Meet link and email it to ${lead.email}?`)) return;
+    try {
+      const res = await fetch('/api/leads/' + lead.id + '/meet', { method: 'POST', credentials: 'same-origin' });
+      const raw = await res.text(); let body = {}; try { body = raw ? JSON.parse(raw) : {}; } catch (e) {}
+      if (!res.ok) { window.alert(body.error || `Could not create the meeting (HTTP ${res.status}).`); return; }
+      window.alert(`Google Meet link emailed to ${body.sentTo}.\n\n${body.meetLink}`);
+      if (body.meetLink) window.open(body.meetLink, '_blank'); // open it for you (the host)
+    } catch (e) { window.alert('Network error.'); }
   }
   function bindEmail() {
     // Open the contact menu from a lead's Contact button.
@@ -354,6 +369,8 @@
         const wa = LF.waLink(l.phone); if (wa) window.open(wa, '_blank');
       } else if (action === 'Email') {
         window.open(gmailComposeViaChooser(l.email), '_blank');
+      } else if (action === 'Google Meet') {
+        createMeet(l);
       }
       closeLeadContactMenu();
     });
