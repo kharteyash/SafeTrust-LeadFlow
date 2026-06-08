@@ -394,12 +394,47 @@
   // Pull the user's Google Calendar events (read-only) and merge them in.
   // Runs after loadEvents (which replaces the array) so they aren't wiped.
   async function loadGoogleEvents() {
+    let status = null;
     try {
       const res = await fetch('/api/calendar/google', { credentials: 'same-origin' });
-      if (!res.ok) return;
-      const body = await res.json();
-      if (body && Array.isArray(body.events)) body.events.forEach(e => events.push(withUid(e)));
-    } catch (e) { /* offline / not connected — skip */ }
+      if (res.ok) {
+        status = await res.json();
+        if (status && Array.isArray(status.events)) status.events.forEach(e => events.push(withUid(e)));
+      }
+    } catch (e) { /* offline — skip */ }
+    renderSyncBanner(status);
+  }
+  function renderSyncBanner(s) {
+    const el = document.getElementById('cal-sync-banner');
+    if (!el) return;
+    // Connected and working — show a subtle confirmation.
+    if (s && s.calendarOk) {
+      el.innerHTML = `<div class="text-[12.5px] text-muted flex items-center gap-2">
+        <i data-lucide="check-circle-2" style="width:14px;height:14px;color:#138A4B;"></i>
+        Synced with Google Calendar — your events appear in both places.</div>`;
+      if (window.lucide) lucide.createIcons();
+      return;
+    }
+    if (!s || s.configured === false) { el.innerHTML = ''; return; } // Google sign-in not set up server-side
+
+    // Connected for email but calendar access wasn't granted, or not connected at all.
+    const needsReconnect = s.gmailConnected && !s.calendarOk;
+    const msg = needsReconnect
+      ? 'Calendar access isn’t granted yet. Reconnect your Google account to sync events (and make sure the Google Calendar API is enabled).'
+      : 'Connect your Google account to sync your calendar with Google Calendar.';
+    el.innerHTML = `
+      <div class="panel p-4 flex items-center justify-between gap-3 flex-wrap" style="border-left:3px solid #B07A00;">
+        <div class="flex items-center gap-2 text-[13px]">
+          <i data-lucide="calendar-clock" style="width:16px;height:16px;color:#B07A00;"></i>
+          <span>${msg}</span>
+        </div>
+        <button id="cal-connect-btn" class="btn-primary" style="padding:6px 14px;font-size:12.5px;white-space:nowrap;">
+          <i data-lucide="calendar" style="width:14px;height:14px;"></i> ${needsReconnect ? 'Reconnect Google' : 'Connect Google account'}
+        </button>
+      </div>`;
+    if (window.lucide) lucide.createIcons();
+    const btn = document.getElementById('cal-connect-btn');
+    if (btn) btn.addEventListener('click', () => { window.location.href = '/api/google/connect?from=calendar'; });
   }
 
   // ----- Delete an event -----

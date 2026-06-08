@@ -684,8 +684,11 @@ app.get('/api/events', safe(async (req, res) => {
 // that are mirrors of LeadFlow events so they aren't shown twice.
 app.get('/api/calendar/google', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  const configured = googleConfigured();
   const token = await getGoogleToken(req.user.id);
-  if (!token) return res.json({ connected: false, events: [] });
+  // gmailConnected = has any Google connection; calendarOk = that connection can
+  // actually read the calendar (i.e. the calendar.events scope was granted).
+  if (!token) return res.json({ configured, gmailConnected: false, calendarOk: false, events: [] });
 
   const mine = await q(`SELECT google_event_id FROM events WHERE user_id = $1 AND google_event_id IS NOT NULL`, [req.user.id]);
   const mirrored = new Set(mine.map(r => r.google_event_id));
@@ -698,9 +701,19 @@ app.get('/api/calendar/google', safe(async (req, res) => {
   let items = [];
   try {
     const r = await fetch(url, { headers: { Authorization: 'Bearer ' + token } });
-    if (r.ok) items = (await r.json()).items || [];
-    else return res.status(502).json({ connected: true, events: [], error: `Calendar ${r.status}` });
-  } catch (e) { return res.status(502).json({ connected: true, events: [], error: 'Calendar fetch failed.' }); }
+    if (!r.ok) {
+      const body = (await r.text().catch(() => '')).slice(0, 300);
+      // 403 = missing calendar scope OR the Calendar API isn't enabled in the project.
+      return res.json({
+        configured, gmailConnected: true, calendarOk: false, events: [],
+        reason: r.status === 403 ? 'needs_reconnect_or_api' : `Calendar ${r.status}`,
+        detail: body
+      });
+    }
+    items = (await r.json()).items || [];
+  } catch (e) {
+    return res.json({ configured, gmailConnected: true, calendarOk: false, events: [], reason: 'fetch_failed' });
+  }
 
   const events = items
     .filter(g => g.status !== 'cancelled' && !mirrored.has(g.id))
@@ -709,7 +722,7 @@ app.get('/api/calendar/google', safe(async (req, res) => {
       return t.date ? { gid: g.id, date: t.date, start: t.start, end: t.end, title: g.summary || '(no title)', type: 'meeting', with: '', source: 'google' } : null;
     })
     .filter(Boolean);
-  res.json({ connected: true, events });
+  res.json({ configured, gmailConnected: true, calendarOk: true, events });
 }));
 
 app.post('/api/events', safe(async (req, res) => {
@@ -2270,7 +2283,7 @@ app.get('/api/google/connect', (req, res) => {
   }
   const state = crypto.randomBytes(16).toString('hex');
   // Remember which page to return to (whitelisted) so the button works from anywhere.
-  const fromPages = { messages: '/messages.html', settings: '/settings.html' };
+  const fromPages = { messages: '/messages.html', settings: '/settings.html', calendar: '/calendar.html' };
   const returnTo = fromPages[String(req.query.from || '')] || '/messages.html';
   oauthStates.set(state, { userId: req.user.id, returnTo, exp: Date.now() + 10 * 60 * 1000 });
   const url = 'https://accounts.google.com/o/oauth2/v2/auth?' + new URLSearchParams({
