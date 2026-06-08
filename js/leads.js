@@ -4,6 +4,7 @@
 
   const TABS = [
     { id: 'all',     label: 'All Leads',          match: () => true },
+    { id: 'mine',    label: 'My Leads',           match: l => l.mine, adminOnly: true },
     { id: 'buying',  label: 'Buying Immediately', match: l => l.timeline === 'Buying Immediately' },
     { id: '1-3',     label: '1-3 Months',         match: l => l.timeline === '1-3 Months' },
     { id: '3-6',     label: '3-6 Months',         match: l => l.timeline === '3-6 Months' },
@@ -63,21 +64,17 @@
   }
 
   // ----- Tabs -----
+  function visibleTabs() { return TABS.filter(t => !t.adminOnly || isAdmin); }
   function renderTabs() {
-    const counts = {
-      all:    leads.length,
-      buying: leads.filter(l => l.timeline === 'Buying Immediately').length,
-      '1-3':  leads.filter(l => l.timeline === '1-3 Months').length,
-      '3-6':  leads.filter(l => l.timeline === '3-6 Months').length,
-      '6plus':leads.filter(l => l.timeline === '6+ Months').length
-    };
-    document.getElementById('lead-tabs').innerHTML = TABS.map(t => `
+    const tabsList = visibleTabs();
+    if (!tabsList.some(t => t.id === state.tab)) state.tab = 'all';
+    document.getElementById('lead-tabs').innerHTML = tabsList.map(t => `
       <div class="tab ${state.tab === t.id ? 'active' : ''}" data-tab="${t.id}">
         ${t.label}
         <span class="ml-1.5 text-[11px] font-semibold rounded-full px-1.5 py-[1px]"
               style="background:${state.tab === t.id ? 'rgba(34,85,163,0.12)' : 'var(--chip)'};
                      color:${state.tab === t.id ? '#2255a3' : 'var(--text-muted)'};">
-          ${counts[t.id]}
+          ${leads.filter(t.match).length}
         </span>
       </div>
     `).join('');
@@ -161,7 +158,7 @@
                   <button class="btn-icon" title="Send email" data-email="${l.email}" style="width:30px;height:30px;">
                     <i data-lucide="mail" style="width:13px;height:13px;color:#2255a3;pointer-events:none;"></i>
                   </button>
-                  ${canAssign ? `<button class="btn-icon" title="Assign / forward to team" data-assign-uid="${l._uid}" style="width:30px;height:30px;">
+                  ${(canAssign && (!isAdmin || l.mine)) ? `<button class="btn-icon" title="Assign / forward" data-assign-uid="${l._uid}" style="width:30px;height:30px;">
                     <i data-lucide="forward" style="width:13px;height:13px;color:#2B57D9;pointer-events:none;"></i>
                   </button>` : ''}
                   <button class="btn-icon" title="Edit lead" data-edit-uid="${l._uid}" style="width:30px;height:30px;">
@@ -613,6 +610,7 @@
           const raw = await res.text(); let body = {}; try { body = raw ? JSON.parse(raw) : {}; } catch (err) {}
           if (!res.ok) { msg.textContent = body.error || `Request failed (HTTP ${res.status}).`; return; }
 
+          body.mine = true; // a lead you just created is yours (and not forwarded)
           leads.unshift(withUid(body));
           closeLeadModal();
           // Reset to All Leads, first page so the new lead is visible up top.
@@ -737,9 +735,9 @@
     document.getElementById('assign-lead-name').textContent = lead.name;
     const sel = document.getElementById('assign-target');
     if (assignTargets.length === 0) {
-      sel.innerHTML = '<option value="">No teammates available</option>';
+      sel.innerHTML = '<option value="">No one available</option>';
     } else {
-      sel.innerHTML = '<option value="all">Everyone on my team</option>' +
+      sel.innerHTML = `<option value="all">${isAdmin ? 'Everyone' : 'Everyone on my team'}</option>` +
         assignTargets.map(m => `<option value="${m.id}">${esc(m.name)}${m.isLeader ? ' (team leader)' : ''}</option>`).join('');
     }
     document.getElementById('assign-msg').textContent = '';
@@ -753,18 +751,22 @@
     document.getElementById('assign-go').addEventListener('click', async () => {
       const sel = document.getElementById('assign-target');
       const msg = document.getElementById('assign-msg');
-      if (!sel.value) { msg.textContent = 'No teammates available to assign to.'; return; }
+      if (!sel.value) { msg.textContent = 'No one available to assign to.'; return; }
+      const leadId = assigningLeadId;
       const btn = document.getElementById('assign-go');
       btn.disabled = true; btn.style.opacity = '0.7';
       try {
-        const res = await fetch('/api/leads/' + assigningLeadId + '/assign', {
+        const res = await fetch('/api/leads/' + leadId + '/assign', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
           body: JSON.stringify({ target: sel.value === 'all' ? 'all' : Number(sel.value) })
         });
         const body = await res.json().catch(() => ({}));
         if (!res.ok) { msg.textContent = body.error || `Request failed (HTTP ${res.status}).`; return; }
         closeAssignModal();
-        window.alert('Lead assigned. The team member(s) will be notified to accept or decline.');
+        // A forwarded lead leaves "My Leads" right away (pending accept).
+        const lead = leads.find(l => String(l.id) === String(leadId));
+        if (lead) { lead.mine = false; renderTabs(); renderTable(); if (window.lucide) lucide.createIcons(); }
+        window.alert('Lead forwarded. The recipient(s) will be notified to accept or decline.');
       } catch (e) { msg.textContent = 'Network error.'; }
       finally { btn.disabled = false; btn.style.opacity = ''; }
     });

@@ -1497,6 +1497,7 @@ function leadRowToJson(r) {
     realtorEmail: r.realtor_email || '', realtorPhone: r.realtor_phone || '',
     assignedByName: r.assigned_by_name || '',
     ownerUserName: r.owner_user_name || '',
+    mine: !!r.mine,
     last: 'Just now', created: r.created_at
   };
 }
@@ -1505,18 +1506,23 @@ app.get('/api/leads', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
   // The admin (superuser) sees every lead across all users and team leaders;
   // everyone else sees only their own. The owning user's name is joined in so
-  // the admin view can tag each lead with a "lead owner" pill.
+  // the admin view can tag each lead with a "lead owner" pill. `mine` marks the
+  // viewer's own leads that haven't been forwarded away (for the My Leads tab).
   const isAdmin = req.user.role === 'admin';
   const rows = await q(`
     SELECT le.id, le.name, le.email, le.phone, le.timeline, le.score, le.owner, le.notes, le.state,
            le.preapproved, le.lead_type, le.refi_type, le.realtor_status, le.realtor_name, le.realtor_email, le.realtor_phone,
-           le.created_at, ab.name AS assigned_by_name, ou.name AS owner_user_name
+           le.created_at, ab.name AS assigned_by_name, ou.name AS owner_user_name,
+           (le.user_id = $1 AND NOT EXISTS (
+              SELECT 1 FROM lead_assignments la
+              WHERE la.lead_id = le.id AND la.from_user_id = $1 AND la.status = 'pending'
+           )) AS mine
     FROM leads le
     LEFT JOIN users ab ON ab.id = le.assigned_by
     LEFT JOIN users ou ON ou.id = le.user_id
     ${isAdmin ? '' : 'WHERE le.user_id = $1'}
     ORDER BY le.id DESC
-  `, isAdmin ? [] : [req.user.id]);
+  `, [req.user.id]);
   res.json(rows.map(leadRowToJson));
 }));
 
@@ -1697,6 +1703,10 @@ app.post('/api/leads/:id/close', safe(async (req, res) => {
 //  - team leader: their members
 //  - member:      their leader + sibling members
 async function assignTargetIds(user) {
+  if (user.role === 'admin') {
+    const rows = await q('SELECT id FROM users WHERE id <> $1', [user.id]);
+    return rows.map(r => r.id);
+  }
   if (user.role === 'team_leader') {
     const rows = await q('SELECT id FROM users WHERE leader_id = $1', [user.id]);
     return rows.map(r => r.id);
@@ -1712,6 +1722,12 @@ async function assignTargetIds(user) {
 app.get('/api/assign-targets', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
   let rows = [];
+  if (req.user.role === 'admin') {
+    // Admin can forward their own leads to anyone (team leaders flagged).
+    rows = await q(`SELECT id, name, role FROM users WHERE id <> $1
+                    ORDER BY (role = 'team_leader') DESC, lower(name)`, [req.user.id]);
+    return res.json(rows.map(r => ({ id: r.id, name: r.name, isLeader: r.role === 'team_leader' })));
+  }
   if (req.user.role === 'team_leader') {
     rows = await q('SELECT id, name FROM users WHERE leader_id = $1 ORDER BY lower(name)', [req.user.id]);
   } else if (req.user.leaderId) {
