@@ -1737,6 +1737,28 @@ app.get('/api/assign-targets', safe(async (req, res) => {
   res.json(rows.map(r => ({ id: r.id, name: r.name, isLeader: r.id === req.user.leaderId })));
 }));
 
+// The forwarding chain for a lead: each accepted hand-off, oldest first
+// (e.g. user1 → user2, then user2 → user3). Visible to the owner or the admin.
+app.get('/api/leads/:id/forwards', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid lead id.' });
+  const lead = await one('SELECT user_id FROM leads WHERE id = $1', [id]);
+  if (!lead) return res.status(404).json({ error: 'Lead not found.' });
+  if (req.user.role !== 'admin' && lead.user_id !== req.user.id) {
+    return res.status(403).json({ error: 'Not allowed.' });
+  }
+  const rows = await q(`
+    SELECT fu.name AS from_name, tu.name AS to_name
+    FROM lead_assignments la
+    JOIN users fu ON fu.id = la.from_user_id
+    JOIN users tu ON tu.id = la.to_user_id
+    WHERE la.lead_id = $1 AND la.status = 'accepted'
+    ORDER BY la.id ASC
+  `, [id]);
+  res.json(rows.map(r => ({ from: r.from_name, to: r.to_name })));
+}));
+
 // Assign/forward one of my leads to a teammate or everyone on the team.
 app.post('/api/leads/:id/assign', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });

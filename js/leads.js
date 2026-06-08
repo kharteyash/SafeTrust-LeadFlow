@@ -384,10 +384,35 @@
         </div>
       </div>
       ${rows.join('')}
-      ${notesBlock}`;
+      ${notesBlock}
+      <div id="lead-forward-history"></div>`;
 
     detailViewUid = lead._uid;
     document.getElementById('lead-detail-modal').classList.remove('hidden');
+    if (window.lucide) lucide.createIcons();
+    loadForwardHistory(lead);
+  }
+  // Show the forwarding chain (user1 → user2, user2 → user3) for forwarded leads.
+  async function loadForwardHistory(lead) {
+    if (!lead || !lead.id) return;
+    let chain = [];
+    try {
+      const r = await fetch('/api/leads/' + lead.id + '/forwards', { credentials: 'same-origin' });
+      if (r.ok) chain = await r.json();
+    } catch (e) { return; }
+    const host = document.getElementById('lead-forward-history');
+    if (!host || !chain.length) return;
+    host.innerHTML = `
+      <div class="mt-3">
+        <div class="text-[12.5px] text-muted mb-1">Forwarding history</div>
+        <div class="text-[13px]" style="display:flex;flex-direction:column;gap:3px;">
+          ${chain.map(c => `<div class="flex items-center gap-2">
+            <span class="font-medium">${esc(c.from)}</span>
+            <i data-lucide="arrow-right" style="width:13px;height:13px;color:var(--text-muted);"></i>
+            <span class="font-medium">${esc(c.to)}</span>
+          </div>`).join('')}
+        </div>
+      </div>`;
     if (window.lucide) lucide.createIcons();
   }
   function closeLeadDetail() { document.getElementById('lead-detail-modal').classList.add('hidden'); }
