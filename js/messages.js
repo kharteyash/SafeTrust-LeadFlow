@@ -2,6 +2,7 @@
 (function () {
   const TABS = [
     { id: 'scheduled', label: 'Scheduled' },
+    { id: 'past',      label: 'Past messages' },
     { id: 'ai',        label: 'AI Assistant' }
   ];
 
@@ -121,13 +122,15 @@
     });
   }
 
-  // ----- Scheduled -----
-  function renderScheduled() {
+  // ----- Scheduled / Past messages -----
+  // mode 'upcoming' = anything not yet sent; mode 'sent' = the Past messages tab.
+  function renderScheduled(mode) {
+    const list = scheduled.filter(s => mode === 'sent' ? s.status === 'sent' : s.status !== 'sent');
     // Group by `when`.
     const groups = {};
-    scheduled.forEach(s => { (groups[s.when] = groups[s.when] || []).push(s); });
+    list.forEach(s => { (groups[s.when] = groups[s.when] || []).push(s); });
 
-    const sections = scheduled.length ? Object.keys(groups).map(when => `
+    const sections = list.length ? Object.keys(groups).map(when => `
       <div class="mb-5">
         <h4 class="text-[13px] font-semibold text-muted mb-2">${when}</h4>
         <div class="rounded-xl" style="border:1px solid var(--border);">
@@ -157,12 +160,16 @@
           }).join('')}
         </div>
       </div>`).join('')
-      : `<div class="text-center py-12 text-muted text-[13px]">No messages scheduled. Click “Schedule message” to add one.</div>`;
+      : `<div class="text-center py-12 text-muted text-[13px]">${mode === 'sent'
+          ? 'No messages sent yet.'
+          : 'No messages scheduled. Click “Schedule message” to add one.'}</div>`;
 
+    const heading = mode === 'sent' ? 'Past messages' : 'Messages waiting to send';
+    const count = mode === 'sent' ? `${list.length} sent` : `${list.length} scheduled`;
     document.getElementById('msg-body').innerHTML = `
       <div class="flex items-center justify-between mb-4">
-        <h3 class="text-[15px] font-semibold">Messages waiting to send</h3>
-        <span class="text-[12.5px] text-muted">${scheduled.length} scheduled</span>
+        <h3 class="text-[15px] font-semibold">${heading}</h3>
+        <span class="text-[12.5px] text-muted">${count}</span>
       </div>
       ${sections}`;
   }
@@ -242,8 +249,9 @@
   // ----- Dispatcher -----
   function render() {
     renderTabs();
-    if (state.tab === 'scheduled') renderScheduled();
-    else                           renderAI();
+    if (state.tab === 'scheduled')  renderScheduled('upcoming');
+    else if (state.tab === 'past')  renderScheduled('sent');
+    else                            renderAI();
     if (window.lucide) lucide.createIcons();
   }
 
