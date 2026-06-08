@@ -806,8 +806,9 @@
           <textarea id="ae-anniv-body" rows="6" class="input mt-1" maxlength="4000"></textarea>
         </div>
         <div>
-          <label class="text-[12px] font-semibold text-muted">Signature (added to the end of every automated email)</label>
+          <label class="text-[12px] font-semibold text-muted">Signature (added after the sign-off of every automated email)</label>
           <textarea id="ae-sig" rows="3" class="input mt-1" maxlength="600" placeholder="e.g.&#10;Alex Martinez&#10;Loan Officer, SafeTrust Mortgage&#10;(555) 123-4567"></textarea>
+          <div class="text-[11.5px] text-muted mt-1">Leave blank to sign off with your own name automatically.</div>
         </div>
         <div class="flex items-center gap-3 flex-wrap">
           <button id="ae-save" class="btn-primary">Save changes</button>

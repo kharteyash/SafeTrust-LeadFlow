@@ -1047,12 +1047,15 @@ async function autoSettingsFor(userId) {
     signature: (r && r.signature) || DEFAULT_AUTO.signature
   };
 }
-// Build a personalized auto email from a user's templates + optional signature.
-function buildAutoEmail(kind, settings, recipient) {
+// Build a personalized auto email from a user's templates. The body's sign-off is
+// completed with the user's custom signature, or — if they haven't set one — their
+// own name, so it never ends abruptly on a bare "Warm wishes,".
+function buildAutoEmail(kind, settings, recipient, senderName) {
   const subjectTpl = kind === 'birthday' ? settings.birthday_subject : settings.anniv_subject;
   const bodyTpl    = kind === 'birthday' ? settings.birthday_body    : settings.anniv_body;
   let body = personalize(bodyTpl, recipient);
-  if (settings.signature && settings.signature.trim()) body += '\n\n' + settings.signature.trim();
+  const sig = (settings.signature && settings.signature.trim()) || (senderName || '').trim();
+  if (sig) body += '\n\n' + sig;
   return { subject: personalize(subjectTpl, recipient), body };
 }
 
@@ -1062,8 +1065,8 @@ async function ensureAnniversaryMessages(userId) {
   const now = new Date();
   const horizon = new Date(now.getTime() + AUTO_WINDOW_DAYS * 86400000);
   const closed = userId
-    ? await q('SELECT id, user_id, data FROM closed_leads WHERE user_id = $1', [userId])
-    : await q('SELECT id, user_id, data FROM closed_leads');
+    ? await q('SELECT cl.id, cl.user_id, cl.data, u.name AS owner_name FROM closed_leads cl JOIN users u ON u.id = cl.user_id WHERE cl.user_id = $1', [userId])
+    : await q('SELECT cl.id, cl.user_id, cl.data, u.name AS owner_name FROM closed_leads cl JOIN users u ON u.id = cl.user_id');
 
   const settingsCache = new Map();              // user_id -> effective settings
   async function settingsFor(uid) {
@@ -1099,7 +1102,7 @@ async function ensureAnniversaryMessages(userId) {
       const dismissed = await one('SELECT 1 AS x FROM dismissed_auto WHERE auto_key = $1', [autoKey]);
       if (dismissed) continue;
 
-      const { subject, body } = buildAutoEmail(kind, settings, recipient);
+      const { subject, body } = buildAutoEmail(kind, settings, recipient, row.owner_name);
       const sendDate = `${year}-${String(md.m + 1).padStart(2, '0')}-${String(md.d).padStart(2, '0')}`;
       await pool.query(
         `INSERT INTO scheduled_messages (user_id, recipient, channel, type, send_date, send_time, send_at, status, body, auto_kind, auto_key)
