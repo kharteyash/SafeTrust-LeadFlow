@@ -145,6 +145,17 @@ const SCHEMA = `
     auto_key   TEXT PRIMARY KEY,
     created_at TIMESTAMPTZ DEFAULT now()
   );
+  -- Per-user automated-email preferences (templates, signature, send timezone).
+  -- NULL fields fall back to the built-in defaults.
+  CREATE TABLE IF NOT EXISTS user_settings (
+    user_id          INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    birthday_subject TEXT,
+    birthday_body    TEXT,
+    anniv_subject    TEXT,
+    anniv_body       TEXT,
+    signature        TEXT,
+    tz               TEXT
+  );
 
   CREATE TABLE IF NOT EXISTS google_accounts (
     user_id       INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
@@ -767,23 +778,40 @@ const CAMPAIGN_AUDIENCES = [
   { key: 'm6',          label: '6+ Months',          where: "timeline = '6+ Months'" },
   { key: 'preapproved', label: 'Pre-approved leads', where: 'preapproved = true' },
   { key: 'purchase',    label: 'Purchase leads',     where: "lead_type = 'Purchase'" },
-  { key: 'refinance',   label: 'Refinance leads',    where: "lead_type = 'Refinance'" }
+  { key: 'refinance',   label: 'Refinance leads',    where: "lead_type = 'Refinance'" },
+  { key: 'closed',      label: 'Previously Closed clients', closed: true }
 ];
 function audienceByKey(k) { return CAMPAIGN_AUDIENCES.find(a => a.key === k) || null; }
 function audienceLabel(k) { const a = audienceByKey(k); return a ? a.label : ''; }
 function audienceWhere(key) {
   const a = audienceByKey(key);
-  if (!a) return null;
+  if (!a || a.closed) return null;
   const cond = ['user_id = $1', 'email IS NOT NULL', "btrim(email) <> ''"];
   if (a.where) cond.push(a.where);
   return cond.join(' AND ');
 }
+// Closed clients live in closed_leads as free-form JSON — extract email/name/state.
+async function closedRecipients(userId) {
+  const rows = await q('SELECT data FROM closed_leads WHERE user_id = $1 ORDER BY id DESC', [userId]);
+  return rows.map(r => {
+    const d = r.data || {};
+    return {
+      name: findClosedField(d, /^name$|full ?name|client|borrower/i),
+      email: findClosedField(d, /e-?mail/i),
+      state: findClosedField(d, /^state$/i)
+    };
+  }).filter(x => x.email && /@/.test(x.email));
+}
 async function segmentLeads(userId, key) {
+  const a = audienceByKey(key);
+  if (a && a.closed) return closedRecipients(userId);
   const where = audienceWhere(key);
   if (!where) return [];
   return q(`SELECT name, email, state FROM leads WHERE ${where} ORDER BY id DESC`, [userId]);
 }
 async function segmentCount(userId, key) {
+  const a = audienceByKey(key);
+  if (a && a.closed) return (await closedRecipients(userId)).length;
   const where = audienceWhere(key);
   if (!where) return 0;
   const r = await one(`SELECT COUNT(*)::int AS n FROM leads WHERE ${where}`, [userId]);
@@ -910,8 +938,6 @@ app.delete('/api/campaigns/:id', safe(async (req, res) => {
 // deletions are remembered so they don't come back.
 const AUTO_WINDOW_DAYS = 7;
 
-// The wall-clock timezone used for the 9am send (US Eastern by default).
-function autoTz() { return envClean('AUTO_EMAIL_TZ') || 'America/New_York'; }
 // Offset (ms) of a timezone at a given UTC instant, via Intl.
 function tzOffsetMs(utcMs, tz) {
   const dtf = new Intl.DateTimeFormat('en-US', {
@@ -945,18 +971,41 @@ function findClosedField(data, regex) {
   }
   return '';
 }
-function autoEmailContent(kind, firstName) {
-  const first = firstName || 'there';
-  if (kind === 'birthday') {
-    return {
-      subject: `Happy Birthday, ${first}!`,
-      body: `Hi ${first},\n\nWishing you a very happy birthday! I hope your day is filled with everything you enjoy.\n\nIt's always a pleasure staying in touch — if there's ever anything I can help you with on the mortgage side, I'm just a reply away.\n\nWarm wishes,`
-    };
-  }
+// Built-in defaults for the automated emails (used until a user customizes them).
+// Templates support the same {{first_name}}/{{name}}/{{state}} merge fields.
+const SUPPORTED_TIMEZONES = [
+  'America/New_York', 'America/Chicago', 'America/Denver', 'America/Phoenix',
+  'America/Los_Angeles', 'America/Anchorage', 'Pacific/Honolulu'
+];
+const DEFAULT_AUTO = {
+  birthday_subject: 'Happy Birthday, {{first_name}}!',
+  birthday_body: "Hi {{first_name}},\n\nWishing you a very happy birthday! I hope your day is filled with everything you enjoy.\n\nIt's always a pleasure staying in touch — if there's ever anything I can help you with on the mortgage side, I'm just a reply away.\n\nWarm wishes,",
+  anniv_subject: 'Happy home anniversary, {{first_name}}!',
+  anniv_body: "Hi {{first_name}},\n\nCongratulations — it's officially been a year since your loan closed! I hope your home has been everything you hoped for.\n\nA lot can change in a year, so if you'd ever like a quick, no-pressure mortgage review to see whether refinancing could lower your payment or help you reach a goal, just reply and I'll take a look.\n\nThanks for trusting me with your home financing,",
+  signature: ''
+};
+function autoDefaultTz() { return envClean('AUTO_EMAIL_TZ') || 'America/New_York'; }
+
+// A user's effective auto-email settings, with defaults filled in for blanks.
+async function autoSettingsFor(userId) {
+  const r = await one('SELECT * FROM user_settings WHERE user_id = $1', [userId]);
+  const pick = (v, d) => (v != null && String(v).trim() ? v : d);
   return {
-    subject: `Happy home anniversary, ${first}!`,
-    body: `Hi ${first},\n\nCongratulations — it's officially been a year since your loan closed! I hope your home has been everything you hoped for.\n\nA lot can change in a year, so if you'd ever like a quick, no-pressure mortgage review to see whether refinancing could lower your payment or help you reach a goal, just reply and I'll take a look.\n\nThanks for trusting me with your home financing,`
+    tz: pick(r && r.tz, autoDefaultTz()),
+    birthday_subject: pick(r && r.birthday_subject, DEFAULT_AUTO.birthday_subject),
+    birthday_body: pick(r && r.birthday_body, DEFAULT_AUTO.birthday_body),
+    anniv_subject: pick(r && r.anniv_subject, DEFAULT_AUTO.anniv_subject),
+    anniv_body: pick(r && r.anniv_body, DEFAULT_AUTO.anniv_body),
+    signature: (r && r.signature) || DEFAULT_AUTO.signature
   };
+}
+// Build a personalized auto email from a user's templates + optional signature.
+function buildAutoEmail(kind, settings, recipient) {
+  const subjectTpl = kind === 'birthday' ? settings.birthday_subject : settings.anniv_subject;
+  const bodyTpl    = kind === 'birthday' ? settings.birthday_body    : settings.anniv_body;
+  let body = personalize(bodyTpl, recipient);
+  if (settings.signature && settings.signature.trim()) body += '\n\n' + settings.signature.trim();
+  return { subject: personalize(subjectTpl, recipient), body };
 }
 
 // Create any due auto emails. Pass a userId to scope to one user (cheap, for the
@@ -964,37 +1013,45 @@ function autoEmailContent(kind, firstName) {
 async function ensureAnniversaryMessages(userId) {
   const now = new Date();
   const horizon = new Date(now.getTime() + AUTO_WINDOW_DAYS * 86400000);
-  const tz = autoTz();
   const closed = userId
     ? await q('SELECT id, user_id, data FROM closed_leads WHERE user_id = $1', [userId])
     : await q('SELECT id, user_id, data FROM closed_leads');
+
+  const settingsCache = new Map();              // user_id -> effective settings
+  async function settingsFor(uid) {
+    if (!settingsCache.has(uid)) settingsCache.set(uid, await autoSettingsFor(uid));
+    return settingsCache.get(uid);
+  }
 
   for (const row of closed) {
     const data = row.data || {};
     const email = findClosedField(data, /e-?mail/i);
     if (!email || !/@/.test(email)) continue;
     const name = findClosedField(data, /^name$|full ?name|client|borrower/i);
-    const first = (name.split(/\s+/)[0] || '').trim();
+    const state = findClosedField(data, /^state$/i);
+    const recipient = { name, email, state };
 
     const kinds = [
       { kind: 'birthday',         raw: findClosedField(data, /birth ?day|^dob$|date of birth/i) },
       { kind: 'loan_anniversary', raw: findClosedField(data, /loan ?anniversary|closing ?anniversary|^anniversary$/i) }
     ];
+    let settings = null;
     for (const { kind, raw } of kinds) {
       const md = parseMonthDay(raw);
       if (!md) continue;
+      if (!settings) settings = await settingsFor(row.user_id);
       // Next occurrence on/after today (this year, else next year).
       let year = now.getFullYear();
       const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       if (new Date(year, md.m, md.d) < todayMidnight) year += 1;
-      const sendAt = zonedTimeToUtc(year, md.m, md.d, 9, tz);
+      const sendAt = zonedTimeToUtc(year, md.m, md.d, 9, settings.tz);
       if (sendAt > horizon) continue;                 // not within the 7-day window yet
 
       const autoKey = `${row.id}:${kind}:${year}`;
       const dismissed = await one('SELECT 1 AS x FROM dismissed_auto WHERE auto_key = $1', [autoKey]);
       if (dismissed) continue;
 
-      const { subject, body } = autoEmailContent(kind, first);
+      const { subject, body } = buildAutoEmail(kind, settings, recipient);
       const sendDate = `${year}-${String(md.m + 1).padStart(2, '0')}-${String(md.d).padStart(2, '0')}`;
       await pool.query(
         `INSERT INTO scheduled_messages (user_id, recipient, channel, type, send_date, send_time, send_at, status, body, auto_kind, auto_key)
@@ -1005,6 +1062,33 @@ async function ensureAnniversaryMessages(userId) {
     }
   }
 }
+
+// ----- Automated-email settings (templates, signature, timezone) -----
+app.get('/api/auto-email-settings', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  res.json({
+    settings: await autoSettingsFor(req.user.id),
+    defaults: DEFAULT_AUTO,
+    timezones: SUPPORTED_TIMEZONES
+  });
+}));
+app.put('/api/auto-email-settings', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  const b = req.body || {};
+  const clean = (v, max) => String(v == null ? '' : v).slice(0, max).trim() || null;
+  const tz = SUPPORTED_TIMEZONES.includes(b.tz) ? b.tz : autoDefaultTz();
+  await pool.query(
+    `INSERT INTO user_settings (user_id, birthday_subject, birthday_body, anniv_subject, anniv_body, signature, tz)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     ON CONFLICT (user_id) DO UPDATE SET
+       birthday_subject = EXCLUDED.birthday_subject, birthday_body = EXCLUDED.birthday_body,
+       anniv_subject = EXCLUDED.anniv_subject, anniv_body = EXCLUDED.anniv_body,
+       signature = EXCLUDED.signature, tz = EXCLUDED.tz`,
+    [req.user.id, clean(b.birthday_subject, 200), clean(b.birthday_body, 4000),
+     clean(b.anniv_subject, 200), clean(b.anniv_body, 4000), clean(b.signature, 600), tz]
+  );
+  res.json({ ok: true, settings: await autoSettingsFor(req.user.id) });
+}));
 
 // ----- Scheduled messages -----
 app.get('/api/scheduled', safe(async (req, res) => {

@@ -26,6 +26,7 @@
     { id: 'profile',         label: 'Profile',             icon: 'user-circle' },
     { id: 'roles',           label: 'Roles & Permissions', icon: 'shield' },
     { id: 'notifications',   label: 'Notifications',       icon: 'bell' },
+    { id: 'autoemails',      label: 'Automated Emails',    icon: 'cake' },
     { id: 'changepassword',  label: 'Change Password',     icon: 'key-round' }
   ];
 
@@ -766,12 +767,98 @@
   }
 
   // ----- Section dispatcher -----
+  // ----- Automated emails (birthday / loan anniversary templates) -----
+  function renderAutoEmails() {
+    return `
+      <div class="max-w-[760px]">
+        <h3 class="text-[15px] font-semibold mb-1">Automated emails</h3>
+        <p class="text-[12.5px] text-muted mb-4">Birthday and loan-anniversary emails go out automatically at 9am to your closed clients, sent from your connected Google account. Personalize with <b>{{first_name}}</b>, <b>{{name}}</b>, or <b>{{state}}</b>.</p>
+        <div id="auto-email-wrap" class="text-[13px] text-muted">Loading…</div>
+      </div>`;
+  }
+  async function bindAutoEmails() {
+    const wrap = document.getElementById('auto-email-wrap');
+    let data = null;
+    try { const r = await fetch('/api/auto-email-settings', { credentials: 'same-origin' }); data = r.ok ? await r.json() : null; }
+    catch (e) {}
+    if (!data) { wrap.innerHTML = '<span style="color:#D63333;">Could not load settings.</span>'; return; }
+    const s = data.settings;
+    const tzOpts = data.timezones.map(tz => `<option value="${escapeAttr(tz)}" ${tz === s.tz ? 'selected' : ''}>${escapeHTML(tz.replace(/_/g, ' '))}</option>`).join('');
+
+    wrap.innerHTML = `
+      <div class="flex flex-col gap-4">
+        <div>
+          <label class="text-[12px] font-semibold text-muted">Send timezone (for the 9am send)</label>
+          <select id="ae-tz" class="input mt-1" style="cursor:pointer;max-width:300px;">${tzOpts}</select>
+        </div>
+        <div class="rounded-xl p-4" style="border:1px solid var(--border);">
+          <div class="text-[13px] font-semibold mb-2">🎂 Birthday email</div>
+          <label class="text-[12px] font-semibold text-muted">Subject</label>
+          <input id="ae-bday-subj" class="input mt-1 mb-3" maxlength="200" />
+          <label class="text-[12px] font-semibold text-muted">Message</label>
+          <textarea id="ae-bday-body" rows="6" class="input mt-1" maxlength="4000"></textarea>
+        </div>
+        <div class="rounded-xl p-4" style="border:1px solid var(--border);">
+          <div class="text-[13px] font-semibold mb-2">🏠 Loan-anniversary email</div>
+          <label class="text-[12px] font-semibold text-muted">Subject</label>
+          <input id="ae-anniv-subj" class="input mt-1 mb-3" maxlength="200" />
+          <label class="text-[12px] font-semibold text-muted">Message</label>
+          <textarea id="ae-anniv-body" rows="6" class="input mt-1" maxlength="4000"></textarea>
+        </div>
+        <div>
+          <label class="text-[12px] font-semibold text-muted">Signature (added to the end of every automated email)</label>
+          <textarea id="ae-sig" rows="3" class="input mt-1" maxlength="600" placeholder="e.g.&#10;Alex Martinez&#10;Loan Officer, SafeTrust Mortgage&#10;(555) 123-4567"></textarea>
+        </div>
+        <div class="flex items-center gap-3 flex-wrap">
+          <button id="ae-save" class="btn-primary">Save changes</button>
+          <button id="ae-reset" type="button" class="btn-secondary">Reset to defaults</button>
+          <span id="ae-msg" class="text-[12.5px] font-medium"></span>
+        </div>
+      </div>`;
+
+    const setVals = (v) => {
+      document.getElementById('ae-bday-subj').value  = v.birthday_subject || '';
+      document.getElementById('ae-bday-body').value  = v.birthday_body || '';
+      document.getElementById('ae-anniv-subj').value = v.anniv_subject || '';
+      document.getElementById('ae-anniv-body').value = v.anniv_body || '';
+      document.getElementById('ae-sig').value        = v.signature || '';
+    };
+    setVals(s);
+
+    document.getElementById('ae-reset').addEventListener('click', () => { setVals(data.defaults); });
+
+    document.getElementById('ae-save').addEventListener('click', async () => {
+      const btn = document.getElementById('ae-save');
+      const msg = document.getElementById('ae-msg');
+      const payload = {
+        tz: document.getElementById('ae-tz').value,
+        birthday_subject: document.getElementById('ae-bday-subj').value,
+        birthday_body:    document.getElementById('ae-bday-body').value,
+        anniv_subject:    document.getElementById('ae-anniv-subj').value,
+        anniv_body:       document.getElementById('ae-anniv-body').value,
+        signature:        document.getElementById('ae-sig').value
+      };
+      btn.disabled = true; btn.style.opacity = '0.7';
+      msg.style.color = 'var(--text-muted)'; msg.textContent = 'Saving…';
+      try {
+        const r = await fetch('/api/auto-email-settings', {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+          body: JSON.stringify(payload)
+        });
+        if (r.ok) { msg.style.color = '#138A4B'; msg.textContent = 'Saved.'; }
+        else { msg.style.color = '#D63333'; msg.textContent = 'Could not save.'; }
+      } catch (e) { msg.style.color = '#D63333'; msg.textContent = 'Network error.'; }
+      finally { btn.disabled = false; btn.style.opacity = ''; }
+    });
+  }
+
   function renderContent() {
     const out = document.getElementById('settings-content');
     const map = {
       profile:        renderProfile,
       roles:          renderRoles,
       notifications:  renderNotifications,
+      autoemails:     renderAutoEmails,
       changepassword: renderChangePassword
     };
     out.innerHTML = (map[state.section] || renderProfile)();
@@ -780,6 +867,7 @@
     if (state.section === 'profile')        bindProfile();
     if (state.section === 'roles')          bindRoles();
     if (state.section === 'notifications')  bindToggles();
+    if (state.section === 'autoemails')     bindAutoEmails();
     if (state.section === 'changepassword') bindChangePassword();
 
     if (window.lucide) lucide.createIcons();
