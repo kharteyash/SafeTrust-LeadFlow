@@ -135,6 +135,16 @@ const SCHEMA = `
   ALTER TABLE scheduled_messages ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'pending';
   ALTER TABLE scheduled_messages ADD COLUMN IF NOT EXISTS sent_at TIMESTAMPTZ;
   ALTER TABLE scheduled_messages ADD COLUMN IF NOT EXISTS error TEXT;
+  -- Automatic lifecycle emails (birthday / loan anniversary). auto_kind is NULL
+  -- for manually scheduled messages. auto_key dedupes one occurrence per year.
+  ALTER TABLE scheduled_messages ADD COLUMN IF NOT EXISTS auto_kind TEXT;
+  ALTER TABLE scheduled_messages ADD COLUMN IF NOT EXISTS auto_key TEXT;
+  CREATE UNIQUE INDEX IF NOT EXISTS scheduled_auto_key_uniq ON scheduled_messages(auto_key);
+  -- Remembers auto emails the user deleted so they aren't regenerated.
+  CREATE TABLE IF NOT EXISTS dismissed_auto (
+    auto_key   TEXT PRIMARY KEY,
+    created_at TIMESTAMPTZ DEFAULT now()
+  );
 
   CREATE TABLE IF NOT EXISTS google_accounts (
     user_id       INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
@@ -893,17 +903,127 @@ app.delete('/api/campaigns/:id', safe(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// ----- Automatic lifecycle emails (birthday / loan anniversary) -----
+// For each closed client, when their birthday or loan ("closing") anniversary is
+// within the next 7 days, materialize a one-off email scheduled for 9am that day.
+// The normal dispatcher then sends it. One per client/kind/year (deduped), and
+// deletions are remembered so they don't come back.
+const AUTO_WINDOW_DAYS = 7;
+
+// The wall-clock timezone used for the 9am send (US Eastern by default).
+function autoTz() { return envClean('AUTO_EMAIL_TZ') || 'America/New_York'; }
+// Offset (ms) of a timezone at a given UTC instant, via Intl.
+function tzOffsetMs(utcMs, tz) {
+  const dtf = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz, hour12: false,
+    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit'
+  });
+  const map = {};
+  for (const p of dtf.formatToParts(new Date(utcMs))) map[p.type] = p.value;
+  const asUTC = Date.UTC(+map.year, +map.month - 1, +map.day, +map.hour, +map.minute, +map.second);
+  return asUTC - utcMs;
+}
+// The UTC instant whose wall-clock time in `tz` is the given local date at hour:00.
+function zonedTimeToUtc(y, mIndex, d, hour, tz) {
+  const guess = Date.UTC(y, mIndex, d, hour, 0, 0);
+  return new Date(guess - tzOffsetMs(guess, tz));
+}
+// Pull month/day out of a stored date string (YYYY-MM-DD or anything Date parses).
+function parseMonthDay(str) {
+  const s = String(str || '').trim();
+  if (!s) return null;
+  const iso = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  let m, d;
+  if (iso) { m = +iso[2] - 1; d = +iso[3]; }
+  else { const dt = new Date(s); if (isNaN(dt.getTime())) return null; m = dt.getMonth(); d = dt.getDate(); }
+  if (m < 0 || m > 11 || d < 1 || d > 31) return null;
+  return { m, d };
+}
+function findClosedField(data, regex) {
+  for (const [k, v] of Object.entries(data || {})) {
+    if (regex.test(k) && String(v == null ? '' : v).trim()) return String(v).trim();
+  }
+  return '';
+}
+function autoEmailContent(kind, firstName) {
+  const first = firstName || 'there';
+  if (kind === 'birthday') {
+    return {
+      subject: `Happy Birthday, ${first}!`,
+      body: `Hi ${first},\n\nWishing you a very happy birthday! I hope your day is filled with everything you enjoy.\n\nIt's always a pleasure staying in touch — if there's ever anything I can help you with on the mortgage side, I'm just a reply away.\n\nWarm wishes,`
+    };
+  }
+  return {
+    subject: `Happy home anniversary, ${first}!`,
+    body: `Hi ${first},\n\nCongratulations — it's officially been a year since your loan closed! I hope your home has been everything you hoped for.\n\nA lot can change in a year, so if you'd ever like a quick, no-pressure mortgage review to see whether refinancing could lower your payment or help you reach a goal, just reply and I'll take a look.\n\nThanks for trusting me with your home financing,`
+  };
+}
+
+// Create any due auto emails. Pass a userId to scope to one user (cheap, for the
+// scheduled view); omit to process everyone (used by the dispatcher).
+async function ensureAnniversaryMessages(userId) {
+  const now = new Date();
+  const horizon = new Date(now.getTime() + AUTO_WINDOW_DAYS * 86400000);
+  const tz = autoTz();
+  const closed = userId
+    ? await q('SELECT id, user_id, data FROM closed_leads WHERE user_id = $1', [userId])
+    : await q('SELECT id, user_id, data FROM closed_leads');
+
+  for (const row of closed) {
+    const data = row.data || {};
+    const email = findClosedField(data, /e-?mail/i);
+    if (!email || !/@/.test(email)) continue;
+    const name = findClosedField(data, /^name$|full ?name|client|borrower/i);
+    const first = (name.split(/\s+/)[0] || '').trim();
+
+    const kinds = [
+      { kind: 'birthday',         raw: findClosedField(data, /birth ?day|^dob$|date of birth/i) },
+      { kind: 'loan_anniversary', raw: findClosedField(data, /loan ?anniversary|closing ?anniversary|^anniversary$/i) }
+    ];
+    for (const { kind, raw } of kinds) {
+      const md = parseMonthDay(raw);
+      if (!md) continue;
+      // Next occurrence on/after today (this year, else next year).
+      let year = now.getFullYear();
+      const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      if (new Date(year, md.m, md.d) < todayMidnight) year += 1;
+      const sendAt = zonedTimeToUtc(year, md.m, md.d, 9, tz);
+      if (sendAt > horizon) continue;                 // not within the 7-day window yet
+
+      const autoKey = `${row.id}:${kind}:${year}`;
+      const dismissed = await one('SELECT 1 AS x FROM dismissed_auto WHERE auto_key = $1', [autoKey]);
+      if (dismissed) continue;
+
+      const { subject, body } = autoEmailContent(kind, first);
+      const sendDate = `${year}-${String(md.m + 1).padStart(2, '0')}-${String(md.d).padStart(2, '0')}`;
+      await pool.query(
+        `INSERT INTO scheduled_messages (user_id, recipient, channel, type, send_date, send_time, send_at, status, body, auto_kind, auto_key)
+         VALUES ($1, $2, 'Email', $3, $4, '09:00', $5, 'pending', $6, $7, $8)
+         ON CONFLICT (auto_key) DO NOTHING`,
+        [row.user_id, email, subject, sendDate, sendAt.toISOString(), body, kind, autoKey]
+      );
+    }
+  }
+}
+
 // ----- Scheduled messages -----
 app.get('/api/scheduled', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  try { await ensureAnniversaryMessages(req.user.id); } catch (e) { console.error('auto-email gen:', e); }
+  // Auto emails only appear while pending and within the 7-day window; manual
+  // messages and any already-sent/failed history always show.
   const rows = await q(`
-    SELECT id, recipient, channel, type, send_date, send_time, status, sent_at, error, body
-    FROM scheduled_messages WHERE user_id = $1 ORDER BY send_date, send_time
+    SELECT id, recipient, channel, type, send_date, send_time, status, sent_at, error, body, auto_kind
+    FROM scheduled_messages
+    WHERE user_id = $1
+      AND (auto_kind IS NULL OR status <> 'pending' OR send_at <= now() + interval '${AUTO_WINDOW_DAYS} days')
+    ORDER BY send_date, send_time
   `, [req.user.id]);
   res.json(rows.map(r => ({
     id: r.id, to: r.recipient, channel: r.channel, type: r.type,
     date: r.send_date, time24: r.send_time,
-    status: r.status || 'pending', sentAt: r.sent_at, error: r.error || '', body: r.body || ''
+    status: r.status || 'pending', sentAt: r.sent_at, error: r.error || '', body: r.body || '',
+    autoKind: r.auto_kind || ''
   })));
 }));
 
@@ -1049,6 +1169,9 @@ async function dispatchScheduled(req, res) {
     (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
   if (provided !== secret) return res.status(401).json({ error: 'Unauthorized.' });
 
+  // Materialize any newly-due birthday / anniversary emails before sending.
+  try { await ensureAnniversaryMessages(); } catch (e) { console.error('auto-email gen:', e); }
+
   const due = await q(`
     UPDATE scheduled_messages SET status = 'sending'
     WHERE id IN (
@@ -1149,8 +1272,13 @@ app.delete('/api/scheduled/:id', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid message id.' });
+  // Remember dismissed auto emails so the generator doesn't recreate them.
+  const existing = await one('SELECT auto_key FROM scheduled_messages WHERE id = $1 AND user_id = $2', [id, req.user.id]);
   const r = await pool.query('DELETE FROM scheduled_messages WHERE id = $1 AND user_id = $2', [id, req.user.id]);
   if (r.rowCount === 0) return res.status(404).json({ error: 'Message not found.' });
+  if (existing && existing.auto_key) {
+    await pool.query('INSERT INTO dismissed_auto (auto_key) VALUES ($1) ON CONFLICT DO NOTHING', [existing.auto_key]);
+  }
   res.json({ ok: true });
 }));
 

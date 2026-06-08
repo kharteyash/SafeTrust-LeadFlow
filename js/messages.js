@@ -59,8 +59,15 @@
     return {
       id: item.id, to: item.to, channel: item.channel, type: item.type,
       when: whenLabel(item.date), time: timeLabel(item.time24),
-      status: item.status || 'pending', error: item.error || ''
+      status: item.status || 'pending', error: item.error || '',
+      autoKind: item.autoKind || ''
     };
+  }
+  // Badge marking an automatically-scheduled lifecycle email vs. a manual one.
+  function autoPill(kind) {
+    if (kind === 'birthday') return '<span class="pill pill-purple" style="font-size:11px;" title="Automatically scheduled birthday email">🎂 Auto · Birthday</span>';
+    if (kind === 'loan_anniversary') return '<span class="pill pill-blue" style="font-size:11px;" title="Automatically scheduled loan-anniversary email">🏠 Auto · Loan anniversary</span>';
+    return '';
   }
 
   function esc(s) {
@@ -137,6 +144,7 @@
                   <span class="text-muted"> to ${esc(s.to)}</span>
                 </div>
                 <span class="pill ${m.pill}">${s.channel}</span>
+                ${autoPill(s.autoKind)}
                 ${statusChip(s.status, s.error)}
                 ${(s.channel === 'Email' && s.status !== 'sent' && s.status !== 'sending') ? `
                 <button class="btn-icon" title="Send now" data-send-uid="${s._uid}" style="width:30px;height:30px;">
