@@ -159,6 +159,12 @@
                   <button class="btn-icon" title="Call & log" data-call="${escAttr(l.phone)}" data-call-name="${escAttr(l.name)}" style="width:30px;height:30px;" ${l.phone ? '' : 'disabled'}>
                     <i data-lucide="phone" style="width:13px;height:13px;color:#2255a3;pointer-events:none;"></i>
                   </button>
+                  ${l.phone ? `<button class="btn-icon" title="Text (SMS)" data-sms="${escAttr(l.phone)}" style="width:30px;height:30px;">
+                    <i data-lucide="message-square" style="width:13px;height:13px;color:#2255a3;pointer-events:none;"></i>
+                  </button>
+                  <button class="btn-icon" title="WhatsApp" data-wa="${escAttr(l.phone)}" style="width:30px;height:30px;">
+                    <i data-lucide="message-circle" style="width:13px;height:13px;color:#138A4B;pointer-events:none;"></i>
+                  </button>` : ''}
                   <button class="btn-icon" title="Send email" data-email="${l.email}" style="width:30px;height:30px;">
                     <i data-lucide="mail" style="width:13px;height:13px;color:#2255a3;pointer-events:none;"></i>
                   </button>
@@ -315,6 +321,14 @@
         if (tel) window.location.href = tel;
         // Dial, then prompt to log the call so it lands in Call History.
         openCallLogModal(callBtn.getAttribute('data-call-name') || '', phone, false);
+        return;
+      }
+      const smsBtn = e.target.closest('[data-sms]');
+      if (smsBtn) { window.location.href = 'sms:' + smsBtn.getAttribute('data-sms').replace(/[^\d+]/g, ''); return; }
+      const waBtn = e.target.closest('[data-wa]');
+      if (waBtn) {
+        let d = waBtn.getAttribute('data-wa').replace(/\D/g, ''); if (d.length === 10) d = '1' + d;
+        window.open('https://wa.me/' + d, '_blank');
         return;
       }
       const btn = e.target.closest('[data-email]');
