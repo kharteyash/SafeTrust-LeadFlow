@@ -1027,9 +1027,9 @@ const SUPPORTED_TIMEZONES = [
 ];
 const DEFAULT_AUTO = {
   birthday_subject: 'Happy Birthday, {{first_name}}!',
-  birthday_body: "Hi {{first_name}},\n\nWishing you a very happy birthday! I hope your day is filled with everything you enjoy.\n\nIt's always a pleasure staying in touch — if there's ever anything I can help you with on the mortgage side, I'm just a reply away.\n\nWarm wishes,",
+  birthday_body: "Hi {{first_name}},\n\nWishing you a very happy birthday! I hope your day is filled with happiness, good health, and time spent with the people who matter most to you.\n\nIt's always a pleasure staying in touch. If there's ever anything I can help you with regarding your mortgage or any questions you may have, please don't hesitate to reach out. I'm always happy to help.\n\nEnjoy your special day and have a wonderful year ahead!\n\nWarm wishes,",
   anniv_subject: 'Happy home anniversary, {{first_name}}!',
-  anniv_body: "Hi {{first_name}},\n\nCongratulations — it's officially been a year since your loan closed! I hope your home has been everything you hoped for.\n\nA lot can change in a year, so if you'd ever like a quick, no-pressure mortgage review to see whether refinancing could lower your payment or help you reach a goal, just reply and I'll take a look.\n\nThanks for trusting me with your home financing,",
+  anniv_body: "Hi {{first_name}},\n\nI hope you're doing well and enjoying your home.\n\nAs part of my annual mortgage review program, I like to check in with past clients to see if there have been any changes in their goals or financial situation. Mortgage options and market conditions can change over time, and it's always worth making sure your current mortgage is still the best fit for your needs.\n\nIf you'd like a quick, no-obligation review, I'd be happy to take a look and answer any questions you may have. Whether you're considering refinancing, accessing equity, planning renovations, or simply want to understand your options, I'm here to help.\n\nThank you again for trusting me with your home financing. I truly appreciate the opportunity to work with you and look forward to staying in touch for years to come.\n\nWarm regards,",
   signature: ''
 };
 function autoDefaultTz() { return envClean('AUTO_EMAIL_TZ') || 'America/New_York'; }
