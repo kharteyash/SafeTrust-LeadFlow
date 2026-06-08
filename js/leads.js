@@ -22,6 +22,8 @@
   // Set after LF.renderLayout populates the user (LF_DATA.user is empty at load).
   let isAdmin = false;
 
+  const selectedLeads = new Set(); // _uids checked for bulk delete
+
   // Working list = the user's saved leads (DB) + demo leads. Loaded on mount.
   // Each gets a client-side _uid so any row can be referenced for deletion.
   let leadUid = 0;
@@ -84,6 +86,7 @@
       el.addEventListener('click', () => {
         state.tab = el.dataset.tab;
         state.page = 1;
+        selectedLeads.clear();   // selection is per-view
         renderTabs();
         renderTable();
       });
@@ -116,29 +119,29 @@
     const pageRows = rows.slice(start, start + state.pageSize);
 
     const tableEl = document.getElementById('leads-table');
-    if (pageRows.length === 0) {
-      tableEl.innerHTML = `
+    const allChecked = rows.length > 0 && rows.every(l => selectedLeads.has(String(l._uid)));
+    const headRow = `
         <thead>
           <tr>
+            <th style="width:34px;"><input type="checkbox" id="leads-select-all" title="Select all" style="accent-color:#2255a3;cursor:pointer;" ${allChecked ? 'checked' : ''} /></th>
             <th>Name</th><th>Email</th><th>Phone</th><th>Buying Timeline</th>
             <th>Lead Score</th><th>Last Contacted</th><th>Owner</th><th>Action</th>
           </tr>
-        </thead>
+        </thead>`;
+    if (pageRows.length === 0) {
+      tableEl.innerHTML = `
+        ${headRow}
         <tbody>
-          <tr><td colspan="8" class="text-center py-10 text-muted">No leads found for this filter.</td></tr>
+          <tr><td colspan="9" class="text-center py-10 text-muted">No leads found for this filter.</td></tr>
         </tbody>
       `;
     } else {
       tableEl.innerHTML = `
-        <thead>
-          <tr>
-            <th>Name</th><th>Email</th><th>Phone</th><th>Buying Timeline</th>
-            <th>Lead Score</th><th>Last Contacted</th><th>Owner</th><th>Action</th>
-          </tr>
-        </thead>
+        ${headRow}
         <tbody>
           ${pageRows.map(l => `
             <tr>
+              <td><input type="checkbox" data-select-uid="${l._uid}" style="accent-color:#2255a3;cursor:pointer;" ${selectedLeads.has(String(l._uid)) ? 'checked' : ''} /></td>
               <td><span class="font-semibold" data-view-uid="${l._uid}" style="cursor:pointer;color:var(--accent);">${l.name}</span>${l.preapproved ? ' <span class="pill pill-green" style="font-size:10px;">Pre-approved</span>' : ''}${l.assignedByName ? ` <span class="pill pill-blue" style="font-size:10px;">From ${esc(l.assignedByName)}</span>` : ''}${isAdmin && l.ownerUserName ? ` <span class="pill pill-purple" style="font-size:10px;">${esc(l.ownerUserName)}</span>` : ''}</td>
               <td class="text-muted">${l.email}</td>
               <td>${l.phone}</td>
@@ -183,7 +186,61 @@
     document.getElementById('lead-summary').textContent = summary;
 
     renderPager(totalPages);
+    renderBulkBar();
     if (window.lucide) lucide.createIcons();
+  }
+
+  // ----- Bulk selection / delete -----
+  function renderBulkBar() {
+    const bar = document.getElementById('leads-bulkbar');
+    if (!bar) return;
+    const n = selectedLeads.size;
+    bar.innerHTML = n === 0 ? '' : `
+      <div class="flex items-center gap-2">
+        <span class="text-[12.5px] text-muted">${n} selected</span>
+        <button id="leads-bulk-clear" class="btn-secondary" style="padding:5px 12px;font-size:12.5px;">Clear</button>
+        <button id="leads-bulk-delete" class="btn-primary" style="padding:5px 12px;font-size:12.5px;background:#D63333;">
+          <i data-lucide="trash-2" style="width:13px;height:13px;"></i> Delete ${n}
+        </button>
+      </div>`;
+    const clearBtn = document.getElementById('leads-bulk-clear');
+    if (clearBtn) clearBtn.addEventListener('click', () => { selectedLeads.clear(); renderTable(); });
+    const delBtn = document.getElementById('leads-bulk-delete');
+    if (delBtn) delBtn.addEventListener('click', bulkDeleteLeads);
+  }
+  async function bulkDeleteLeads() {
+    const uids = [...selectedLeads];
+    const ids = uids.map(u => leads.find(l => String(l._uid) === u)).filter(l => l && l.id).map(l => l.id);
+    if (!ids.length) { selectedLeads.clear(); renderTable(); return; }
+    if (!window.confirm(`Delete ${ids.length} selected lead${ids.length === 1 ? '' : 's'}? This can't be undone.`)) return;
+    try {
+      const res = await fetch('/api/leads/bulk-delete', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+        body: JSON.stringify({ ids })
+      });
+      if (!res.ok) { window.alert('Could not delete the selected leads.'); return; }
+    } catch (e) { window.alert('Network error.'); return; }
+    selectedLeads.clear();
+    await loadLeads();          // reflect exactly what the server deleted
+    renderLeadStats(); renderTabs(); renderTable();
+    if (window.lucide) lucide.createIcons();
+  }
+  function bindBulkSelect() {
+    document.getElementById('leads-table').addEventListener('change', e => {
+      const all = e.target.id === 'leads-select-all' ? e.target : null;
+      if (all) {
+        // Select / clear every lead in the current filter (all pages).
+        filtered().forEach(l => { const u = String(l._uid); if (all.checked) selectedLeads.add(u); else selectedLeads.delete(u); });
+        renderTable();
+        return;
+      }
+      const cb = e.target.closest('[data-select-uid]');
+      if (cb) {
+        const u = cb.getAttribute('data-select-uid');
+        if (cb.checked) selectedLeads.add(u); else selectedLeads.delete(u);
+        renderTable();
+      }
+    });
   }
 
   // ----- Pager -----
@@ -226,6 +283,7 @@
     input.addEventListener('input', e => {
       state.search = e.target.value;
       state.page = 1;
+      selectedLeads.clear();
       renderTable();
     });
   }
@@ -879,6 +937,7 @@
     bindEmail();
     bindAddLead();
     bindDeleteLead();
+    bindBulkSelect();
     bindAssign();
     bindCloseLead();
     bindRealtorCall();

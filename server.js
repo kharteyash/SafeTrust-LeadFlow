@@ -1766,6 +1766,17 @@ app.delete('/api/leads/:id', safe(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// Delete several leads at once. Admin can delete any; others only their own.
+app.post('/api/leads/bulk-delete', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  const ids = ((req.body || {}).ids || []).map(Number).filter(Number.isInteger);
+  if (!ids.length) return res.status(400).json({ error: 'No leads selected.' });
+  const r = req.user.role === 'admin'
+    ? await pool.query('DELETE FROM leads WHERE id = ANY($1::int[])', [ids])
+    : await pool.query('DELETE FROM leads WHERE id = ANY($1::int[]) AND user_id = $2', [ids, req.user.id]);
+  res.json({ ok: true, deleted: r.rowCount });
+}));
+
 // Close a lead: capture relationship details, move it into closed_leads, delete it.
 app.post('/api/leads/:id/close', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
@@ -2019,6 +2030,15 @@ app.delete('/api/closed/:id', safe(async (req, res) => {
   const r = await pool.query('DELETE FROM closed_leads WHERE id = $1 AND user_id = $2', [id, req.user.id]);
   if (r.rowCount === 0) return res.status(404).json({ error: 'Record not found.' });
   res.json({ ok: true });
+}));
+
+// Delete several closed records at once (scoped to the user's own).
+app.post('/api/closed/bulk-delete', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  const ids = ((req.body || {}).ids || []).map(Number).filter(Number.isInteger);
+  if (!ids.length) return res.status(400).json({ error: 'No records selected.' });
+  const r = await pool.query('DELETE FROM closed_leads WHERE id = ANY($1::int[]) AND user_id = $2', [ids, req.user.id]);
+  res.json({ ok: true, deleted: r.rowCount });
 }));
 
 // ----- Contacts -----

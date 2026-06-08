@@ -30,12 +30,13 @@
     <!-- Import status -->
     <div id="closed-msg" class="text-[12.5px] font-medium mb-3"></div>
 
-    <!-- Search -->
-    <div class="mb-3">
-      <div class="relative" style="max-width:340px;">
+    <!-- Search + bulk actions -->
+    <div class="mb-3 flex items-center justify-between flex-wrap gap-3">
+      <div class="relative" style="max-width:340px;flex:1 1 240px;">
         <i data-lucide="search" style="width:16px;height:16px;color:#8A8AA0;position:absolute;left:12px;top:50%;transform:translateY(-50%);"></i>
         <input id="closed-search" class="input pl-9" placeholder="Search by name..." />
       </div>
+      <div id="closed-bulkbar"></div>
     </div>
 
     <!-- Table -->

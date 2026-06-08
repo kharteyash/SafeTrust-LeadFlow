@@ -3,6 +3,7 @@
   let closed = []; // [{ id, data: {col: value} }]
   let query = '';
   const state = { page: 1, pageSize: 10 };
+  const selectedClosed = new Set(); // record ids checked for bulk delete
 
   // Filter by the search term (matches any field value, so names are covered).
   function filtered() {
@@ -150,15 +151,17 @@
     const allCols = computeColumns();
     const cols = pickColumns(allCols);
     const nameCol = nameColumn(allCols);
+    const allChecked = rows.length > 0 && rows.every(r => selectedClosed.has(String(r.id)));
     table.innerHTML = `
       <thead>
-        <tr>${cols.map(c => `<th>${esc(c)}</th>`).join('')}<th>Action</th></tr>
+        <tr><th style="width:34px;"><input type="checkbox" id="closed-select-all" title="Select all" style="accent-color:#2255a3;cursor:pointer;" ${allChecked ? 'checked' : ''} /></th>${cols.map(c => `<th>${esc(c)}</th>`).join('')}<th>Action</th></tr>
       </thead>
       <tbody>
         ${total === 0
-          ? `<tr><td colspan="${cols.length + 1}" class="text-center py-10 text-muted">No closed leads match "${esc(query)}".</td></tr>`
+          ? `<tr><td colspan="${cols.length + 2}" class="text-center py-10 text-muted">No closed leads match "${esc(query)}".</td></tr>`
           : pageRows.map(r => `
           <tr>
+            <td><input type="checkbox" data-select-id="${r.id}" style="accent-color:#2255a3;cursor:pointer;" ${selectedClosed.has(String(r.id)) ? 'checked' : ''} /></td>
             ${cols.map(c => {
               const val = r.data ? r.data[c] : '';
               if (c === nameCol) {
@@ -173,6 +176,7 @@
             </td>
           </tr>`).join('')}
       </tbody>`;
+    renderBulkBar();
 
     // Footer: summary + pager (hidden when there's nothing to page through).
     if (total === 0) {
@@ -206,6 +210,40 @@
       render();
     }));
     if (window.lucide) lucide.createIcons();
+  }
+
+  // ----- Bulk selection / delete -----
+  function renderBulkBar() {
+    const bar = document.getElementById('closed-bulkbar');
+    if (!bar) return;
+    const n = selectedClosed.size;
+    bar.innerHTML = n === 0 ? '' : `
+      <div class="flex items-center gap-2">
+        <span class="text-[12.5px] text-muted">${n} selected</span>
+        <button id="closed-bulk-clear" class="btn-secondary" style="padding:5px 12px;font-size:12.5px;">Clear</button>
+        <button id="closed-bulk-delete" class="btn-primary" style="padding:5px 12px;font-size:12.5px;background:#D63333;">
+          <i data-lucide="trash-2" style="width:13px;height:13px;"></i> Delete ${n}
+        </button>
+      </div>`;
+    const clearBtn = document.getElementById('closed-bulk-clear');
+    if (clearBtn) clearBtn.addEventListener('click', () => { selectedClosed.clear(); render(); });
+    const delBtn = document.getElementById('closed-bulk-delete');
+    if (delBtn) delBtn.addEventListener('click', bulkDeleteClosed);
+  }
+  async function bulkDeleteClosed() {
+    const ids = [...selectedClosed].map(Number).filter(n => !isNaN(n));
+    if (!ids.length) { selectedClosed.clear(); render(); return; }
+    if (!window.confirm(`Remove ${ids.length} selected record${ids.length === 1 ? '' : 's'}? This can't be undone.`)) return;
+    try {
+      const res = await fetch('/api/closed/bulk-delete', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+        body: JSON.stringify({ ids })
+      });
+      if (!res.ok) { window.alert('Could not remove the selected records.'); return; }
+    } catch (e) { window.alert('Network error.'); return; }
+    selectedClosed.clear();
+    await load();
+    render();
   }
 
   // ----- Detail modal: all imported fields, with call/email buttons -----
@@ -264,7 +302,22 @@
   }
 
   function bind() {
-    document.getElementById('closed-search').addEventListener('input', e => { query = e.target.value; state.page = 1; render(); });
+    document.getElementById('closed-search').addEventListener('input', e => { query = e.target.value; state.page = 1; selectedClosed.clear(); render(); });
+
+    // Bulk-select checkboxes (delegated; the table body re-renders).
+    document.getElementById('closed-table').addEventListener('change', e => {
+      if (e.target.id === 'closed-select-all') {
+        filtered().forEach(r => { const id = String(r.id); if (e.target.checked) selectedClosed.add(id); else selectedClosed.delete(id); });
+        render();
+        return;
+      }
+      const cb = e.target.closest('[data-select-id]');
+      if (cb) {
+        const id = cb.getAttribute('data-select-id');
+        if (cb.checked) selectedClosed.add(id); else selectedClosed.delete(id);
+        render();
+      }
+    });
     document.getElementById('closed-rows-per-page').addEventListener('change', e => { state.pageSize = parseInt(e.target.value, 10); state.page = 1; render(); });
 
     const fileInput = document.getElementById('closed-file');
