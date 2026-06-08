@@ -19,7 +19,8 @@
   };
 
   // The admin (superuser) sees every user's leads, each tagged with an owner pill.
-  const isAdmin = !!(D.user && D.user.rawRole === 'admin');
+  // Set after LF.renderLayout populates the user (LF_DATA.user is empty at load).
+  let isAdmin = false;
 
   // Working list = the user's saved leads (DB) + demo leads. Loaded on mount.
   // Each gets a client-side _uid so any row can be referenced for deletion.
@@ -842,6 +843,7 @@
     // Layout must render first — it rebuilds #app's innerHTML, which wipes
     // any event listeners attached to elements inside it.
     await LF.renderLayout({ active: 'leads' });
+    isAdmin = !!(LF_DATA.user && LF_DATA.user.rawRole === 'admin');
     await loadLeads();
     await loadAssignTargets();
     renderLeadStats();
