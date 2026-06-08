@@ -83,12 +83,12 @@
             <td><span class="pill ${tagPill(c.tag)}">${esc(c.tag)}</span></td>
             <td>
               <div class="flex items-center gap-1">
-                <button class="btn-icon" title="Call" data-call="${escAttr(c.phone)}" style="width:30px;height:30px;" ${c.phone ? '' : 'disabled'}>
+                ${c.phone ? `<button class="btn-icon" title="Call" data-call="${escAttr(c.phone)}" style="width:30px;height:30px;">
                   <i data-lucide="phone" style="width:13px;height:13px;color:#2255a3;pointer-events:none;"></i>
-                </button>
-                <button class="btn-icon" title="Send email" data-email="${escAttr(c.email)}" style="width:30px;height:30px;" ${c.email ? '' : 'disabled'}>
+                </button>` : ''}
+                ${c.email ? `<button class="btn-icon" title="Send email" data-email="${escAttr(c.email)}" style="width:30px;height:30px;">
                   <i data-lucide="mail" style="width:13px;height:13px;color:#2255a3;pointer-events:none;"></i>
-                </button>
+                </button>` : ''}
                 <button class="btn-icon" title="Edit contact" data-edit="${c.id}" style="width:30px;height:30px;">
                   <i data-lucide="pencil" style="width:13px;height:13px;color:var(--text-muted);pointer-events:none;"></i>
                 </button>
