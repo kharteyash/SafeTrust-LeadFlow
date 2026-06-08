@@ -156,6 +156,11 @@ const SCHEMA = `
     signature        TEXT,
     tz               TEXT
   );
+  -- One-row-per-flag marker table for one-time data migrations.
+  CREATE TABLE IF NOT EXISTS app_flags (
+    flag       TEXT PRIMARY KEY,
+    created_at TIMESTAMPTZ DEFAULT now()
+  );
 
   CREATE TABLE IF NOT EXISTS google_accounts (
     user_id       INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
@@ -1382,17 +1387,30 @@ const LEAD_TYPES = ['Purchase', 'Refinance'];
 const REFI_TYPES = ['Rate & Term', 'Cash Out'];
 const REALTOR_STATUSES = ['has', 'unavailable', 'none'];
 
+// Weighted 0–100 model. Each factor contributes a capped share, and the parts
+// sum to 100 only for an ideal lead — so a top score is earned, not the default.
+//   Buying intent (timeline) ...... up to 45   (the dominant signal)
+//   Pre-approved .................. 25          (readiness to transact)
+//   Reachable by phone ............ 10
+//   Loan profile .................. up to 20    (refi subtype, or purchase w/ realtor)
 function computeLeadScore(timeline, phone, leadType, refiType, preapproved, realtorStatus) {
-  const base = {
-    'Buying Immediately': 85, '1-3 Months': 70, '3-6 Months': 50, '6+ Months': 35
-  }[timeline] || 50;
-  const phoneBonus = (phone && phone.trim()) ? 10 : 0;
-  // Cash-out refinances are weighted higher than rate & term.
-  let refiBonus = 0;
-  if (leadType === 'Refinance') refiBonus = refiType === 'Cash Out' ? 15 : 5;
-  const preapprovedBonus = preapproved ? 10 : 0;
-  const realtorBonus = realtorStatus === 'has' ? 5 : 0;
-  return Math.min(100, base + phoneBonus + refiBonus + preapprovedBonus + realtorBonus);
+  const timelinePoints = {
+    'Buying Immediately': 45, '1-3 Months': 30, '3-6 Months': 17, '6+ Months': 8
+  }[timeline] || 17;
+
+  const preapprovedPoints = preapproved ? 25 : 0;
+  const phonePoints = (phone && String(phone).trim()) ? 10 : 0;
+
+  // Loan profile: refinances scored by subtype (cash-out is hottest); purchases
+  // by whether a realtor is already attached (further along the funnel).
+  let loanPoints;
+  if (leadType === 'Refinance') {
+    loanPoints = refiType === 'Cash Out' ? 20 : 12;
+  } else {
+    loanPoints = realtorStatus === 'has' ? 20 : 10;
+  }
+
+  return Math.min(100, timelinePoints + preapprovedPoints + phonePoints + loanPoints);
 }
 
 // Normalize the lead-type fields from a request body (clears irrelevant ones).
@@ -2051,6 +2069,22 @@ app.get('/', (req, res) => res.redirect('/index.html'));
 app.use(express.static(__dirname, { dotfiles: 'deny' }));
 
 // ----- Start -----
+// One-time: re-score every existing lead with the current model (the old model
+// over-clustered at 100). Runs once, guarded by a flag, so it never clobbers
+// later admin score overrides on restart. Forwarded leads keep their high floor.
+async function recomputeLeadScoresOnce() {
+  const done = await one("SELECT 1 AS x FROM app_flags WHERE flag = 'lead_score_v2'");
+  if (done) return;
+  const leads = await q('SELECT id, timeline, phone, lead_type, refi_type, preapproved, realtor_status, assigned_by FROM leads');
+  for (const l of leads) {
+    let score = computeLeadScore(l.timeline, l.phone, l.lead_type, l.refi_type, l.preapproved, l.realtor_status);
+    if (l.assigned_by != null) score = Math.max(score, 90);
+    await q('UPDATE leads SET score = $1 WHERE id = $2', [score, l.id]);
+  }
+  await q("INSERT INTO app_flags (flag) VALUES ('lead_score_v2') ON CONFLICT DO NOTHING");
+  if (leads.length) console.log(`Re-scored ${leads.length} lead(s) with the new model.`);
+}
+
 pool.query(SCHEMA)
   // If no admin exists yet (e.g. a database created before roles), promote the
   // earliest account to Admin so there's always a superuser.
@@ -2059,5 +2093,6 @@ pool.query(SCHEMA)
     WHERE id = (SELECT id FROM users ORDER BY id ASC LIMIT 1)
       AND NOT EXISTS (SELECT 1 FROM users WHERE role = 'admin')
   `))
+  .then(() => recomputeLeadScoresOnce())
   .then(() => app.listen(PORT, () => console.log(`LeadFlow running on port ${PORT}`)))
   .catch(err => { console.error('Database init failed:', err); process.exit(1); });
