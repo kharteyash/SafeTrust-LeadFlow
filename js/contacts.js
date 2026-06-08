@@ -37,7 +37,10 @@
       items.push(menuItem('message-square', 'Text (SMS)', '#2255a3'));
       items.push(menuItem('message-circle', 'WhatsApp', '#138A4B'));
     }
-    if (contact.email) items.push(menuItem('mail', 'Email', '#2255a3'));
+    if (contact.email) {
+      items.push(menuItem('mail', 'Email', '#2255a3'));
+      items.push(menuItem('video', 'Google Meet', '#138A4B'));
+    }
     menu.innerHTML = items.join('');
     menu.classList.remove('hidden');
     const r = anchor.getBoundingClientRect();
@@ -50,6 +53,52 @@
     const menu = document.getElementById('contact-menu');
     if (menu) menu.classList.add('hidden');
     menuContact = null;
+  }
+
+  // ----- Google Meet (pick a time, create a link, email it) -----
+  let meetTarget = null;
+  function pad2(n) { return String(n).padStart(2, '0'); }
+  function createMeet(contact) {
+    if (!contact || !contact.email) { window.alert('This contact has no email to send a Meet link to.'); return; }
+    meetTarget = { to: contact.email, name: contact.name || '' };
+    const now = new Date();
+    const today = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
+    const next = new Date(now.getTime() + 60 * 60000);
+    document.getElementById('meet-to').textContent = contact.email;
+    const dEl = document.getElementById('meet-date'); dEl.value = today; dEl.min = today;
+    document.getElementById('meet-time').value = `${pad2(next.getHours())}:00`;
+    document.getElementById('meet-msg').textContent = '';
+    document.getElementById('meet-modal').classList.remove('hidden');
+  }
+  function closeMeetModal() { document.getElementById('meet-modal').classList.add('hidden'); }
+  function bindMeet() {
+    document.getElementById('meet-close').addEventListener('click', closeMeetModal);
+    document.getElementById('meet-cancel').addEventListener('click', closeMeetModal);
+    document.getElementById('meet-backdrop').addEventListener('click', closeMeetModal);
+    document.getElementById('meet-go').addEventListener('click', async () => {
+      if (!meetTarget) return;
+      const date = document.getElementById('meet-date').value;
+      const time = document.getElementById('meet-time').value;
+      const msg = document.getElementById('meet-msg');
+      if (!date || !time) { msg.style.color = '#D63333'; msg.textContent = 'Pick a date and time.'; return; }
+      const dt = new Date(`${date}T${time}`);
+      if (isNaN(dt.getTime()) || dt.getTime() <= Date.now()) { msg.style.color = '#D63333'; msg.textContent = 'Pick a future date and time.'; return; }
+      const btn = document.getElementById('meet-go');
+      btn.disabled = true; btn.style.opacity = '0.7';
+      msg.style.color = 'var(--text-muted)'; msg.textContent = 'Creating the meeting…';
+      try {
+        const res = await fetch('/api/meet', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+          body: JSON.stringify({ to: meetTarget.to, name: meetTarget.name, date, start: time })
+        });
+        const raw = await res.text(); let body = {}; try { body = raw ? JSON.parse(raw) : {}; } catch (e) {}
+        if (!res.ok) { msg.style.color = '#D63333'; msg.textContent = body.error || `Could not create the meeting (HTTP ${res.status}).`; return; }
+        closeMeetModal();
+        window.alert(`Google Meet link emailed to ${body.sentTo}${body.when ? ' for ' + body.when : ''}.\n\n${body.meetLink}`);
+        if (body.meetLink) window.open(body.meetLink, '_blank');
+      } catch (e) { msg.style.color = '#D63333'; msg.textContent = 'Network error.'; }
+      finally { btn.disabled = false; btn.style.opacity = ''; }
+    });
   }
   function tagPill(tag) {
     if (tag === 'Buyer')    return 'pill-blue';
@@ -224,6 +273,7 @@
       else if (action === 'Text (SMS)') { window.location.href = smsLink(c.phone); }
       else if (action === 'WhatsApp') { window.open(waLink(c.phone), '_blank'); }
       else if (action === 'Email') { window.open(gmailCompose(c.email), '_blank'); }
+      else if (action === 'Google Meet') { createMeet(c); }
       closeContactMenu();
     });
     // Close the menu on an outside click or when scrolling.
@@ -282,6 +332,7 @@
     await LF.renderLayout({ active: 'contacts' });
     await load();
     bind();
+    bindMeet();
     render();
   });
 })();

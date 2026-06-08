@@ -400,6 +400,37 @@
     <!-- Contact method popup menu -->
     <div id="lead-contact-menu" class="hidden" style="position:fixed;z-index:60;min-width:180px;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 28px var(--shadow);padding:4px;"></div>
 
+    <!-- Schedule Google Meet modal -->
+    <div id="meet-modal" class="hidden" style="position:fixed;inset:0;z-index:55;">
+      <div id="meet-backdrop" style="position:absolute;inset:0;background:rgba(14,14,27,.45);"></div>
+      <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:100%;max-width:420px;" class="px-4">
+        <div class="bg-white rounded-2xl p-6 shadow-2xl">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-[17px] font-bold">Schedule Google Meet</h3>
+            <button id="meet-close" class="btn-icon" style="width:32px;height:32px;border:none;">
+              <i data-lucide="x" style="width:16px;height:16px;color:var(--text-muted);"></i>
+            </button>
+          </div>
+          <p class="text-[12.5px] text-muted mb-3">A Meet link will be created and emailed to <span id="meet-to" class="font-semibold" style="color:var(--text);"></span>.</p>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="text-[12px] font-semibold text-muted">Date</label>
+              <input id="meet-date" type="date" class="input mt-1" />
+            </div>
+            <div>
+              <label class="text-[12px] font-semibold text-muted">Time</label>
+              <input id="meet-time" type="time" class="input mt-1" />
+            </div>
+          </div>
+          <div id="meet-msg" class="text-[12.5px] font-medium mt-2"></div>
+          <div class="flex items-center justify-end gap-2 mt-4">
+            <button id="meet-cancel" class="btn-secondary">Cancel</button>
+            <button id="meet-go" class="btn-primary"><i data-lucide="video" style="width:14px;height:14px;"></i> Create &amp; send</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
   </div>
 
   <script src="js/data.js"></script>

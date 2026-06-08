@@ -335,17 +335,50 @@
     if (menu) menu.classList.add('hidden');
     menuLead = null;
   }
-  // Create a Google Meet link for the lead and email it to them.
-  async function createMeet(lead) {
-    if (!lead || !lead.id) { window.alert('This lead can’t host a meeting (no saved record).'); return; }
-    if (!window.confirm(`Create a Google Meet link and email it to ${lead.email}?`)) return;
-    try {
-      const res = await fetch('/api/leads/' + lead.id + '/meet', { method: 'POST', credentials: 'same-origin' });
-      const raw = await res.text(); let body = {}; try { body = raw ? JSON.parse(raw) : {}; } catch (e) {}
-      if (!res.ok) { window.alert(body.error || `Could not create the meeting (HTTP ${res.status}).`); return; }
-      window.alert(`Google Meet link emailed to ${body.sentTo}.\n\n${body.meetLink}`);
-      if (body.meetLink) window.open(body.meetLink, '_blank'); // open it for you (the host)
-    } catch (e) { window.alert('Network error.'); }
+  // ----- Google Meet (pick a time, create a link, email it) -----
+  let meetTarget = null; // { to, name }
+  function pad2(n) { return String(n).padStart(2, '0'); }
+  function createMeet(lead) {
+    if (!lead || !lead.email) { window.alert('This lead has no email to send a Meet link to.'); return; }
+    meetTarget = { to: lead.email, name: lead.name || '' };
+    const now = new Date();
+    const today = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
+    const next = new Date(now.getTime() + 60 * 60000);
+    document.getElementById('meet-to').textContent = lead.email;
+    const dEl = document.getElementById('meet-date'); dEl.value = today; dEl.min = today;
+    document.getElementById('meet-time').value = `${pad2(next.getHours())}:00`;
+    document.getElementById('meet-msg').textContent = '';
+    document.getElementById('meet-modal').classList.remove('hidden');
+  }
+  function closeMeetModal() { document.getElementById('meet-modal').classList.add('hidden'); }
+  function bindMeet() {
+    document.getElementById('meet-close').addEventListener('click', closeMeetModal);
+    document.getElementById('meet-cancel').addEventListener('click', closeMeetModal);
+    document.getElementById('meet-backdrop').addEventListener('click', closeMeetModal);
+    document.getElementById('meet-go').addEventListener('click', async () => {
+      if (!meetTarget) return;
+      const date = document.getElementById('meet-date').value;
+      const time = document.getElementById('meet-time').value;
+      const msg = document.getElementById('meet-msg');
+      if (!date || !time) { msg.style.color = '#D63333'; msg.textContent = 'Pick a date and time.'; return; }
+      const dt = new Date(`${date}T${time}`);
+      if (isNaN(dt.getTime()) || dt.getTime() <= Date.now()) { msg.style.color = '#D63333'; msg.textContent = 'Pick a future date and time.'; return; }
+      const btn = document.getElementById('meet-go');
+      btn.disabled = true; btn.style.opacity = '0.7';
+      msg.style.color = 'var(--text-muted)'; msg.textContent = 'Creating the meeting…';
+      try {
+        const res = await fetch('/api/meet', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+          body: JSON.stringify({ to: meetTarget.to, name: meetTarget.name, date, start: time })
+        });
+        const raw = await res.text(); let body = {}; try { body = raw ? JSON.parse(raw) : {}; } catch (e) {}
+        if (!res.ok) { msg.style.color = '#D63333'; msg.textContent = body.error || `Could not create the meeting (HTTP ${res.status}).`; return; }
+        closeMeetModal();
+        window.alert(`Google Meet link emailed to ${body.sentTo}${body.when ? ' for ' + body.when : ''}.\n\n${body.meetLink}`);
+        if (body.meetLink) window.open(body.meetLink, '_blank');
+      } catch (e) { msg.style.color = '#D63333'; msg.textContent = 'Network error.'; }
+      finally { btn.disabled = false; btn.style.opacity = ''; }
+    });
   }
   function bindEmail() {
     // Open the contact menu from a lead's Contact button.
@@ -998,6 +1031,7 @@
     bindAddLead();
     bindDeleteLead();
     bindBulkSelect();
+    bindMeet();
     bindAssign();
     bindCloseLead();
     bindRealtorCall();
