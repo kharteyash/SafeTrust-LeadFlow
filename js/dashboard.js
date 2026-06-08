@@ -36,20 +36,20 @@
     const interested = leads.filter(l => l.timeline === 'Buying Immediately').length;
     const openTasks = tasks.filter(t => t.status !== 'done').length;
     const cards = [
-      { label: 'Total Leads',      value: leads.length,    icon: 'users',          tint: '#EFEAFF', color: '#2255a3' },
-      { label: 'Contacts',         value: contacts.length, icon: 'contact',        tint: '#E7EEFF', color: '#2B57D9' },
-      { label: 'Calls Made',       value: calls.length,    icon: 'phone',          tint: '#E7EEFF', color: '#2B57D9' },
-      { label: 'Interested Leads', value: interested,      icon: 'check-circle-2', tint: '#E6F8EC', color: '#138A4B' },
-      { label: 'Open Tasks',       value: openTasks,       icon: 'list-checks',    tint: '#FFF4D6', color: '#B07A00' }
+      { label: 'Total Leads',      value: leads.length,    icon: 'users',          tint: '#EFEAFF', color: '#2255a3', href: 'leads.html' },
+      { label: 'Contacts',         value: contacts.length, icon: 'contact',        tint: '#E7EEFF', color: '#2B57D9', href: 'contacts.html' },
+      { label: 'Calls Made',       value: calls.length,    icon: 'phone',          tint: '#E7EEFF', color: '#2B57D9', href: 'calls.html' },
+      { label: 'Interested Leads', value: interested,      icon: 'check-circle-2', tint: '#E6F8EC', color: '#138A4B', href: 'leads.html' },
+      { label: 'Open Tasks',       value: openTasks,       icon: 'list-checks',    tint: '#FFF4D6', color: '#B07A00', href: 'tasks.html' }
     ];
     document.getElementById('stat-cards').innerHTML = cards.map(c => `
-      <div class="stat-card">
+      <a href="${c.href}" class="stat-card block" style="cursor:pointer;text-decoration:none;color:inherit;">
         <div class="flex items-center gap-3 mb-3">
           <div class="stat-icon" style="background:${c.tint};"><i data-lucide="${c.icon}" style="width:18px;height:18px;color:${c.color};"></i></div>
           <span class="text-[13px] text-muted font-medium">${c.label}</span>
         </div>
         <div class="text-[26px] font-bold tracking-tight leading-tight">${LF.fmtNum(c.value)}</div>
-      </div>`).join('');
+      </a>`).join('');
   }
 
   // ----- Donut: leads by timeline -----
