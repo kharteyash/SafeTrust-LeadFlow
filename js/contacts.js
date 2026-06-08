@@ -14,6 +14,9 @@
   function initials(name) {
     return (name || '?').trim().split(/\s+/).map(s => s[0]).slice(0, 2).join('').toUpperCase() || '?';
   }
+  // wa.me needs a country code; assume US (1) for bare 10-digit numbers.
+  function waLink(phone) { let d = String(phone || '').replace(/\D/g, ''); if (d.length === 10) d = '1' + d; return 'https://wa.me/' + d; }
+  function smsLink(phone) { return 'sms:' + String(phone || '').replace(/[^\d+]/g, ''); }
   function tagPill(tag) {
     if (tag === 'Buyer')    return 'pill-blue';
     if (tag === 'Seller')   return 'pill-purple';
@@ -85,6 +88,12 @@
               <div class="flex items-center gap-1">
                 ${c.phone ? `<button class="btn-icon" title="Call" data-call="${escAttr(c.phone)}" style="width:30px;height:30px;">
                   <i data-lucide="phone" style="width:13px;height:13px;color:#2255a3;pointer-events:none;"></i>
+                </button>
+                <button class="btn-icon" title="Text (SMS)" data-sms="${escAttr(c.phone)}" style="width:30px;height:30px;">
+                  <i data-lucide="message-square" style="width:13px;height:13px;color:#2255a3;pointer-events:none;"></i>
+                </button>
+                <button class="btn-icon" title="WhatsApp" data-wa="${escAttr(c.phone)}" style="width:30px;height:30px;">
+                  <i data-lucide="message-circle" style="width:13px;height:13px;color:#138A4B;pointer-events:none;"></i>
                 </button>` : ''}
                 ${c.email ? `<button class="btn-icon" title="Send email" data-email="${escAttr(c.email)}" style="width:30px;height:30px;">
                   <i data-lucide="mail" style="width:13px;height:13px;color:#2255a3;pointer-events:none;"></i>
@@ -160,6 +169,10 @@
         if (tel) window.location.href = tel;
         return;
       }
+      const smsBtn = e.target.closest('[data-sms]');
+      if (smsBtn) { window.location.href = smsLink(smsBtn.getAttribute('data-sms')); return; }
+      const waBtn = e.target.closest('[data-wa]');
+      if (waBtn) { window.open(waLink(waBtn.getAttribute('data-wa')), '_blank'); return; }
       const emailBtn = e.target.closest('[data-email]');
       if (emailBtn && emailBtn.getAttribute('data-email')) {
         // Open Google's account chooser, then compose under the chosen account.
