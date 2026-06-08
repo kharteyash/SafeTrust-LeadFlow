@@ -310,12 +310,26 @@
       { label: 'High priority',  count: open.filter(t => t.priority === 'High').length, icon: 'flag', tint: '#FEECEC', color: '#D63333' },
       { label: 'Completed',      count: tasks.filter(t => t.status === 'done').length,  icon: 'check-circle-2', tint: '#E6F8EC', color: '#138A4B' }
     ];
-    document.getElementById('tasks-overview').innerHTML = rows.map(t => `
+    const countsHTML = rows.map(t => `
       <div class="flex items-center gap-3 py-3" style="border-bottom:1px solid var(--border-soft);">
         <div class="stat-icon" style="background:${t.tint};width:36px;height:36px;border-radius:10px;"><i data-lucide="${t.icon}" style="width:16px;height:16px;color:${t.color};"></i></div>
         <span class="flex-1 text-[13.5px] font-medium">${t.label}</span>
         <span class="text-[18px] font-bold">${t.count}</span>
       </div>`).join('');
+
+    // A short list of open tasks, tagging any that were assigned by a leader/admin.
+    const openList = open.slice(0, 5);
+    const listHTML = openList.length ? `
+      <div class="mt-3 pt-3" style="border-top:1px solid var(--border-soft);">
+        <div class="text-[12px] font-semibold text-muted mb-1">Your tasks</div>
+        ${openList.map(t => `
+          <div class="flex items-center gap-2 py-1.5">
+            <span class="text-[13px] truncate flex-1">${esc(t.title)}</span>
+            ${t.assignedByName ? `<span class="pill pill-blue" style="font-size:10px;flex-shrink:0;">From ${esc(t.assignedByName)}</span>` : ''}
+          </div>`).join('')}
+      </div>` : '';
+
+    document.getElementById('tasks-overview').innerHTML = countsHTML + listHTML;
   }
 
   // ----- Header date range (current week, Sunday–Saturday) -----

@@ -4,6 +4,7 @@
   let queue = [], callLog = [], leads = [];
   const queuedLeadIds = new Set(); // leads added to the queue from here this session
   let editingId = null;            // task being edited, if any
+  let assignInfo = { canAssign: false, canAssignAll: false, targets: [] };
   const state = { tab: 'all' };
 
   function isOverdueTask(t) { return t.status !== 'done' && t.due && t.due < todayStr(); }
@@ -71,6 +72,10 @@
     [tasks, queue, callLog, leads] = await Promise.all([
       get('/api/tasks'), get('/api/call-queue'), get('/api/call-log'), get('/api/leads')
     ]);
+    try {
+      const r = await fetch('/api/task-assign-targets', { credentials: 'same-origin' });
+      if (r.ok) assignInfo = await r.json();
+    } catch (e) {}
   }
 
   // ----- Stats -----
@@ -231,7 +236,7 @@
             ${done ? '<i data-lucide="check" style="width:12px;height:12px;color:#FFF;pointer-events:none;"></i>' : ''}
           </button>
           <div class="flex-1 min-w-0">
-            <div class="text-[13.5px] font-medium" style="${done ? 'color:#8A8AA0;text-decoration:line-through;' : ''}">${esc(t.title)}</div>
+            <div class="text-[13.5px] font-medium" style="${done ? 'color:#8A8AA0;text-decoration:line-through;' : ''}">${esc(t.title)}${t.assignedByName ? ` <span class="pill pill-blue" style="font-size:10px;">From ${esc(t.assignedByName)}</span>` : ''}</div>
             <div class="mt-1">
               <span class="pill ${dm.pill}" style="font-size:11px;padding:2px 8px;">
                 <i data-lucide="calendar" style="width:11px;height:11px;margin-right:3px;"></i>${dm.label}
@@ -274,6 +279,59 @@
   }
   function closeModal() { document.getElementById('task-modal').classList.add('hidden'); editingId = null; }
 
+  // ----- Assign task (team leaders / admin) -----
+  function openAssignModal() {
+    const form = document.getElementById('assign-form');
+    form.reset();
+    const sel = document.getElementById('assign-assignee');
+    const everyone = assignInfo.canAssignAll
+      ? `<option value="all">Everyone (${assignInfo.targets.length})</option>` : '';
+    sel.innerHTML = everyone + assignInfo.targets.map(t =>
+      `<option value="${t.id}">${esc(t.name)} · ${esc(t.role)}</option>`).join('');
+    form.elements['priority'].value = 'Medium';
+    form.elements['due'].min = todayStr();
+    document.getElementById('assign-form-msg').textContent = '';
+    document.getElementById('assign-modal').classList.remove('hidden');
+    form.elements['title'].focus();
+  }
+  function closeAssignModal() { document.getElementById('assign-modal').classList.add('hidden'); }
+  function bindAssign() {
+    const btn = document.getElementById('assign-task-btn');
+    if (assignInfo.canAssign) btn.classList.remove('hidden');
+    btn.addEventListener('click', openAssignModal);
+    document.getElementById('assign-modal-close').addEventListener('click', closeAssignModal);
+    document.getElementById('assign-cancel').addEventListener('click', closeAssignModal);
+    document.getElementById('assign-modal-backdrop').addEventListener('click', closeAssignModal);
+
+    const form = document.getElementById('assign-form');
+    const msg = document.getElementById('assign-form-msg');
+    form.addEventListener('submit', async e => {
+      e.preventDefault();
+      msg.textContent = '';
+      const data = Object.fromEntries(new FormData(form));
+      if (!data.title.trim()) { msg.textContent = 'Title is required.'; return; }
+      const payload = { title: data.title, due: data.due || '', priority: data.priority };
+      if (data.assignee === 'all') payload.assignToAll = true;
+      else payload.assigneeId = Number(data.assignee);
+      const sbtn = document.getElementById('assign-submit');
+      sbtn.disabled = true; sbtn.style.opacity = '0.7';
+      try {
+        const res = await fetch('/api/tasks/assign', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+          body: JSON.stringify(payload)
+        });
+        const raw = await res.text(); let body = {}; try { body = raw ? JSON.parse(raw) : {}; } catch (err) {}
+        if (!res.ok) { msg.textContent = body.error || `Request failed (HTTP ${res.status}).`; return; }
+        closeAssignModal();
+        window.alert(`Task assigned to ${body.assigned} ${body.assigned === 1 ? 'person' : 'people'}.`);
+      } catch (err) {
+        msg.textContent = 'Network error. Is the server running?';
+      } finally {
+        sbtn.disabled = false; sbtn.style.opacity = '';
+      }
+    });
+  }
+
   function renderAll() { renderStats(); renderCallsToMake(); renderTabs(); renderList(); if (window.lucide) lucide.createIcons(); }
 
   function bind() {
@@ -281,6 +339,7 @@
     document.getElementById('task-modal-close').addEventListener('click', closeModal);
     document.getElementById('task-cancel').addEventListener('click', closeModal);
     document.getElementById('task-modal-backdrop').addEventListener('click', closeModal);
+    bindAssign();
 
     // Calls-to-make actions: call (tel), WhatsApp, add lead to queue.
     document.getElementById('calls-to-make').addEventListener('click', async e => {

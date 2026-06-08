@@ -18,9 +18,14 @@
         <h1 class="text-[26px] font-bold tracking-tight">Tasks</h1>
         <p class="text-[13.5px] text-muted mt-1">Track your follow-ups and to-dos.</p>
       </div>
-      <button id="add-task-btn" class="btn-primary">
-        <i data-lucide="plus" style="width:14px;height:14px;"></i> Add Task
-      </button>
+      <div class="flex items-center gap-2">
+        <button id="assign-task-btn" class="btn-secondary hidden">
+          <i data-lucide="user-plus" style="width:14px;height:14px;"></i> Assign Task
+        </button>
+        <button id="add-task-btn" class="btn-primary">
+          <i data-lucide="plus" style="width:14px;height:14px;"></i> Add Task
+        </button>
+      </div>
     </div>
 
     <!-- Stats -->
@@ -69,6 +74,50 @@
             <div class="flex items-center justify-end gap-2 mt-2">
               <button type="button" id="task-cancel" class="btn-secondary">Cancel</button>
               <button type="submit" id="task-submit" class="btn-primary">Add task</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- Assign task modal (team leaders / admin) -->
+    <div id="assign-modal" class="hidden" style="position:fixed;inset:0;z-index:50;">
+      <div id="assign-modal-backdrop" style="position:absolute;inset:0;background:rgba(14,14,27,.45);"></div>
+      <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:100%;max-width:460px;" class="px-4">
+        <div class="bg-white rounded-2xl p-6 shadow-2xl">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-[17px] font-bold">Assign task</h3>
+            <button id="assign-modal-close" class="btn-icon" style="width:32px;height:32px;border:none;">
+              <i data-lucide="x" style="width:16px;height:16px;color:var(--text-muted);"></i>
+            </button>
+          </div>
+          <form id="assign-form" class="flex flex-col gap-3">
+            <div>
+              <label class="text-[12px] font-semibold text-muted">Assign to</label>
+              <select name="assignee" id="assign-assignee" class="input mt-1" style="cursor:pointer;"></select>
+            </div>
+            <div>
+              <label class="text-[12px] font-semibold text-muted">Title</label>
+              <input name="title" required maxlength="160" class="input mt-1" placeholder="e.g. Follow up with the Johnson lead" />
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="text-[12px] font-semibold text-muted">Due date</label>
+                <input name="due" type="date" class="input mt-1" />
+              </div>
+              <div>
+                <label class="text-[12px] font-semibold text-muted">Priority</label>
+                <select name="priority" class="input mt-1" style="cursor:pointer;">
+                  <option value="High">High</option>
+                  <option value="Medium" selected>Medium</option>
+                  <option value="Low">Low</option>
+                </select>
+              </div>
+            </div>
+            <div id="assign-form-msg" class="text-[12.5px] font-medium" style="color:#D63333;"></div>
+            <div class="flex items-center justify-end gap-2 mt-2">
+              <button type="button" id="assign-cancel" class="btn-secondary">Cancel</button>
+              <button type="submit" id="assign-submit" class="btn-primary">Assign task</button>
             </div>
           </form>
         </div>

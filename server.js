@@ -243,6 +243,8 @@ const SCHEMA = `
     status     TEXT DEFAULT 'todo',
     created_at TIMESTAMPTZ DEFAULT now()
   );
+  -- Who assigned this task (a leader/admin), if it was assigned rather than self-created.
+  ALTER TABLE tasks ADD COLUMN IF NOT EXISTS assigned_by INTEGER REFERENCES users(id) ON DELETE SET NULL;
 
   CREATE TABLE IF NOT EXISTS call_queue (
     id         SERIAL PRIMARY KEY,
@@ -1907,13 +1909,66 @@ const TASK_PRIORITIES = ['High', 'Medium', 'Low'];
 app.get('/api/tasks', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
   const rows = await q(`
-    SELECT id, title, due_date, priority, status
-    FROM tasks WHERE user_id = $1
-    ORDER BY (status = 'done'), due_date NULLS LAST, id DESC
+    SELECT t.id, t.title, t.due_date, t.priority, t.status, ab.name AS assigned_by_name
+    FROM tasks t LEFT JOIN users ab ON ab.id = t.assigned_by
+    WHERE t.user_id = $1
+    ORDER BY (t.status = 'done'), t.due_date NULLS LAST, t.id DESC
   `, [req.user.id]);
   res.json(rows.map(r => ({
-    id: r.id, title: r.title, due: r.due_date || '', priority: r.priority || 'Medium', status: r.status || 'todo'
+    id: r.id, title: r.title, due: r.due_date || '', priority: r.priority || 'Medium',
+    status: r.status || 'todo', assignedByName: r.assigned_by_name || ''
   })));
+}));
+
+// Who the current user may assign tasks to: a team leader → their members;
+// the admin → everyone else. Regular members can't assign.
+function roleLabelFor(role) { return role === 'admin' ? 'Admin' : role === 'team_leader' ? 'Team Leader' : 'Member'; }
+async function taskAssignTargets(user) {
+  if (user.role === 'admin') return q('SELECT id, name, role FROM users WHERE id <> $1 ORDER BY lower(name)', [user.id]);
+  if (user.role === 'team_leader') return q('SELECT id, name, role FROM users WHERE leader_id = $1 ORDER BY lower(name)', [user.id]);
+  return [];
+}
+app.get('/api/task-assign-targets', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  const rows = await taskAssignTargets(req.user);
+  res.json({
+    canAssign: rows.length > 0,
+    canAssignAll: req.user.role === 'admin',
+    targets: rows.map(r => ({ id: r.id, name: r.name, role: roleLabelFor(r.role) }))
+  });
+}));
+
+// Assign a task to one teammate, or (admin) to everyone.
+app.post('/api/tasks/assign', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  const b = req.body || {};
+  const title = String(b.title || '').trim();
+  if (!title) return res.status(400).json({ error: 'Task title is required.' });
+  const priority = TASK_PRIORITIES.includes(b.priority) ? b.priority : 'Medium';
+  const due = String(b.due || '').trim() || null;
+  if (due) {
+    const d = new Date(due + 'T00:00:00');
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    if (isNaN(d.getTime())) return res.status(400).json({ error: 'Invalid due date.' });
+    if (d.getTime() < today.getTime()) return res.status(400).json({ error: 'Due date cannot be in the past.' });
+  }
+
+  const roster = await taskAssignTargets(req.user);
+  if (!roster.length) return res.status(403).json({ error: 'You don’t have anyone to assign tasks to.' });
+  const allowed = new Set(roster.map(r => r.id));
+
+  let targetIds;
+  if (b.assignToAll) targetIds = roster.map(r => r.id);
+  else {
+    const aid = Number(b.assigneeId);
+    if (!Number.isInteger(aid) || !allowed.has(aid)) return res.status(400).json({ error: 'You can only assign to your team.' });
+    targetIds = [aid];
+  }
+  for (const tid of targetIds) {
+    await q(`INSERT INTO tasks (user_id, title, due_date, priority, status, assigned_by)
+             VALUES ($1, $2, $3, $4, 'todo', $5)`, [tid, title, due, priority, req.user.id]);
+  }
+  res.json({ ok: true, assigned: targetIds.length });
 }));
 
 app.post('/api/tasks', safe(async (req, res) => {
