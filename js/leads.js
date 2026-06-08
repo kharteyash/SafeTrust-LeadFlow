@@ -155,7 +155,7 @@
               </td>
               <td>
                 <div class="flex items-center gap-1">
-                  <button class="btn-icon" title="Call" data-call="${l.phone}" style="width:30px;height:30px;" ${l.phone ? '' : 'disabled'}>
+                  <button class="btn-icon" title="Call & log" data-call="${escAttr(l.phone)}" data-call-name="${escAttr(l.name)}" style="width:30px;height:30px;" ${l.phone ? '' : 'disabled'}>
                     <i data-lucide="phone" style="width:13px;height:13px;color:#2255a3;pointer-events:none;"></i>
                   </button>
                   <button class="btn-icon" title="Send email" data-email="${l.email}" style="width:30px;height:30px;">
@@ -254,8 +254,11 @@
     document.getElementById('leads-table').addEventListener('click', e => {
       const callBtn = e.target.closest('[data-call]');
       if (callBtn) {
-        const tel = LF.telLink(callBtn.getAttribute('data-call'));
+        const phone = callBtn.getAttribute('data-call');
+        const tel = LF.telLink(phone);
         if (tel) window.location.href = tel;
+        // Dial, then prompt to log the call so it lands in Call History.
+        openCallLogModal(callBtn.getAttribute('data-call-name') || '', phone, false);
         return;
       }
       const btn = e.target.closest('[data-email]');
@@ -391,8 +394,8 @@
   }
   function closeLeadDetail() { document.getElementById('lead-detail-modal').classList.add('hidden'); }
 
-  // ----- Log a realtor call (dial + log into Call History, flagged Realtor) -----
-  let realtorCallName = '', realtorCallPhone = '';
+  // ----- Log a call (dial + log into Call History). Works for a lead or a realtor. -----
+  let callLogName = '', callLogPhone = '', callIsRealtor = false;
   // Voicemail / no answer = no conversation, so blank + disable the duration.
   function syncCallDuration(form) {
     const o = form.elements['outcome'].value;
@@ -400,10 +403,13 @@
     if (o === 'No Answer' || o === 'Voicemail') { dur.value = ''; dur.disabled = true; }
     else { dur.disabled = false; if (!dur.value) dur.value = '0:00'; }
   }
-  function openRealtorCallModal(name, phone) {
-    realtorCallName = name || 'Realtor';
-    realtorCallPhone = phone || '';
-    document.getElementById('realtor-call-name').textContent = realtorCallName;
+  function openCallLogModal(name, phone, isRealtor) {
+    callIsRealtor = !!isRealtor;
+    callLogName = name || (isRealtor ? 'Realtor' : 'Lead');
+    callLogPhone = phone || '';
+    document.getElementById('realtor-call-title').textContent = isRealtor ? 'Log realtor call' : 'Log call';
+    document.getElementById('realtor-call-name').textContent = callLogName;
+    document.getElementById('realtor-call-suffix').textContent = isRealtor ? ' (realtor)' : '';
     const form = document.getElementById('realtor-call-form');
     form.reset();
     form.elements['outcome'].value = 'Connected';
@@ -411,6 +417,8 @@
     document.getElementById('realtor-call-msg').textContent = '';
     document.getElementById('realtor-call-modal').classList.remove('hidden');
   }
+  // Back-compat alias for the realtor-phone entry point.
+  function openRealtorCallModal(name, phone) { openCallLogModal(name, phone, true); }
   function closeRealtorCallModal() { document.getElementById('realtor-call-modal').classList.add('hidden'); }
   function bindRealtorCall() {
     document.getElementById('realtor-call-close').addEventListener('click', closeRealtorCallModal);
@@ -466,8 +474,8 @@
         const res = await fetch('/api/call-log', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
           body: JSON.stringify({
-            name: realtorCallName, phone: realtorCallPhone,
-            outcome: data.outcome, duration: data.duration || '0:00', notes: data.notes || '', isRealtor: true
+            name: callLogName, phone: callLogPhone,
+            outcome: data.outcome, duration: data.duration || '0:00', notes: data.notes || '', isRealtor: callIsRealtor
           })
         });
         const body = await res.json().catch(() => ({}));

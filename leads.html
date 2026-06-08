@@ -361,12 +361,12 @@
       <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:100%;max-width:440px;" class="px-4">
         <div class="bg-white rounded-2xl p-6 shadow-2xl">
           <div class="flex items-center justify-between mb-1">
-            <h3 class="text-[17px] font-bold">Log realtor call</h3>
+            <h3 id="realtor-call-title" class="text-[17px] font-bold">Log call</h3>
             <button id="realtor-call-close" class="btn-icon" style="width:32px;height:32px;border:none;">
               <i data-lucide="x" style="width:16px;height:16px;color:var(--text-muted);"></i>
             </button>
           </div>
-          <p class="text-[12.5px] text-muted mb-4">Logging a call to <span id="realtor-call-name" class="font-semibold" style="color:var(--text);"></span> (realtor).</p>
+          <p class="text-[12.5px] text-muted mb-4">Logging a call to <span id="realtor-call-name" class="font-semibold" style="color:var(--text);"></span><span id="realtor-call-suffix"></span>.</p>
           <form id="realtor-call-form" class="flex flex-col gap-3">
             <div class="grid grid-cols-2 gap-3">
               <div>

@@ -100,18 +100,9 @@
       </div>`;
   }
 
-  // The most recent logged call for a given contact name (history is newest-first).
-  function lastCallFor(name) {
-    const key = (name || '').toLowerCase();
-    return callHistory.find(c => (c.name || '').toLowerCase() === key) || null;
-  }
-
   function renderPriority() {
     const calledNames = new Set(callHistory.map(c => (c.name || '').toLowerCase()));
-    const notContactedAll = leads.filter(l => !calledNames.has((l.name || '').toLowerCase()));
-    const previouslyCalledAll = leads.filter(l => calledNames.has((l.name || '').toLowerCase()));
-    const notContacted = notContactedAll.slice(0, 5);
-    const previouslyCalled = previouslyCalledAll.slice(0, 5);
+    const notContacted = leads.filter(l => !calledNames.has((l.name || '').toLowerCase())).slice(0, 5);
     const hotLeads = leads.filter(l => l.score >= 80).sort((a, b) => b.score - a.score).slice(0, 5);
     const missed = callHistory.filter(c => isNoAnswer(c.outcome)).slice(0, 5);
 
@@ -124,13 +115,6 @@
     const notContactedBody = notContacted.length
       ? notContacted.map(l => personRow(l.name, l.phone, `<span class="pill ${scorePill(l.score)} mr-1" style="font-size:11px;">${l.score}</span>`)).join('')
       : emptyCardBody('All your leads have been contacted.');
-    const previouslyCalledBody = previouslyCalled.length
-      ? previouslyCalled.map(l => {
-          const last = lastCallFor(l.name);
-          const right = last ? `<span class="pill ${outcomePill(last.outcome)} mr-1" style="font-size:11px;">${esc(last.outcome)}</span>` : '';
-          return personRow(l.name, l.phone, right);
-        }).join('')
-      : emptyCardBody('No leads called yet.');
     const hotBody = hotLeads.length
       ? hotLeads.map(l => personRow(l.name, l.phone, `<span class="pill pill-green mr-1" style="font-size:11px;">${l.score}</span>`)).join('')
       : emptyCardBody('No hot leads yet (score 80+).');
@@ -152,8 +136,7 @@
 
     document.getElementById('calls-body').innerHTML = `
       <div class="grid grid-cols-12 gap-5">
-        ${priorityCard('Not contacted yet', 'clock', '#FFF4D6', '#B07A00', notContactedBody, notContactedAll.length)}
-        ${priorityCard('Previously called', 'phone-call', '#E6F8EC', '#138A4B', previouslyCalledBody, previouslyCalledAll.length)}
+        ${priorityCard('Not contacted yet', 'clock', '#FFF4D6', '#B07A00', notContactedBody, notContacted.length)}
         ${priorityCard('Hot leads', 'flame', '#FEECEC', '#D63333', hotBody, hotLeads.length)}
         ${priorityCard('Missed callbacks', 'phone-missed', '#FEECEC', '#D63333', missedBody, missed.length)}
         ${priorityCard('AI recommendations', 'sparkles', '#EFEAFF', '#2255a3', aiBody, recs.length)}
@@ -570,8 +553,7 @@
           callQueue = callQueue.filter(c => String(c.id) !== String(qid));
         }
         closeLogModal();
-        // Stay on the current tab so a logged lead is seen moving from
-        // "Not contacted yet" to "Previously called" right away.
+        state.tab = 'history';
         render();
       } catch (err) {
         logMsg.textContent = 'Network error. Is the server running?';
