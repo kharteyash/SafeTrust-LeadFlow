@@ -797,16 +797,23 @@ const CAMPAIGN_AUDIENCES = [
 ];
 function audienceByKey(k) { return CAMPAIGN_AUDIENCES.find(a => a.key === k) || null; }
 function audienceLabel(k) { const a = audienceByKey(k); return a ? a.label : ''; }
-function audienceWhere(key) {
+// Build the WHERE for a leads segment. The admin's campaigns reach every lead;
+// everyone else is scoped to their own leads.
+function audienceWhere(key, isAdmin) {
   const a = audienceByKey(key);
   if (!a || a.closed) return null;
-  const cond = ['user_id = $1', 'email IS NOT NULL', "btrim(email) <> ''"];
+  const cond = ['email IS NOT NULL', "btrim(email) <> ''"];
+  if (!isAdmin) cond.push('user_id = $1');
   if (a.where) cond.push(a.where);
   return cond.join(' AND ');
 }
 // Closed clients live in closed_leads as free-form JSON — extract email/name/state.
-async function closedRecipients(userId) {
-  const rows = await q('SELECT data FROM closed_leads WHERE user_id = $1 ORDER BY id DESC', [userId]);
+// Admin reaches every closed client; others only their own.
+async function closedRecipients(user) {
+  const isAdmin = user.role === 'admin';
+  const rows = isAdmin
+    ? await q('SELECT data FROM closed_leads ORDER BY id DESC')
+    : await q('SELECT data FROM closed_leads WHERE user_id = $1 ORDER BY id DESC', [user.id]);
   return rows.map(r => {
     const d = r.data || {};
     return {
@@ -816,19 +823,21 @@ async function closedRecipients(userId) {
     };
   }).filter(x => x.email && /@/.test(x.email));
 }
-async function segmentLeads(userId, key) {
+async function segmentLeads(user, key) {
   const a = audienceByKey(key);
-  if (a && a.closed) return closedRecipients(userId);
-  const where = audienceWhere(key);
+  if (a && a.closed) return closedRecipients(user);
+  const isAdmin = user.role === 'admin';
+  const where = audienceWhere(key, isAdmin);
   if (!where) return [];
-  return q(`SELECT name, email, state FROM leads WHERE ${where} ORDER BY id DESC`, [userId]);
+  return q(`SELECT name, email, state FROM leads WHERE ${where} ORDER BY id DESC`, isAdmin ? [] : [user.id]);
 }
-async function segmentCount(userId, key) {
+async function segmentCount(user, key) {
   const a = audienceByKey(key);
-  if (a && a.closed) return (await closedRecipients(userId)).length;
-  const where = audienceWhere(key);
+  if (a && a.closed) return (await closedRecipients(user)).length;
+  const isAdmin = user.role === 'admin';
+  const where = audienceWhere(key, isAdmin);
   if (!where) return 0;
-  const r = await one(`SELECT COUNT(*)::int AS n FROM leads WHERE ${where}`, [userId]);
+  const r = await one(`SELECT COUNT(*)::int AS n FROM leads WHERE ${where}`, isAdmin ? [] : [user.id]);
   return r ? r.n : 0;
 }
 // Replace {{first_name}}, {{name}}, {{email}}, {{state}} per recipient.
@@ -874,7 +883,7 @@ app.get('/api/campaigns/:id/recipients', safe(async (req, res) => {
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid campaign id.' });
   const c = await one('SELECT audience FROM campaigns WHERE id = $1 AND user_id = $2', [id, req.user.id]);
   if (!c) return res.status(404).json({ error: 'Campaign not found.' });
-  const recipients = await segmentLeads(req.user.id, c.audience || 'all');
+  const recipients = await segmentLeads(req.user, c.audience || 'all');
   res.json(recipients.map(r => ({ name: r.name || '', email: r.email || '' })));
 }));
 
@@ -882,7 +891,7 @@ app.get('/api/campaigns/:id/recipients', safe(async (req, res) => {
 app.get('/api/campaigns/audiences', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
   const out = [];
-  for (const a of CAMPAIGN_AUDIENCES) out.push({ key: a.key, label: a.label, count: await segmentCount(req.user.id, a.key) });
+  for (const a of CAMPAIGN_AUDIENCES) out.push({ key: a.key, label: a.label, count: await segmentCount(req.user, a.key) });
   res.json(out);
 }));
 
@@ -957,7 +966,7 @@ app.post('/api/campaigns/:id/send', safe(async (req, res) => {
   const canSend = (await userHasGmail(req.user.id)) || !!smtpConfig();
   if (!canSend) return res.status(400).json({ error: 'Connect your Google account on the Messages page before sending campaigns.' });
 
-  const recipients = await segmentLeads(req.user.id, c.audience);
+  const recipients = await segmentLeads(req.user, c.audience);
   if (!recipients.length) return res.status(400).json({ error: 'No recipients with an email in this audience.' });
 
   // Claim atomically so a double-click can't start two sends.
