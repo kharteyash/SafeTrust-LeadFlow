@@ -17,6 +17,40 @@
   // wa.me needs a country code; assume US (1) for bare 10-digit numbers.
   function waLink(phone) { let d = String(phone || '').replace(/\D/g, ''); if (d.length === 10) d = '1' + d; return 'https://wa.me/' + d; }
   function smsLink(phone) { return 'sms:' + String(phone || '').replace(/[^\d+]/g, ''); }
+  function gmailCompose(to) {
+    const compose = 'https://mail.google.com/mail/?view=cm&fs=1&to=' + encodeURIComponent(to);
+    return 'https://accounts.google.com/AccountChooser?continue=' + encodeURIComponent(compose);
+  }
+
+  // ----- "Contact" popup menu (Call / Text / WhatsApp / Email) -----
+  let menuContact = null;
+  function menuItem(icon, label, color) {
+    return `<button class="flex items-center gap-2.5 w-full text-left rounded-md px-3 py-2 hover:bg-[#FAFAFC]" data-action="${label}" style="font-size:13px;">
+      <i data-lucide="${icon}" style="width:15px;height:15px;color:${color};pointer-events:none;"></i><span>${label}</span></button>`;
+  }
+  function openContactMenu(contact, anchor) {
+    menuContact = contact;
+    const menu = document.getElementById('contact-menu');
+    const items = [];
+    if (contact.phone) {
+      items.push(menuItem('phone', 'Call', '#2255a3'));
+      items.push(menuItem('message-square', 'Text (SMS)', '#2255a3'));
+      items.push(menuItem('message-circle', 'WhatsApp', '#138A4B'));
+    }
+    if (contact.email) items.push(menuItem('mail', 'Email', '#2255a3'));
+    menu.innerHTML = items.join('');
+    menu.classList.remove('hidden');
+    const r = anchor.getBoundingClientRect();
+    const mw = 190;
+    menu.style.left = Math.max(8, Math.min(r.left, window.innerWidth - mw - 8)) + 'px';
+    menu.style.top = (r.bottom + 4) + 'px';
+    if (window.lucide) lucide.createIcons();
+  }
+  function closeContactMenu() {
+    const menu = document.getElementById('contact-menu');
+    if (menu) menu.classList.add('hidden');
+    menuContact = null;
+  }
   function tagPill(tag) {
     if (tag === 'Buyer')    return 'pill-blue';
     if (tag === 'Seller')   return 'pill-purple';
@@ -86,17 +120,9 @@
             <td><span class="pill ${tagPill(c.tag)}">${esc(c.tag)}</span></td>
             <td>
               <div class="flex items-center gap-1">
-                ${c.phone ? `<button class="btn-icon" title="Call" data-call="${escAttr(c.phone)}" style="width:30px;height:30px;">
-                  <i data-lucide="phone" style="width:13px;height:13px;color:#2255a3;pointer-events:none;"></i>
-                </button>
-                <button class="btn-icon" title="Text (SMS)" data-sms="${escAttr(c.phone)}" style="width:30px;height:30px;">
-                  <i data-lucide="message-square" style="width:13px;height:13px;color:#2255a3;pointer-events:none;"></i>
-                </button>
-                <button class="btn-icon" title="WhatsApp" data-wa="${escAttr(c.phone)}" style="width:30px;height:30px;">
-                  <i data-lucide="message-circle" style="width:13px;height:13px;color:#138A4B;pointer-events:none;"></i>
-                </button>` : ''}
-                ${c.email ? `<button class="btn-icon" title="Send email" data-email="${escAttr(c.email)}" style="width:30px;height:30px;">
-                  <i data-lucide="mail" style="width:13px;height:13px;color:#2255a3;pointer-events:none;"></i>
+                ${(c.phone || c.email) ? `<button class="btn-secondary" title="Contact" data-contact="${c.id}" style="padding:5px 11px;font-size:12px;display:inline-flex;align-items:center;gap:5px;">
+                  <i data-lucide="message-circle" style="width:13px;height:13px;pointer-events:none;"></i> Contact
+                  <i data-lucide="chevron-down" style="width:12px;height:12px;pointer-events:none;opacity:.7;"></i>
                 </button>` : ''}
                 <button class="btn-icon" title="Edit contact" data-edit="${c.id}" style="width:30px;height:30px;">
                   <i data-lucide="pencil" style="width:13px;height:13px;color:var(--text-muted);pointer-events:none;"></i>
@@ -161,23 +187,12 @@
       render();
     });
 
-    // Delegated table actions: email + delete.
+    // Delegated table actions: contact menu + edit + delete.
     document.getElementById('contacts-table').addEventListener('click', async e => {
-      const callBtn = e.target.closest('[data-call]');
-      if (callBtn) {
-        const tel = LF.telLink(callBtn.getAttribute('data-call'));
-        if (tel) window.location.href = tel;
-        return;
-      }
-      const smsBtn = e.target.closest('[data-sms]');
-      if (smsBtn) { window.location.href = smsLink(smsBtn.getAttribute('data-sms')); return; }
-      const waBtn = e.target.closest('[data-wa]');
-      if (waBtn) { window.open(waLink(waBtn.getAttribute('data-wa')), '_blank'); return; }
-      const emailBtn = e.target.closest('[data-email]');
-      if (emailBtn && emailBtn.getAttribute('data-email')) {
-        // Open Google's account chooser, then compose under the chosen account.
-        const compose = 'https://mail.google.com/mail/?view=cm&fs=1&to=' + encodeURIComponent(emailBtn.getAttribute('data-email'));
-        window.open('https://accounts.google.com/AccountChooser?continue=' + encodeURIComponent(compose), '_blank');
+      const contactBtn = e.target.closest('[data-contact]');
+      if (contactBtn) {
+        const c = contacts.find(x => String(x.id) === contactBtn.getAttribute('data-contact'));
+        if (c) openContactMenu(c, contactBtn);
         return;
       }
       const editBtn = e.target.closest('[data-edit]');
@@ -199,6 +214,25 @@
         render();
       }
     });
+
+    // Contact menu: run the chosen action, then close.
+    document.getElementById('contact-menu').addEventListener('click', e => {
+      const item = e.target.closest('[data-action]');
+      if (!item || !menuContact) return;
+      const c = menuContact, action = item.getAttribute('data-action');
+      if (action === 'Call') { const tel = LF.telLink(c.phone); if (tel) window.location.href = tel; }
+      else if (action === 'Text (SMS)') { window.location.href = smsLink(c.phone); }
+      else if (action === 'WhatsApp') { window.open(waLink(c.phone), '_blank'); }
+      else if (action === 'Email') { window.open(gmailCompose(c.email), '_blank'); }
+      closeContactMenu();
+    });
+    // Close the menu on an outside click or when scrolling.
+    document.addEventListener('click', e => {
+      if (document.getElementById('contact-menu').classList.contains('hidden')) return;
+      if (e.target.closest('#contact-menu') || e.target.closest('[data-contact]')) return;
+      closeContactMenu();
+    });
+    window.addEventListener('scroll', closeContactMenu, true);
 
     const form = document.getElementById('contact-form');
     const msg = document.getElementById('contact-form-msg');
