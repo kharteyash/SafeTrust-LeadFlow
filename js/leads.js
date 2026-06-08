@@ -156,18 +156,10 @@
               </td>
               <td>
                 <div class="flex items-center gap-1">
-                  <button class="btn-icon" title="Call & log" data-call="${escAttr(l.phone)}" data-call-name="${escAttr(l.name)}" style="width:30px;height:30px;" ${l.phone ? '' : 'disabled'}>
-                    <i data-lucide="phone" style="width:13px;height:13px;color:#2255a3;pointer-events:none;"></i>
-                  </button>
-                  ${l.phone ? `<button class="btn-icon" title="Text (SMS)" data-sms="${escAttr(l.phone)}" style="width:30px;height:30px;">
-                    <i data-lucide="message-square" style="width:13px;height:13px;color:#2255a3;pointer-events:none;"></i>
-                  </button>
-                  <button class="btn-icon" title="WhatsApp" data-wa="${escAttr(l.phone)}" style="width:30px;height:30px;">
-                    <i data-lucide="message-circle" style="width:13px;height:13px;color:#138A4B;pointer-events:none;"></i>
+                  ${(l.phone || l.email) ? `<button class="btn-secondary" title="Contact" data-contact-uid="${l._uid}" style="padding:5px 11px;font-size:12px;display:inline-flex;align-items:center;gap:5px;">
+                    <i data-lucide="message-circle" style="width:13px;height:13px;pointer-events:none;"></i> Contact
+                    <i data-lucide="chevron-down" style="width:12px;height:12px;pointer-events:none;opacity:.7;"></i>
                   </button>` : ''}
-                  <button class="btn-icon" title="Send email" data-email="${l.email}" style="width:30px;height:30px;">
-                    <i data-lucide="mail" style="width:13px;height:13px;color:#2255a3;pointer-events:none;"></i>
-                  </button>
                   ${(canAssign && (!isAdmin || l.mine)) ? `<button class="btn-icon" title="Assign / forward" data-assign-uid="${l._uid}" style="width:30px;height:30px;">
                     <i data-lucide="forward" style="width:13px;height:13px;color:#2B57D9;pointer-events:none;"></i>
                   </button>` : ''}
@@ -311,30 +303,68 @@
     const compose = 'https://mail.google.com/mail/?view=cm&fs=1&to=' + encodeURIComponent(to);
     return 'https://accounts.google.com/AccountChooser?continue=' + encodeURIComponent(compose);
   }
+  // ----- "Contact" popup menu (Call / Text / WhatsApp / Email) -----
+  let menuLead = null;
+  function leadMenuItem(icon, label, color) {
+    return `<button class="flex items-center gap-2.5 w-full text-left rounded-md px-3 py-2 hover:bg-[#FAFAFC]" data-action="${label}" style="font-size:13px;">
+      <i data-lucide="${icon}" style="width:15px;height:15px;color:${color};pointer-events:none;"></i><span>${label}</span></button>`;
+  }
+  function openLeadContactMenu(lead, anchor) {
+    menuLead = lead;
+    const menu = document.getElementById('lead-contact-menu');
+    const items = [];
+    if (lead.phone) {
+      items.push(leadMenuItem('phone', 'Call & log', '#2255a3'));
+      items.push(leadMenuItem('message-square', 'Text (SMS)', '#2255a3'));
+      items.push(leadMenuItem('message-circle', 'WhatsApp', '#138A4B'));
+    }
+    if (lead.email) items.push(leadMenuItem('mail', 'Email', '#2255a3'));
+    menu.innerHTML = items.join('');
+    menu.classList.remove('hidden');
+    const r = anchor.getBoundingClientRect();
+    const mw = 190;
+    menu.style.left = Math.max(8, Math.min(r.left, window.innerWidth - mw - 8)) + 'px';
+    menu.style.top = (r.bottom + 4) + 'px';
+    if (window.lucide) lucide.createIcons();
+  }
+  function closeLeadContactMenu() {
+    const menu = document.getElementById('lead-contact-menu');
+    if (menu) menu.classList.add('hidden');
+    menuLead = null;
+  }
   function bindEmail() {
-    // Delegated — the table body re-renders, but #leads-table persists.
+    // Open the contact menu from a lead's Contact button.
     document.getElementById('leads-table').addEventListener('click', e => {
-      const callBtn = e.target.closest('[data-call]');
-      if (callBtn) {
-        const phone = callBtn.getAttribute('data-call');
-        const tel = LF.telLink(phone);
-        if (tel) window.location.href = tel;
-        // Dial, then prompt to log the call so it lands in Call History.
-        openCallLogModal(callBtn.getAttribute('data-call-name') || '', phone, false);
-        return;
-      }
-      const smsBtn = e.target.closest('[data-sms]');
-      if (smsBtn) { window.location.href = 'sms:' + smsBtn.getAttribute('data-sms').replace(/[^\d+]/g, ''); return; }
-      const waBtn = e.target.closest('[data-wa]');
-      if (waBtn) {
-        let d = waBtn.getAttribute('data-wa').replace(/\D/g, ''); if (d.length === 10) d = '1' + d;
-        window.open('https://wa.me/' + d, '_blank');
-        return;
-      }
-      const btn = e.target.closest('[data-email]');
+      const btn = e.target.closest('[data-contact-uid]');
       if (!btn) return;
-      window.open(gmailComposeViaChooser(btn.getAttribute('data-email')), '_blank');
+      const lead = leads.find(l => String(l._uid) === btn.getAttribute('data-contact-uid'));
+      if (lead) openLeadContactMenu(lead, btn);
     });
+    // Run the chosen contact action.
+    document.getElementById('lead-contact-menu').addEventListener('click', e => {
+      const item = e.target.closest('[data-action]');
+      if (!item || !menuLead) return;
+      const l = menuLead, action = item.getAttribute('data-action');
+      if (action === 'Call & log') {
+        const tel = LF.telLink(l.phone); if (tel) window.location.href = tel;
+        openCallLogModal(l.name, l.phone, false); // dial + log into Call History
+      } else if (action === 'Text (SMS)') {
+        window.location.href = 'sms:' + String(l.phone).replace(/[^\d+]/g, '');
+      } else if (action === 'WhatsApp') {
+        let d = String(l.phone).replace(/\D/g, ''); if (d.length === 10) d = '1' + d;
+        window.open('https://wa.me/' + d, '_blank');
+      } else if (action === 'Email') {
+        window.open(gmailComposeViaChooser(l.email), '_blank');
+      }
+      closeLeadContactMenu();
+    });
+    // Close on outside click / scroll.
+    document.addEventListener('click', e => {
+      if (document.getElementById('lead-contact-menu').classList.contains('hidden')) return;
+      if (e.target.closest('#lead-contact-menu') || e.target.closest('[data-contact-uid]')) return;
+      closeLeadContactMenu();
+    });
+    window.addEventListener('scroll', closeLeadContactMenu, true);
   }
 
   // ----- Load saved leads from the DB and merge with demo leads -----
