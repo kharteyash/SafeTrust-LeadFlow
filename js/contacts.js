@@ -99,10 +99,19 @@
   }
 
   // ----- Modal -----
+  // Show the "specify type" box only when the Type is "Other".
+  function syncOtherBox() {
+    const form = document.getElementById('contact-form');
+    const wrap = document.getElementById('contact-other-wrap');
+    const isOther = form.elements['tag'].value === 'Other';
+    wrap.classList.toggle('hidden', !isOther);
+    if (!isOther) form.elements['otherTag'].value = '';
+  }
   function openModal() {
     const form = document.getElementById('contact-form');
     form.reset();
     form.elements['tag'].value = 'Buyer';
+    syncOtherBox();
     document.getElementById('contact-form-msg').textContent = '';
     document.getElementById('contact-modal').classList.remove('hidden');
     form.elements['name'].focus();
@@ -114,6 +123,7 @@
     document.getElementById('contact-modal-close').addEventListener('click', closeModal);
     document.getElementById('contact-cancel').addEventListener('click', closeModal);
     document.getElementById('contact-modal-backdrop').addEventListener('click', closeModal);
+    document.getElementById('contact-tag').addEventListener('change', syncOtherBox);
 
     document.getElementById('contact-search').addEventListener('input', e => {
       query = e.target.value;
@@ -156,13 +166,19 @@
       msg.textContent = '';
       const data = Object.fromEntries(new FormData(form));
       if (!data.name.trim()) { msg.textContent = 'Name is required.'; return; }
+      // When "Other" is chosen, use whatever they typed (falls back to "Other").
+      let tag = data.tag;
+      if (tag === 'Other') {
+        const other = (data.otherTag || '').trim();
+        if (other) tag = other;
+      }
 
       const btn = form.querySelector('button[type="submit"]');
       btn.disabled = true; btn.style.opacity = '0.7';
       try {
         const res = await fetch('/api/contacts', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
-          body: JSON.stringify({ name: data.name, email: data.email || '', phone: data.phone || '', company: data.company || '', tag: data.tag })
+          body: JSON.stringify({ name: data.name, email: data.email || '', phone: data.phone || '', company: data.company || '', tag })
         });
         const raw = await res.text();
         let body = {};

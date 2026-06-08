@@ -1880,7 +1880,9 @@ app.get('/api/contacts', safe(async (req, res) => {
 app.post('/api/contacts', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
   const { name, email, phone, company } = req.body || {};
-  const tag = CONTACT_TAGS.includes(req.body && req.body.tag) ? req.body.tag : 'Other';
+  // Accept the standard tags, or a custom one (e.g. when "Other" is specified).
+  const rawTag = String((req.body && req.body.tag) || '').trim();
+  const tag = rawTag ? rawTag.slice(0, 40) : 'Other';
   if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required.' });
 
   const row = await one(`
