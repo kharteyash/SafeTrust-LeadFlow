@@ -27,7 +27,50 @@
     { id: 'roles',           label: 'Roles & Permissions', icon: 'shield' },
     { id: 'notifications',   label: 'Notifications',       icon: 'bell' },
     { id: 'autoemails',      label: 'Automated Emails',    icon: 'cake' },
-    { id: 'changepassword',  label: 'Change Password',     icon: 'key-round' }
+    { id: 'changepassword',  label: 'Change Password',     icon: 'key-round' },
+    { id: 'help',            label: 'Help & FAQ',          icon: 'help-circle' }
+  ];
+
+  // Frequently asked questions — answers written to orient new users.
+  const FAQS = [
+    { q: 'How do I send emails from LeadFlow?',
+      a: "Go to the Messages page and click “Connect Google account.” After you approve, everything you send — scheduled messages, “Send now,” campaigns, and the automatic birthday/anniversary emails — goes out from your own Gmail, so recipients see your name and address. No password is stored." },
+    { q: "Why aren't my scheduled or automatic emails being sent?",
+      a: "Email only works once you've connected your Google account on the Messages page. If you haven't connected, nothing is scheduled or sent — including birthday and loan-anniversary emails. Connect your account and they'll start going out. Scheduled sending also needs the background scheduler running (your admin sets this up)." },
+    { q: 'How is the lead score calculated?',
+      a: "It's a 0–100 score: buying timeline (up to 45 — “Buying Immediately” is highest), pre-approved (25), has a phone number (10), and loan profile (up to 20 — a cash-out refinance, or a purchase lead that already has a realtor, scores highest). A perfect lead reaches 100. A forwarded lead that's accepted is automatically bumped to at least 90." },
+    { q: 'Can I change a lead’s score manually?',
+      a: "Only the admin can. Click a lead's name to open its details — the admin sees an editable “Lead score” field with a Save button." },
+    { q: 'What happens when I forward (assign) a lead?',
+      a: "Whoever you forward to gets a bell notification to Accept or Decline. The first person to accept becomes the new owner. The lead then leaves your “My Leads” view, is marked high priority, and its forwarding history is recorded in the lead's detail (user1 → user2 → user3)." },
+    { q: 'Who can forward or assign leads?',
+      a: "Team leaders can forward to their members; members can forward to their leader and teammates; the admin can forward their own leads to anyone. You can only forward leads you own." },
+    { q: 'What do the roles (Admin, Team Leader, Member) mean?',
+      a: "The first account is the Admin (superuser): it sees every user's leads and manages roles/teams in Settings → Roles & Permissions, and its campaigns can reach every lead. Team Leaders have members under them and can assign work to them. Members are regular users who see only their own data." },
+    { q: 'How do I assign a task to my team?',
+      a: "Team leaders and the admin see an “Assign Task” button on the Tasks page. Search and check the people to assign to (the admin can pick everyone), and the task appears in each person's list tagged “From <you>.” Track everything you've handed out in the “Assigned” tab." },
+    { q: 'How do campaigns work?',
+      a: "On the Campaigns page, create an email campaign, choose an Audience (a lead segment like Buying Immediately, Pre-approved, Refinance, Realtors, or Previously Closed clients), write a subject and message, then Send. Each email is personalized and sent from your connected Gmail. Use {{first_name}}, {{name}}, or {{state}} to personalize." },
+    { q: 'Can I email a lead’s realtor in a campaign?',
+      a: "Yes — choose the “Realtors (from leads)” audience. It sends to the realtor email addresses saved on your leads, de-duplicated so each realtor is emailed once." },
+    { q: 'What are the automatic birthday and anniversary emails?',
+      a: "For each Previously Closed client with a birthday or loan anniversary on file, LeadFlow automatically schedules a friendly email for 9am on that date. It shows in Messages → Scheduled within 7 days of the date, tagged “Auto.” Customize the wording, signature, and timezone in Settings → Automated Emails." },
+    { q: 'How do I sync with Google Calendar?',
+      a: "On the Calendar page, click Connect/Reconnect Google. Events you create in LeadFlow are added to your Google Calendar, and your Google events appear in LeadFlow (badged “Google”). Your admin must enable the Google Calendar API and add the calendar permission for this to work." },
+    { q: 'How does the call queue work?',
+      a: "It's a daily list. Add people to call; calls past their time become “Overdue” and carry over to the next day at the bottom in red. When you call someone, log the outcome — that records it in Call History and moves the lead out of “Not contacted yet.”" },
+    { q: 'How do I import leads or closed clients from a CSV?',
+      a: "Use the Import button on the Leads or Previously Closed page. LeadFlow auto-detects columns (name, email, phone, etc.) and de-duplicates on re-import — updating rows that changed and leaving identical ones alone." },
+    { q: 'How do I delete several leads at once?',
+      a: "Tick the checkbox on the left of each row, or use the header “select all” (which covers the whole filtered view across all pages), then click Delete. This works on both the Leads and Previously Closed pages." },
+    { q: 'Why is the Call or Email button missing on a contact or lead?',
+      a: "Those options only appear when the info exists — no phone means no Call/Text/WhatsApp; no email means no Email. Contacts and leads use a single “Contact” button that opens a menu of the methods that person actually has." },
+    { q: 'How do notifications work?',
+      a: "The bell shows only unread notifications — reading one (or “Mark all read”) clears it. Everyday alerts (overdue calls/tasks, hot leads) auto-clear at the start of a new day, while pending team invites and lead assignments stay until you act on them. Turn categories on/off in Settings → Notifications." },
+    { q: 'How do I change my name or profile photo?',
+      a: "Settings → Profile. Changing your name also updates the “Owner” shown on your leads." },
+    { q: 'How do I switch between light and dark mode?',
+      a: "Use the theme toggle (sun/moon) in the top bar. Your choice is remembered on this device." }
   ];
 
   const state = { section: 'profile' };
@@ -853,6 +896,52 @@
     });
   }
 
+  // ----- Help & FAQ -----
+  function renderHelp() {
+    return `
+      <div class="max-w-[760px]">
+        <h3 class="text-[15px] font-semibold mb-1">Help &amp; FAQ</h3>
+        <p class="text-[12.5px] text-muted mb-4">Answers to common questions. Search, or click a question to expand it.</p>
+        <div class="relative mb-4" style="max-width:380px;">
+          <i data-lucide="search" style="width:16px;height:16px;color:#8A8AA0;position:absolute;left:12px;top:50%;transform:translateY(-50%);"></i>
+          <input id="help-search" class="input pl-9" placeholder="Search questions…" autocomplete="off" />
+        </div>
+        <div id="help-list"></div>
+      </div>`;
+  }
+  function renderHelpList(term) {
+    const t = (term || '').trim().toLowerCase();
+    const matches = FAQS.filter(f => !t || f.q.toLowerCase().includes(t) || f.a.toLowerCase().includes(t));
+    const host = document.getElementById('help-list');
+    if (!matches.length) { host.innerHTML = `<div class="text-[13px] text-muted py-6 text-center">No questions match “${escapeHTML(term)}”.</div>`; return; }
+    host.innerHTML = matches.map((f) => {
+      const i = FAQS.indexOf(f);
+      return `
+        <div class="rounded-xl mb-2" style="border:1px solid var(--border);">
+          <button class="w-full text-left flex items-center justify-between gap-3 px-4 py-3" data-faq="${i}">
+            <span class="text-[13.5px] font-medium">${escapeHTML(f.q)}</span>
+            <i data-lucide="chevron-down" data-faq-chevron="${i}" style="width:16px;height:16px;color:var(--text-muted);flex-shrink:0;transition:transform .15s;"></i>
+          </button>
+          <div data-faq-answer="${i}" class="hidden px-4 pb-3 text-[13px] text-muted" style="white-space:pre-line;line-height:1.55;">${escapeHTML(f.a)}</div>
+        </div>`;
+    }).join('');
+    if (window.lucide) lucide.createIcons();
+  }
+  function bindHelp() {
+    renderHelpList('');
+    document.getElementById('help-search').addEventListener('input', e => renderHelpList(e.target.value));
+    document.getElementById('help-list').addEventListener('click', e => {
+      const btn = e.target.closest('[data-faq]');
+      if (!btn) return;
+      const i = btn.getAttribute('data-faq');
+      const ans = document.querySelector(`[data-faq-answer="${i}"]`);
+      const chev = document.querySelector(`[data-faq-chevron="${i}"]`);
+      if (!ans) return;
+      const open = ans.classList.toggle('hidden') === false;
+      if (chev) chev.style.transform = open ? 'rotate(180deg)' : '';
+    });
+  }
+
   function renderContent() {
     const out = document.getElementById('settings-content');
     const map = {
@@ -860,7 +949,8 @@
       roles:          renderRoles,
       notifications:  renderNotifications,
       autoemails:     renderAutoEmails,
-      changepassword: renderChangePassword
+      changepassword: renderChangePassword,
+      help:           renderHelp
     };
     out.innerHTML = (map[state.section] || renderProfile)();
 
@@ -870,6 +960,7 @@
     if (state.section === 'notifications')  bindToggles();
     if (state.section === 'autoemails')     bindAutoEmails();
     if (state.section === 'changepassword') bindChangePassword();
+    if (state.section === 'help')           bindHelp();
 
     if (window.lucide) lucide.createIcons();
   }
