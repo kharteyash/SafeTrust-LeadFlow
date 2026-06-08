@@ -1076,7 +1076,13 @@ async function ensureAnniversaryMessages(userId) {
     return settingsCache.get(uid);
   }
 
+  // Only generate auto emails for owners who have connected their own email
+  // (Connect Google on the Messages page). No connection → nothing scheduled.
+  const connRows = await q('SELECT user_id FROM google_accounts');
+  const connected = new Set(connRows.map(r => r.user_id));
+
   for (const row of closed) {
+    if (!connected.has(row.user_id)) continue;
     const data = row.data || {};
     const email = findClosedField(data, /e-?mail/i);
     if (!email || !/@/.test(email)) continue;
@@ -1309,11 +1315,14 @@ async function dispatchScheduled(req, res) {
   // Materialize any newly-due birthday / anniversary emails before sending.
   try { await ensureAnniversaryMessages(); } catch (e) { console.error('auto-email gen:', e); }
 
+  // Only send for owners who have connected their own email; others stay pending
+  // (so nothing goes out until they connect on the Messages page).
   const due = await q(`
     UPDATE scheduled_messages SET status = 'sending'
     WHERE id IN (
       SELECT id FROM scheduled_messages
       WHERE status = 'pending' AND channel = 'Email' AND send_at IS NOT NULL AND send_at <= now()
+        AND user_id IN (SELECT user_id FROM google_accounts)
       ORDER BY send_at LIMIT 50 FOR UPDATE SKIP LOCKED
     )
     RETURNING id, user_id, recipient, type, body

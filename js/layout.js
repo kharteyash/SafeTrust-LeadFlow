@@ -366,6 +366,17 @@ async function loadNotifications() {
   const currentKeys = new Set(items.map(i => i.key));
   let read = notifReadSet();
   read = new Set([...read].filter(k => currentKeys.has(k)));
+
+  // Auto-clear on a new day: computed alerts (overdue calls/tasks, due-soon,
+  // hot leads) carried over from a previous day are marked read so they don't
+  // keep nagging. Genuinely-pending actions (invites/assignments/outcomes) stay.
+  let lastDay = null;
+  try { lastDay = localStorage.getItem('lf-notifs-day'); } catch (e) {}
+  if (lastDay !== todayKey) {
+    items.forEach(i => { if (!['invite', 'assignment', 'outcome'].includes(i.type)) read.add(i.key); });
+    try { localStorage.setItem('lf-notifs-day', todayKey); } catch (e) {}
+  }
+
   notifSaveRead(read);
   renderNotifications(items, read);
 }
