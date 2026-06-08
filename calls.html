@@ -171,6 +171,22 @@
       </div>
     </div>
 
+    <!-- Call detail modal -->
+    <div id="call-detail-modal" class="hidden" style="position:fixed;inset:0;z-index:50;">
+      <div id="call-detail-backdrop" style="position:absolute;inset:0;background:rgba(14,14,27,.45);"></div>
+      <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:100%;max-width:440px;" class="px-4">
+        <div class="bg-white rounded-2xl p-6 shadow-2xl">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-[17px] font-bold">Call details</h3>
+            <button id="call-detail-close" class="btn-icon" style="width:32px;height:32px;border:none;">
+              <i data-lucide="x" style="width:16px;height:16px;color:var(--text-muted);"></i>
+            </button>
+          </div>
+          <div id="call-detail-body"></div>
+        </div>
+      </div>
+    </div>
+
   </div>
 
   <script src="js/data.js"></script>

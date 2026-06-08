@@ -262,12 +262,12 @@
   function historyRowsHTML(list) {
     if (!list.length) return `<tr><td colspan="6" class="text-center py-8 text-muted">No calls match.</td></tr>`;
     return list.map(c => `
-      <tr>
+      <tr data-call-uid="${c.id}" style="cursor:pointer;">
         <td>
           <div class="flex items-center gap-2">
             <i data-lucide="${c.direction === 'inbound' ? 'phone-incoming' : 'phone-outgoing'}"
                style="width:14px;height:14px;color:${c.direction === 'inbound' ? '#2B57D9' : '#138A4B'};"></i>
-            <span class="font-semibold text-[13px]">${esc(c.name)}</span>
+            <span class="font-semibold text-[13px]" style="color:var(--accent);">${esc(c.name)}</span>
             ${c.isRealtor ? '<span class="pill pill-purple" style="font-size:10px;">Realtor</span>' : ''}
           </div>
         </td>
@@ -287,6 +287,44 @@
     const term = state.historyQuery.trim().toLowerCase();
     return term ? callHistory.filter(c => (c.name || '').toLowerCase().includes(term)) : callHistory;
   }
+
+  // ----- Call detail modal -----
+  function fmtDateTime(v) {
+    const d = new Date(v);
+    if (isNaN(d.getTime())) return esc(String(v || '—'));
+    return d.toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  }
+  function detailRow(label, value) {
+    return `<div class="flex justify-between gap-4 py-2" style="border-bottom:1px solid var(--border-soft);">
+      <span class="text-[12.5px] text-muted flex-shrink-0">${label}</span>
+      <span class="text-[13px] font-medium text-right" style="word-break:break-word;">${value}</span>
+    </div>`;
+  }
+  function openCallDetail(c) {
+    const tel = (c.phone && LF.telLink) ? LF.telLink(c.phone) : '';
+    const rows = [];
+    rows.push(detailRow('Phone', (c.phone && tel) ? `<a href="${tel}" style="color:var(--accent);font-weight:600;">${esc(c.phone)}</a>` : (esc(c.phone) || '—')));
+    rows.push(detailRow('Direction', c.direction === 'inbound' ? 'Inbound' : 'Outbound'));
+    rows.push(detailRow('Date & time', fmtDateTime(c.date)));
+    rows.push(detailRow('Duration', esc(c.duration) || '—'));
+    rows.push(detailRow('Outcome', `<span class="pill ${outcomePill(c.outcome)}">${esc(c.outcome)}</span>`));
+    rows.push(detailRow('Agent', esc(c.agent) || '—'));
+    const notesBlock = c.notes
+      ? `<div class="mt-3"><div class="text-[12.5px] text-muted mb-1">Notes</div><div class="text-[13px]" style="white-space:pre-wrap;">${esc(c.notes)}</div></div>`
+      : `<div class="mt-3 text-[12.5px] text-soft">No notes were recorded for this call.</div>`;
+    document.getElementById('call-detail-body').innerHTML = `
+      <div class="flex items-center gap-3 mb-3">
+        <div class="avatar avatar-lg">${initials(c.name)}</div>
+        <div>
+          <div class="text-[16px] font-bold">${esc(c.name)}</div>
+          ${c.isRealtor ? '<span class="pill pill-purple" style="font-size:10.5px;">Realtor</span>' : ''}
+        </div>
+      </div>
+      ${rows.join('')}${notesBlock}`;
+    document.getElementById('call-detail-modal').classList.remove('hidden');
+    if (window.lucide) lucide.createIcons();
+  }
+  function closeCallDetail() { document.getElementById('call-detail-modal').classList.add('hidden'); }
   function renderHistory() {
     const list = filteredHistory();
     if (callHistory.length === 0) {
@@ -484,8 +522,20 @@
     document.getElementById('reschedule-cancel').addEventListener('click', closeRescheduleModal);
     document.getElementById('reschedule-modal-backdrop').addEventListener('click', closeRescheduleModal);
 
+    // Detail/close for the call-detail modal.
+    document.getElementById('call-detail-close').addEventListener('click', closeCallDetail);
+    document.getElementById('call-detail-backdrop').addEventListener('click', closeCallDetail);
+
     // Delegated clicks inside the body (log triggers, log-new, reschedule, queue removal).
     document.getElementById('calls-body').addEventListener('click', async e => {
+      // Clicking a Call History row opens its detail.
+      const histRow = e.target.closest('[data-call-uid]');
+      if (histRow) {
+        const c = callHistory.find(x => String(x.id) === histRow.getAttribute('data-call-uid'));
+        if (c) openCallDetail(c);
+        return;
+      }
+
       const callT = e.target.closest('[data-call]');
       if (callT) {
         const phone = callT.getAttribute('data-call');
