@@ -5,6 +5,7 @@
   const queuedLeadIds = new Set(); // leads added to the queue from here this session
   let editingId = null;            // task being edited, if any
   let assignInfo = { canAssign: false, canAssignAll: false, targets: [] };
+  let assignedTasks = [];           // tasks this leader/admin assigned to others
   const assignSelected = new Set(); // ids chosen in the assign modal
   const state = { tab: 'all' };
 
@@ -15,8 +16,11 @@
     { id: 'open',      label: 'Open',      match: t => t.status !== 'done' },
     { id: 'today',     label: 'Due today', match: t => t.status !== 'done' && isDueToday(t.due) },
     { id: 'overdue',   label: 'Overdue',   match: t => isOverdueTask(t) },
-    { id: 'completed', label: 'Completed', match: t => t.status === 'done' }
+    { id: 'completed', label: 'Completed', match: t => t.status === 'done' },
+    { id: 'assigned',  label: 'Assigned',  leaderOnly: true } // tasks I assigned to others
   ];
+  function visibleTabs() { return TABS.filter(t => !t.leaderOnly || assignInfo.canAssign); }
+  function tabCount(t) { return t.id === 'assigned' ? assignedTasks.length : tasks.filter(t.match).length; }
 
   function esc(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
   function escAttr(s) { return String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
@@ -77,6 +81,12 @@
       const r = await fetch('/api/task-assign-targets', { credentials: 'same-origin' });
       if (r.ok) assignInfo = await r.json();
     } catch (e) {}
+    await loadAssigned();
+  }
+  async function loadAssigned() {
+    if (!assignInfo.canAssign) { assignedTasks = []; return; }
+    try { const r = await fetch('/api/tasks/assigned', { credentials: 'same-origin' }); assignedTasks = r.ok ? await r.json() : []; }
+    catch (e) { assignedTasks = []; }
   }
 
   // ----- Stats -----
@@ -187,13 +197,13 @@
 
   // ----- Tabs -----
   function renderTabs() {
-    const counts = {};
-    TABS.forEach(t => { counts[t.id] = tasks.filter(t.match).length; });
-    document.getElementById('task-tabs').innerHTML = TABS.map(t => `
+    const tabsList = visibleTabs();
+    if (!tabsList.some(t => t.id === state.tab)) state.tab = 'all';
+    document.getElementById('task-tabs').innerHTML = tabsList.map(t => `
       <div class="tab ${state.tab === t.id ? 'active' : ''}" data-tab="${t.id}">
         ${t.label}
         <span class="ml-1.5 text-[11px] font-semibold rounded-full px-1.5 py-[1px]"
-              style="background:${state.tab === t.id ? 'rgba(34,85,163,0.12)' : 'var(--chip)'};color:${state.tab === t.id ? '#2255a3' : 'var(--text-muted)'};">${counts[t.id]}</span>
+              style="background:${state.tab === t.id ? 'rgba(34,85,163,0.12)' : 'var(--chip)'};color:${state.tab === t.id ? '#2255a3' : 'var(--text-muted)'};">${tabCount(t)}</span>
       </div>`).join('');
     document.querySelectorAll('#task-tabs .tab').forEach(el => {
       el.addEventListener('click', () => { state.tab = el.dataset.tab; renderTabs(); renderList(); });
@@ -202,9 +212,37 @@
 
   // ----- List -----
   function renderList() {
+    const list = document.getElementById('task-list');
+
+    // "Assigned" tab — tasks the leader/admin handed to others (read-only tracking).
+    if (state.tab === 'assigned') {
+      if (!assignedTasks.length) {
+        list.innerHTML = `<div class="text-center py-12 text-muted text-[13px]">You haven’t assigned any tasks yet. Use “Assign Task” above.</div>`;
+        return;
+      }
+      list.innerHTML = assignedTasks.map(t => {
+        const done = t.status === 'done';
+        const dm = dueMeta(t.due, t.status);
+        return `
+          <div class="flex items-center gap-3 px-3 py-3 rounded-lg" style="border-bottom:1px solid var(--border-soft);">
+            <div class="flex-1 min-w-0">
+              <div class="text-[13.5px] font-medium" style="${done ? 'color:#8A8AA0;text-decoration:line-through;' : ''}">${esc(t.title)} <span class="pill pill-blue" style="font-size:10px;">To ${esc(t.assigneeName)}</span></div>
+              <div class="mt-1">
+                <span class="pill ${dm.pill}" style="font-size:11px;padding:2px 8px;">
+                  <i data-lucide="calendar" style="width:11px;height:11px;margin-right:3px;"></i>${dm.label}
+                </span>
+              </div>
+            </div>
+            <span class="pill ${priorityPill(t.priority)}">${esc(t.priority)}</span>
+            <span class="pill ${done ? 'pill-green' : 'pill-gray'}" style="font-size:11px;">${done ? 'Completed' : 'In progress'}</span>
+          </div>`;
+      }).join('');
+      if (window.lucide) lucide.createIcons();
+      return;
+    }
+
     const tab = TABS.find(t => t.id === state.tab);
     const items = tasks.filter(tab.match);
-    const list = document.getElementById('task-list');
 
     if (tasks.length === 0) {
       list.innerHTML = `
@@ -368,6 +406,8 @@
         const raw = await res.text(); let body = {}; try { body = raw ? JSON.parse(raw) : {}; } catch (err) {}
         if (!res.ok) { msg.textContent = body.error || `Request failed (HTTP ${res.status}).`; return; }
         closeAssignModal();
+        await loadAssigned();
+        renderTabs(); renderList(); if (window.lucide) lucide.createIcons();
         window.alert(`Task assigned to ${body.assigned} ${body.assigned === 1 ? 'person' : 'people'}.`);
       } catch (err) {
         msg.textContent = 'Network error. Is the server running?';

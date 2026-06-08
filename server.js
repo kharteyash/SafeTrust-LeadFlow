@@ -1972,6 +1972,21 @@ app.post('/api/tasks/assign', safe(async (req, res) => {
   res.json({ ok: true, assigned: targetIds.length });
 }));
 
+// Tasks the current user has assigned to others (for the leader/admin tracking view).
+app.get('/api/tasks/assigned', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  const rows = await q(`
+    SELECT t.id, t.title, t.due_date, t.priority, t.status, u.name AS assignee_name
+    FROM tasks t JOIN users u ON u.id = t.user_id
+    WHERE t.assigned_by = $1
+    ORDER BY (t.status = 'done'), t.due_date NULLS LAST, t.id DESC
+  `, [req.user.id]);
+  res.json(rows.map(r => ({
+    id: r.id, title: r.title, due: r.due_date || '', priority: r.priority || 'Medium',
+    status: r.status || 'todo', assigneeName: r.assignee_name || ''
+  })));
+}));
+
 app.post('/api/tasks', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
   const { title, due } = req.body || {};
