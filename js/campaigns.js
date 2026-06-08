@@ -35,24 +35,27 @@
       </div>`;
 
     const rowFor = (c) => {
-      const sending = c.status === 'Sending';
-      const canSend = c.status !== 'Sending';
+      // Once a campaign has been sent (or is sending), it can't be sent again or edited.
+      const locked = c.status === 'Sending' || c.status === 'Completed';
       const failedBadge = c.failed ? ` <span class="text-[11px]" style="color:#D63333;">(${c.failed} failed)</span>` : '';
+      const sendBtn = locked ? '' : `
+        <button data-send="${c.id}" class="btn-icon" title="Send campaign" style="width:30px;height:30px;border:none;">
+          <i data-lucide="send" style="width:14px;height:14px;color:#2255a3;pointer-events:none;"></i>
+        </button>`;
+      const editBtn = locked ? '' : `
+        <button data-edit="${c.id}" class="btn-icon" title="Edit campaign" style="width:30px;height:30px;border:none;">
+          <i data-lucide="pencil" style="width:14px;height:14px;color:var(--text-muted);pointer-events:none;"></i>
+        </button>`;
       return `
         <tr>
-          <td class="font-semibold">${esc(c.name)}</td>
+          <td><span class="font-semibold" data-detail="${c.id}" style="cursor:pointer;color:var(--accent);">${esc(c.name)}</span></td>
           <td class="text-muted">${esc(c.audienceLabel || '—')}</td>
           <td class="text-muted">${LF.fmtNum(c.recipients)}</td>
           <td class="text-muted">${LF.fmtNum(c.sent)}${failedBadge}</td>
           <td><span class="pill ${LF.statusPill(c.status)}">${esc(c.status)}</span></td>
           <td>
             <div class="flex items-center gap-1">
-              <button data-send="${c.id}" class="btn-icon" title="Send campaign" style="width:30px;height:30px;border:none;" ${canSend ? '' : 'disabled style="opacity:.4;cursor:not-allowed;width:30px;height:30px;border:none;"'}>
-                <i data-lucide="${sending ? 'loader' : 'send'}" style="width:14px;height:14px;color:#2255a3;pointer-events:none;"></i>
-              </button>
-              <button data-edit="${c.id}" class="btn-icon" title="Edit campaign" style="width:30px;height:30px;border:none;">
-                <i data-lucide="pencil" style="width:14px;height:14px;color:var(--text-muted);pointer-events:none;"></i>
-              </button>
+              ${sendBtn}${editBtn}
               <button data-del="${c.id}" class="btn-icon" title="Delete campaign" style="width:30px;height:30px;border:none;">
                 <i data-lucide="trash-2" style="width:14px;height:14px;color:#D63333;pointer-events:none;"></i>
               </button>
@@ -100,6 +103,7 @@
       form.elements['audience'].value = campaign.audience || 'all';
       form.elements['subject'].value = campaign.subject || '';
       form.elements['body'].value = campaign.body || '';
+      form.elements['note'].value = campaign.note || '';
     } else {
       // New campaigns start with a personalized greeting, ready to edit.
       form.elements['body'].value = 'Hi {{first_name}},\n\n';
@@ -134,13 +138,73 @@
     } catch (err) { window.alert('Network error.'); }
   }
 
+  // ----- Detail modal (all details + the recipient list) -----
+  function detailRow(label, val) {
+    return `<div class="flex justify-between gap-4 py-2" style="border-bottom:1px solid var(--border-soft);">
+      <span class="text-[12.5px] text-muted flex-shrink-0">${label}</span>
+      <span class="text-[13px] font-medium text-right" style="word-break:break-word;">${val}</span>
+    </div>`;
+  }
+  async function openDetail(id) {
+    const c = campaigns.find(x => String(x.id) === String(id));
+    if (!c) return;
+    const sentRow = (c.status === 'Completed' || c.status === 'Sending')
+      ? detailRow('Sent', `${LF.fmtNum(c.sent)}${c.failed ? ` · <span style="color:#D63333;">${c.failed} failed</span>` : ''}`) : '';
+    const noteBlock = c.note
+      ? `<div class="mt-3"><div class="text-[12.5px] text-muted mb-1">Note</div><div class="text-[13px]" style="white-space:pre-wrap;">${esc(c.note)}</div></div>` : '';
+    document.getElementById('campaign-detail-body').innerHTML = `
+      <div class="mb-3">
+        <div class="text-[16px] font-bold mb-1">${esc(c.name)}</div>
+        <span class="pill ${LF.statusPill(c.status)}" style="font-size:11px;">${esc(c.status)}</span>
+      </div>
+      ${detailRow('Audience', esc(c.audienceLabel || '—'))}
+      ${sentRow}
+      ${detailRow('Subject', esc(c.subject) || '—')}
+      <div class="mt-3"><div class="text-[12.5px] text-muted mb-1">Message</div>
+        <div class="text-[13px] rounded-lg p-3" style="white-space:pre-wrap;background:var(--surface-2);border:1px solid var(--border-soft);">${esc(c.body) || '—'}</div></div>
+      ${noteBlock}
+      <div class="mt-4">
+        <div id="campaign-detail-rcount" class="text-[12.5px] text-muted mb-2">Recipients…</div>
+        <div id="campaign-detail-recipients" class="text-[13px] text-muted">Loading…</div>
+      </div>`;
+    document.getElementById('campaign-detail-modal').classList.remove('hidden');
+    if (window.lucide) lucide.createIcons();
+
+    try {
+      const res = await fetch('/api/campaigns/' + id + '/recipients', { credentials: 'same-origin' });
+      const list = res.ok ? await res.json() : [];
+      const head = document.getElementById('campaign-detail-rcount');
+      const el = document.getElementById('campaign-detail-recipients');
+      if (head) head.textContent = `Recipients (${LF.fmtNum(list.length)})`;
+      if (!el) return;
+      el.innerHTML = list.length ? `
+        <div class="rounded-xl" style="border:1px solid var(--border);max-height:240px;overflow-y:auto;">
+          ${list.map((r, i) => `
+            <div class="flex items-center justify-between gap-3 px-3 py-2 ${i > 0 ? 'border-t' : ''}" style="border-color:var(--border-soft);">
+              <span class="font-medium text-[13px] truncate">${esc(r.name) || '—'}</span>
+              <span class="text-[12px] text-muted truncate">${esc(r.email)}</span>
+            </div>`).join('')}
+        </div>`
+        : 'No recipients with an email in this audience.';
+    } catch (e) {
+      const el = document.getElementById('campaign-detail-recipients');
+      if (el) el.innerHTML = '<span style="color:#D63333;">Could not load recipients.</span>';
+    }
+  }
+  function closeDetail() { document.getElementById('campaign-detail-modal').classList.add('hidden'); }
+
   function bind() {
     document.getElementById('campaign-modal-close').addEventListener('click', closeModal);
     document.getElementById('campaign-cancel').addEventListener('click', closeModal);
     document.getElementById('campaign-modal-backdrop').addEventListener('click', closeModal);
+    document.getElementById('campaign-detail-close').addEventListener('click', closeDetail);
+    document.getElementById('campaign-detail-backdrop').addEventListener('click', closeDetail);
 
-    // Delegated: create card + send + edit + delete buttons (body re-renders).
+    // Delegated: name (detail) + create card + send + edit + delete (body re-renders).
     document.getElementById('campaigns-body').addEventListener('click', async e => {
+      const detail = e.target.closest('[data-detail]');
+      if (detail) { openDetail(detail.getAttribute('data-detail')); return; }
+
       const createCard = e.target.closest('[data-create]');
       if (createCard) { openModal(null); return; }
 
@@ -180,7 +244,7 @@
       }
       const btn = document.getElementById('campaign-submit');
       btn.disabled = true; btn.style.opacity = '0.7';
-      const payload = { name: data.name, audience: data.audience, subject: data.subject, body: data.body };
+      const payload = { name: data.name, audience: data.audience, subject: data.subject, body: data.body, note: data.note || '' };
       try {
         const res = await fetch(editingId ? '/api/campaigns/' + editingId : '/api/campaigns', {
           method: editingId ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',

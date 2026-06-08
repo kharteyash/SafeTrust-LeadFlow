@@ -275,6 +275,7 @@ const SCHEMA = `
   ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS recipients INTEGER DEFAULT 0;
   ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS failed     INTEGER DEFAULT 0;
   ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS sent_at    TIMESTAMPTZ;
+  ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS note       TEXT;
 `;
 
 // Periodically clear expired sessions.
@@ -846,7 +847,7 @@ function fmtShortDate(value) {
 function campaignToJson(r) {
   return {
     id: r.id, name: r.name, type: r.channel, status: r.status,
-    subject: r.subject || '', body: r.body || '',
+    subject: r.subject || '', body: r.body || '', note: r.note || '',
     audience: r.audience || 'all', audienceLabel: audienceLabel(r.audience || 'all'),
     recipients: r.recipients || 0, sent: r.sent || 0, failed: r.failed || 0,
     opens: r.opens || 0, clicks: r.clicks || 0, replies: r.replies || 0,
@@ -858,10 +859,21 @@ app.get('/api/campaigns', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
   // SMS campaigns were removed — hide any legacy ones.
   const rows = await q(`
-    SELECT id, name, channel, status, subject, body, audience, recipients, sent, failed, opens, clicks, replies, created_at
+    SELECT id, name, channel, status, subject, body, note, audience, recipients, sent, failed, opens, clicks, replies, created_at
     FROM campaigns WHERE user_id = $1 AND channel IS DISTINCT FROM 'SMS' ORDER BY id DESC
   `, [req.user.id]);
   res.json(rows.map(campaignToJson));
+}));
+
+// The resolved recipient list (names + emails) a campaign's audience addresses.
+app.get('/api/campaigns/:id/recipients', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid campaign id.' });
+  const c = await one('SELECT audience FROM campaigns WHERE id = $1 AND user_id = $2', [id, req.user.id]);
+  if (!c) return res.status(404).json({ error: 'Campaign not found.' });
+  const recipients = await segmentLeads(req.user.id, c.audience || 'all');
+  res.json(recipients.map(r => ({ name: r.name || '', email: r.email || '' })));
 }));
 
 // Audience options with live recipient counts (for the create form).
@@ -878,14 +890,15 @@ app.post('/api/campaigns', safe(async (req, res) => {
   const name = String(b.name || '').trim();
   const subject = String(b.subject || '').trim();
   const body = String(b.body || '').trim();
+  const note = String(b.note || '').trim();
   const audience = audienceByKey(b.audience) ? b.audience : 'all';
   if (!name) return res.status(400).json({ error: 'Campaign name is required.' });
 
   const row = await one(`
-    INSERT INTO campaigns (user_id, name, channel, status, subject, body, audience)
-    VALUES ($1, $2, 'Email', 'Draft', $3, $4, $5)
-    RETURNING id, name, channel, status, subject, body, audience, recipients, sent, failed, opens, clicks, replies, created_at
-  `, [req.user.id, name, subject, body, audience]);
+    INSERT INTO campaigns (user_id, name, channel, status, subject, body, note, audience)
+    VALUES ($1, $2, 'Email', 'Draft', $3, $4, $5, $6)
+    RETURNING id, name, channel, status, subject, body, note, audience, recipients, sent, failed, opens, clicks, replies, created_at
+  `, [req.user.id, name, subject, body, note, audience]);
   res.json(campaignToJson(row));
 }));
 
@@ -901,14 +914,15 @@ app.patch('/api/campaigns/:id', safe(async (req, res) => {
   const name     = b.name     != null ? String(b.name).trim()    : cur.name;
   const subject  = b.subject  != null ? String(b.subject).trim() : (cur.subject || '');
   const body     = b.body     != null ? String(b.body).trim()    : (cur.body || '');
+  const note     = b.note     != null ? String(b.note).trim()    : (cur.note || '');
   const audience = audienceByKey(b.audience) ? b.audience : (cur.audience || 'all');
   if (!name) return res.status(400).json({ error: 'Campaign name is required.' });
 
   const row = await one(`
-    UPDATE campaigns SET name = $1, subject = $2, body = $3, audience = $4
-    WHERE id = $5 AND user_id = $6
-    RETURNING id, name, channel, status, subject, body, audience, recipients, sent, failed, opens, clicks, replies, created_at
-  `, [name, subject, body, audience, id, req.user.id]);
+    UPDATE campaigns SET name = $1, subject = $2, body = $3, note = $4, audience = $5
+    WHERE id = $6 AND user_id = $7
+    RETURNING id, name, channel, status, subject, body, note, audience, recipients, sent, failed, opens, clicks, replies, created_at
+  `, [name, subject, body, note, audience, id, req.user.id]);
   res.json(campaignToJson(row));
 }));
 

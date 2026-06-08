@@ -55,12 +55,32 @@
               <textarea name="body" rows="5" maxlength="4000" class="input mt-1" placeholder="Write your message here..."></textarea>
               <div class="text-[11.5px] text-muted mt-1">Personalize with <b>{{first_name}}</b>, <b>{{name}}</b>, <b>{{state}}</b> — filled in per recipient.</div>
             </div>
+            <div>
+              <label class="text-[12px] font-semibold text-muted">Note (optional, just for you)</label>
+              <textarea name="note" rows="2" maxlength="1000" class="input mt-1" placeholder="Internal note — not sent to recipients."></textarea>
+            </div>
             <div id="campaign-form-msg" class="text-[12.5px] font-medium" style="color:#D63333;"></div>
             <div class="flex items-center justify-end gap-2 mt-2">
               <button type="button" id="campaign-cancel" class="btn-secondary">Cancel</button>
               <button type="submit" id="campaign-submit" class="btn-primary">Create campaign</button>
             </div>
           </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- Campaign detail modal -->
+    <div id="campaign-detail-modal" class="hidden" style="position:fixed;inset:0;z-index:50;">
+      <div id="campaign-detail-backdrop" style="position:absolute;inset:0;background:rgba(14,14,27,.45);"></div>
+      <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:100%;max-width:560px;" class="px-4">
+        <div class="bg-white rounded-2xl p-6 shadow-2xl" style="max-height:88vh;overflow-y:auto;">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-[17px] font-bold">Campaign details</h3>
+            <button id="campaign-detail-close" class="btn-icon" style="width:32px;height:32px;border:none;">
+              <i data-lucide="x" style="width:16px;height:16px;color:var(--text-muted);"></i>
+            </button>
+          </div>
+          <div id="campaign-detail-body"></div>
         </div>
       </div>
     </div>
