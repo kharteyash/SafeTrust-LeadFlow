@@ -2,6 +2,8 @@
 (function () {
   let contacts = [];
   let query = '';
+  let editingId = null;   // contact being edited, if any
+  const STD_TAGS = ['Buyer', 'Seller', 'Investor'];
 
   function esc(s) {
     return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -87,6 +89,9 @@
                 <button class="btn-icon" title="Send email" data-email="${escAttr(c.email)}" style="width:30px;height:30px;" ${c.email ? '' : 'disabled'}>
                   <i data-lucide="mail" style="width:13px;height:13px;color:#2255a3;pointer-events:none;"></i>
                 </button>
+                <button class="btn-icon" title="Edit contact" data-edit="${c.id}" style="width:30px;height:30px;">
+                  <i data-lucide="pencil" style="width:13px;height:13px;color:var(--text-muted);pointer-events:none;"></i>
+                </button>
                 <button class="btn-icon" title="Delete contact" data-del="${c.id}" style="width:30px;height:30px;border:none;">
                   <i data-lucide="trash-2" style="width:14px;height:14px;color:#D63333;pointer-events:none;"></i>
                 </button>
@@ -107,10 +112,27 @@
     wrap.classList.toggle('hidden', !isOther);
     if (!isOther) form.elements['otherTag'].value = '';
   }
-  function openModal() {
+  function openModal(contact) {
     const form = document.getElementById('contact-form');
     form.reset();
-    form.elements['tag'].value = 'Buyer';
+    editingId = contact ? contact.id : null;
+    document.getElementById('contact-modal-title').textContent = contact ? 'Edit contact' : 'Add contact';
+    document.getElementById('contact-submit').textContent = contact ? 'Save changes' : 'Add contact';
+    if (contact) {
+      form.elements['name'].value = contact.name || '';
+      form.elements['email'].value = contact.email || '';
+      form.elements['phone'].value = contact.phone || '';
+      form.elements['company'].value = contact.company || '';
+      // A non-standard tag means it was a custom "Other" value.
+      if (STD_TAGS.includes(contact.tag)) {
+        form.elements['tag'].value = contact.tag;
+      } else {
+        form.elements['tag'].value = 'Other';
+        form.elements['otherTag'].value = contact.tag === 'Other' ? '' : (contact.tag || '');
+      }
+    } else {
+      form.elements['tag'].value = 'Buyer';
+    }
     syncOtherBox();
     document.getElementById('contact-form-msg').textContent = '';
     document.getElementById('contact-modal').classList.remove('hidden');
@@ -119,7 +141,7 @@
   function closeModal() { document.getElementById('contact-modal').classList.add('hidden'); }
 
   function bind() {
-    document.getElementById('add-contact-btn').addEventListener('click', openModal);
+    document.getElementById('add-contact-btn').addEventListener('click', () => openModal(null));
     document.getElementById('contact-modal-close').addEventListener('click', closeModal);
     document.getElementById('contact-cancel').addEventListener('click', closeModal);
     document.getElementById('contact-modal-backdrop').addEventListener('click', closeModal);
@@ -143,6 +165,12 @@
         // Open Google's account chooser, then compose under the chosen account.
         const compose = 'https://mail.google.com/mail/?view=cm&fs=1&to=' + encodeURIComponent(emailBtn.getAttribute('data-email'));
         window.open('https://accounts.google.com/AccountChooser?continue=' + encodeURIComponent(compose), '_blank');
+        return;
+      }
+      const editBtn = e.target.closest('[data-edit]');
+      if (editBtn) {
+        const c = contacts.find(x => String(x.id) === editBtn.getAttribute('data-edit'));
+        if (c) openModal(c);
         return;
       }
       const delBtn = e.target.closest('[data-del]');
@@ -175,16 +203,22 @@
 
       const btn = form.querySelector('button[type="submit"]');
       btn.disabled = true; btn.style.opacity = '0.7';
+      const payload = { name: data.name, email: data.email || '', phone: data.phone || '', company: data.company || '', tag };
       try {
-        const res = await fetch('/api/contacts', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
-          body: JSON.stringify({ name: data.name, email: data.email || '', phone: data.phone || '', company: data.company || '', tag })
+        const res = await fetch(editingId ? '/api/contacts/' + editingId : '/api/contacts', {
+          method: editingId ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+          body: JSON.stringify(payload)
         });
         const raw = await res.text();
         let body = {};
         try { body = raw ? JSON.parse(raw) : {}; } catch (err) {}
         if (!res.ok) { msg.textContent = body.error || `Request failed (HTTP ${res.status}).`; return; }
-        contacts.push(body);
+        if (editingId) {
+          const i = contacts.findIndex(x => String(x.id) === String(editingId));
+          if (i >= 0) contacts[i] = body;
+        } else {
+          contacts.push(body);
+        }
         contacts.sort((a, b) => a.name.localeCompare(b.name));
         closeModal();
         render();

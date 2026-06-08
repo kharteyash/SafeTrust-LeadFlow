@@ -1943,6 +1943,26 @@ app.post('/api/contacts', safe(async (req, res) => {
   });
 }));
 
+app.patch('/api/contacts/:id', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid contact id.' });
+  const cur = await one('SELECT name, email, phone, company, tag FROM contacts WHERE id = $1 AND user_id = $2', [id, req.user.id]);
+  if (!cur) return res.status(404).json({ error: 'Contact not found.' });
+
+  const b = req.body || {};
+  const name    = b.name    != null ? String(b.name).trim()    : cur.name;
+  const email   = b.email   != null ? String(b.email).trim()   : (cur.email || '');
+  const phone   = b.phone   != null ? String(b.phone).trim()   : (cur.phone || '');
+  const company = b.company != null ? String(b.company).trim() : (cur.company || '');
+  const tag     = b.tag     != null ? (String(b.tag).trim().slice(0, 40) || 'Other') : (cur.tag || 'Other');
+  if (!name) return res.status(400).json({ error: 'Name is required.' });
+
+  await pool.query(`UPDATE contacts SET name=$1, email=$2, phone=$3, company=$4, tag=$5 WHERE id=$6 AND user_id=$7`,
+    [name, email, phone, company, tag, id, req.user.id]);
+  res.json({ id, name, email, phone, company, tag });
+}));
+
 app.delete('/api/contacts/:id', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
   const id = Number(req.params.id);

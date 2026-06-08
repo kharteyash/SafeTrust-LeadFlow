@@ -42,7 +42,7 @@
       <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:100%;max-width:480px;" class="px-4">
         <div class="bg-white rounded-2xl p-6 shadow-2xl">
           <div class="flex items-center justify-between mb-4">
-            <h3 class="text-[17px] font-bold">Add contact</h3>
+            <h3 id="contact-modal-title" class="text-[17px] font-bold">Add contact</h3>
             <button id="contact-modal-close" class="btn-icon" style="width:32px;height:32px;border:none;">
               <i data-lucide="x" style="width:16px;height:16px;color:var(--text-muted);"></i>
             </button>
@@ -84,7 +84,7 @@
             <div id="contact-form-msg" class="text-[12.5px] font-medium" style="color:#D63333;"></div>
             <div class="flex items-center justify-end gap-2 mt-2">
               <button type="button" id="contact-cancel" class="btn-secondary">Cancel</button>
-              <button type="submit" class="btn-primary">Add contact</button>
+              <button type="submit" id="contact-submit" class="btn-primary">Add contact</button>
             </div>
           </form>
         </div>
