@@ -738,7 +738,13 @@ app.post('/api/events', safe(async (req, res) => {
 
   const startAt = new Date(`${date}T${start}`);
   if (isNaN(startAt.getTime())) return res.status(400).json({ error: 'Invalid date or time.' });
-  if (startAt.getTime() < Date.now()) return res.status(400).json({ error: 'Event cannot be scheduled in the past.' });
+  // The string has no timezone, so the server parses it as UTC while the user
+  // means their local time. Allow a day of slack so any same-day local time is
+  // accepted (the browser already does the precise past-check); this only blocks
+  // clearly-past dates. Max real-world tz offset is ~14h, well within the grace.
+  if (startAt.getTime() < Date.now() - 24 * 3600 * 1000) {
+    return res.status(400).json({ error: 'Event cannot be scheduled in the past.' });
+  }
 
   const row = await one(`
     INSERT INTO events (user_id, date, start_time, end_time, title, type, with_person)
