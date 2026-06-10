@@ -8,7 +8,8 @@
     { id: 'buying',  label: 'Buying Immediately', match: l => l.timeline === 'Buying Immediately' },
     { id: '1-3',     label: '1-3 Months',         match: l => l.timeline === '1-3 Months' },
     { id: '3-6',     label: '3-6 Months',         match: l => l.timeline === '3-6 Months' },
-    { id: '6plus',   label: '6+ Months',          match: l => l.timeline === '6+ Months' }
+    { id: '6plus',   label: '6+ Months',          match: l => l.timeline === '6+ Months' },
+    { id: 'closed',  label: 'Previously Closed',  closed: true }
   ];
 
   const state = {
@@ -29,6 +30,10 @@
   let leadUid = 0;
   function withUid(l) { return Object.assign({ _uid: ++leadUid }, l); }
   let leads = [];
+
+  // Previously Closed leads (a separate dataset, merged in as its own tab).
+  let closedLeads = [];            // [{ id, data: { col: value } }]
+  const selectedClosed = new Set(); // record ids checked for bulk delete
 
   function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
   function escAttr(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
@@ -51,19 +56,26 @@
       { label: 'Buying Immediately', value: all.filter(l => l.timeline === 'Buying Immediately').length, icon: 'flame',         tint: '#E6F8EC', color: '#138A4B' },
       { label: '1-3 Months',         value: all.filter(l => l.timeline === '1-3 Months').length,         icon: 'clock',         tint: '#FFF4D6', color: '#B07A00' },
       { label: '3-6 Months',         value: all.filter(l => l.timeline === '3-6 Months').length,         icon: 'calendar-clock', tint: '#FEECEC', color: '#D63333' },
-      { label: '6+ Months',          value: all.filter(l => l.timeline === '6+ Months').length,          icon: 'calendar-days',  tint: '#E7EEFF', color: '#2B57D9' }
+      { label: '6+ Months',          value: all.filter(l => l.timeline === '6+ Months').length,          icon: 'calendar-days',  tint: '#E7EEFF', color: '#2B57D9' },
+      { label: 'Previously Closed',  value: closedLeads.length, icon: 'archive', tint: 'var(--surface-3)', color: '#5C5C75', tab: 'closed' }
     ];
     document.getElementById('lead-stats').innerHTML = cards.map(c => `
-      <div class="stat-card">
-        <div class="flex items-center gap-3 mb-3">
+      <div class="stat-card ${c.tab ? 'cursor-pointer' : ''}" ${c.tab ? `data-go-tab="${c.tab}"` : ''}>
+        <div class="flex items-center gap-3 mb-3" style="pointer-events:none;">
           <div class="stat-icon" style="background:${c.tint};">
             <i data-lucide="${c.icon}" style="width:18px;height:18px;color:${c.color};"></i>
           </div>
           <span class="text-[13px] text-muted font-medium">${c.label}</span>
         </div>
-        <div class="text-[26px] font-bold tracking-tight leading-tight">${LF.fmtNum(c.value)}</div>
+        <div class="text-[26px] font-bold tracking-tight leading-tight" style="pointer-events:none;">${LF.fmtNum(c.value)}</div>
       </div>
     `).join('');
+    // The "Previously Closed" card jumps to that tab.
+    document.querySelectorAll('#lead-stats [data-go-tab]').forEach(el => el.addEventListener('click', () => {
+      state.tab = el.getAttribute('data-go-tab'); state.page = 1;
+      selectedLeads.clear(); selectedClosed.clear();
+      renderTabs(); renderTable();
+    }));
   }
 
   // ----- Tabs -----
@@ -77,7 +89,7 @@
         <span class="ml-1.5 text-[11px] font-semibold rounded-full px-1.5 py-[1px]"
               style="background:${state.tab === t.id ? 'rgba(34,85,163,0.12)' : 'var(--chip)'};
                      color:${state.tab === t.id ? '#2255a3' : 'var(--text-muted)'};">
-          ${leads.filter(t.match).length}
+          ${t.closed ? closedLeads.length : leads.filter(t.match).length}
         </span>
       </div>
     `).join('');
@@ -87,6 +99,7 @@
         state.tab = el.dataset.tab;
         state.page = 1;
         selectedLeads.clear();   // selection is per-view
+        selectedClosed.clear();
         renderTabs();
         renderTable();
       });
@@ -112,6 +125,13 @@
 
   // ----- Table -----
   function renderTable() {
+    // The closed-only "Import CSV" button shows on the Previously Closed tab.
+    const impBtn = document.getElementById('closed-import-btn');
+    if (impBtn) impBtn.classList.toggle('hidden', state.tab !== 'closed');
+    const cmsg = document.getElementById('closed-msg');
+    if (cmsg && state.tab !== 'closed') cmsg.textContent = '';
+    if (state.tab === 'closed') return renderClosedTable();
+
     const rows = filtered();
     const totalPages = Math.max(1, Math.ceil(rows.length / state.pageSize));
     if (state.page > totalPages) state.page = totalPages;
@@ -192,6 +212,7 @@
   function renderBulkBar() {
     const bar = document.getElementById('leads-bulkbar');
     if (!bar) return;
+    if (state.tab === 'closed') return renderClosedBulkBar(bar);
     const n = selectedLeads.size;
     bar.innerHTML = n === 0 ? '' : `
       <div class="flex items-center gap-2">
@@ -227,8 +248,19 @@
     document.getElementById('leads-table').addEventListener('change', e => {
       const all = e.target.id === 'leads-select-all' ? e.target : null;
       if (all) {
-        // Select / clear every lead in the current filter (all pages).
-        filtered().forEach(l => { const u = String(l._uid); if (all.checked) selectedLeads.add(u); else selectedLeads.delete(u); });
+        if (state.tab === 'closed') {
+          closedFiltered().forEach(r => { const id = String(r.id); if (all.checked) selectedClosed.add(id); else selectedClosed.delete(id); });
+        } else {
+          // Select / clear every lead in the current filter (all pages).
+          filtered().forEach(l => { const u = String(l._uid); if (all.checked) selectedLeads.add(u); else selectedLeads.delete(u); });
+        }
+        renderTable();
+        return;
+      }
+      const cbClosed = e.target.closest('[data-select-id]');
+      if (cbClosed) {
+        const id = cbClosed.getAttribute('data-select-id');
+        if (cbClosed.checked) selectedClosed.add(id); else selectedClosed.delete(id);
         renderTable();
         return;
       }
@@ -282,6 +314,7 @@
       state.search = val;
       state.page = 1;
       selectedLeads.clear();
+      selectedClosed.clear();
       // Keep the two inputs in sync so either one reflects the active query.
       if (local && local.value !== val) local.value = val;
       if (topbar && topbar.value !== val) topbar.value = val;
@@ -718,6 +751,7 @@
         if (!res.ok) { msg.textContent = body.error || `Request failed (HTTP ${res.status}).`; return; }
         leads = leads.filter(l => String(l.id) !== String(cid));
         closeCloseLeadModal();
+        await loadClosed();        // reflect the newly closed lead in its tab/count
         renderLeadStats();
         renderTabs();
         renderTable();
@@ -850,6 +884,16 @@
   function bindDeleteLead() {
     // Delegated — #leads-table persists while its body re-renders.
     document.getElementById('leads-table').addEventListener('click', e => {
+      // Closed-tab rows: open details / delete.
+      const closedView = e.target.closest('[data-view-id]');
+      if (closedView) {
+        const rec = closedLeads.find(r => String(r.id) === closedView.getAttribute('data-view-id'));
+        if (rec) openClosedDetail(rec);
+        return;
+      }
+      const closedDel = e.target.closest('[data-del]');
+      if (closedDel) { deleteClosed(closedDel.getAttribute('data-del')); return; }
+
       const viewEl = e.target.closest('[data-view-uid]');
       if (viewEl) {
         const lead = leads.find(l => String(l._uid) === viewEl.getAttribute('data-view-uid'));
@@ -1031,12 +1075,328 @@
   }
 
   // ----- Mount -----
+  // ====================================================================
+  //  Previously Closed (merged into the Leads page as a tab)
+  // ====================================================================
+  async function loadClosed() {
+    try {
+      const res = await fetch('/api/closed', { credentials: 'same-origin' });
+      closedLeads = res.ok ? await res.json() : [];
+    } catch (e) { closedLeads = []; }
+  }
+  function closedFiltered() {
+    const term = state.search.trim().toLowerCase();
+    if (!term) return closedLeads;
+    return closedLeads.filter(r => Object.values(r.data || {}).some(v => String(v == null ? '' : v).toLowerCase().includes(term)));
+  }
+  function closedIsEmail(h) { return /e-?mail/i.test(h); }
+  function closedIsPhone(h) { return /phone|mobile|\bcell\b|\btel\b/i.test(h); }
+  function closedDetectCol(cols, patterns) { for (const p of patterns) { const c = cols.find(col => p.test(col)); if (c) return c; } return null; }
+  function closedAllColumns() {
+    const cols = [], seen = new Set();
+    closedLeads.forEach(r => Object.keys(r.data || {}).forEach(k => { if (!seen.has(k)) { seen.add(k); cols.push(k); } }));
+    return cols;
+  }
+  function closedNameCol(allCols) {
+    return closedDetectCol(allCols, [/^primary borrower$/i, /borrower name/i, /full name/i, /^name$/i, /^customer$/i, /^client$/i]) || allCols[0];
+  }
+  function closedPickColumns(allCols) {
+    const used = new Set(), out = [];
+    const add = (c) => { if (c && !used.has(c)) { used.add(c); out.push(c); } };
+    add(closedDetectCol(allCols, [/^primary borrower$/i, /borrower name/i, /full name/i, /^name$/i, /^customer$/i, /^client$/i]) || allCols[0]);
+    [
+      [/e-?mail/i], [/phone|mobile|\bcell\b/i],
+      [/loan purpose|^purpose$/i], [/total loan amount|loan amount|^amount$/i],
+      [/stage name|^stage$|^status$/i], [/subject state|^state$/i],
+      [/loan officer name|officer name|^owner$/i], [/loan funded|closing date|funding date/i]
+    ].forEach(pats => add(closedDetectCol(allCols, pats)));
+    for (const c of allCols) { if (out.length >= 7) break; add(c); }
+    return out.slice(0, 7);
+  }
+  function closedGmailChooser(to) {
+    const compose = 'https://mail.google.com/mail/?view=cm&fs=1&to=' + encodeURIComponent(to);
+    return 'https://accounts.google.com/AccountChooser?continue=' + encodeURIComponent(compose);
+  }
+  function closedActionFor(header, value, name) {
+    if (!value) return '';
+    if (closedIsEmail(header)) {
+      return `<button class="btn-icon" title="Send email" data-cemail="${escAttr(value)}" style="width:28px;height:28px;">
+        <i data-lucide="mail" style="width:13px;height:13px;color:#2255a3;pointer-events:none;"></i></button>`;
+    }
+    if (closedIsPhone(header)) {
+      return `<button class="btn-icon" title="Call & log" data-ccall="${escAttr(value)}" data-ccall-name="${escAttr(name || '')}" style="width:28px;height:28px;">
+        <i data-lucide="phone" style="width:13px;height:13px;color:#2255a3;pointer-events:none;"></i></button>`;
+    }
+    return '';
+  }
+  function renderClosedTable() {
+    const table = document.getElementById('leads-table');
+    const rows = closedFiltered();
+    if (closedLeads.length === 0) {
+      document.getElementById('lead-summary').textContent = '';
+      document.getElementById('pager').innerHTML = '';
+      table.innerHTML = `
+        <tbody><tr><td>
+          <div class="text-center py-16">
+            <div class="mx-auto mb-3 stat-icon" style="background:var(--surface-3);width:48px;height:48px;border-radius:12px;">
+              <i data-lucide="archive" style="width:22px;height:22px;color:#8A8AA0;"></i>
+            </div>
+            <div class="text-[14px] font-semibold mb-1">No closed leads yet</div>
+            <div class="text-[13px] text-muted mb-4">Import a CSV to bring in your previously closed leads.</div>
+            <button class="btn-primary" onclick="document.getElementById('closed-import-btn').click()">
+              <i data-lucide="upload" style="width:14px;height:14px;"></i> Import CSV
+            </button>
+          </div>
+        </td></tr></tbody>`;
+      renderBulkBar();
+      if (window.lucide) lucide.createIcons();
+      return;
+    }
+    const total = rows.length;
+    const totalPages = Math.max(1, Math.ceil(total / state.pageSize));
+    if (state.page > totalPages) state.page = totalPages;
+    const start = (state.page - 1) * state.pageSize;
+    const pageRows = rows.slice(start, start + state.pageSize);
+    const allCols = closedAllColumns();
+    const cols = closedPickColumns(allCols);
+    const nameCol = closedNameCol(allCols);
+    const allChecked = total > 0 && rows.every(r => selectedClosed.has(String(r.id)));
+    table.innerHTML = `
+      <thead>
+        <tr><th style="width:34px;"><input type="checkbox" id="leads-select-all" title="Select all" style="accent-color:#2255a3;cursor:pointer;" ${allChecked ? 'checked' : ''} /></th>${cols.map(c => `<th>${esc(c)}</th>`).join('')}<th>Action</th></tr>
+      </thead>
+      <tbody>
+        ${total === 0
+          ? `<tr><td colspan="${cols.length + 2}" class="text-center py-10 text-muted">No closed leads match "${esc(state.search)}".</td></tr>`
+          : pageRows.map(r => `
+          <tr>
+            <td><input type="checkbox" data-select-id="${r.id}" style="accent-color:#2255a3;cursor:pointer;" ${selectedClosed.has(String(r.id)) ? 'checked' : ''} /></td>
+            ${cols.map(c => {
+              const val = r.data ? r.data[c] : '';
+              if (c === nameCol) return `<td><span class="font-semibold" data-view-id="${r.id}" style="cursor:pointer;color:var(--accent);">${esc(val) || '(no name)'}</span></td>`;
+              return `<td class="text-muted">${esc(val) || '<span class="text-soft">—</span>'}</td>`;
+            }).join('')}
+            <td><button class="btn-icon" title="Remove" data-del="${r.id}" style="width:30px;height:30px;border:none;">
+              <i data-lucide="trash-2" style="width:14px;height:14px;color:#D63333;pointer-events:none;"></i></button></td>
+          </tr>`).join('')}
+      </tbody>`;
+    document.getElementById('lead-summary').textContent = total === 0
+      ? 'No closed leads to show'
+      : `Showing ${start + 1} to ${Math.min(start + state.pageSize, total)} of ${LF.fmtNum(total)} closed leads`;
+    renderPager(totalPages);
+    renderBulkBar();
+    if (window.lucide) lucide.createIcons();
+  }
+  function renderClosedBulkBar(bar) {
+    const n = selectedClosed.size;
+    bar.innerHTML = n === 0 ? '' : `
+      <div class="flex items-center gap-2">
+        <span class="text-[12.5px] text-muted">${n} selected</span>
+        <button id="closed-bulk-clear" class="btn-secondary" style="padding:5px 12px;font-size:12.5px;">Clear</button>
+        <button id="closed-bulk-delete" class="btn-primary" style="padding:5px 12px;font-size:12.5px;background:#D63333;">
+          <i data-lucide="trash-2" style="width:13px;height:13px;"></i> Delete ${n}
+        </button>
+      </div>`;
+    const clearBtn = document.getElementById('closed-bulk-clear');
+    if (clearBtn) clearBtn.addEventListener('click', () => { selectedClosed.clear(); renderTable(); });
+    const delBtn = document.getElementById('closed-bulk-delete');
+    if (delBtn) delBtn.addEventListener('click', bulkDeleteClosed);
+  }
+  async function bulkDeleteClosed() {
+    const ids = [...selectedClosed].map(Number).filter(n => !isNaN(n));
+    if (!ids.length) { selectedClosed.clear(); renderTable(); return; }
+    if (!window.confirm(`Remove ${ids.length} selected record${ids.length === 1 ? '' : 's'}? This can't be undone.`)) return;
+    try {
+      const res = await fetch('/api/closed/bulk-delete', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+        body: JSON.stringify({ ids })
+      });
+      if (!res.ok) { window.alert('Could not remove the selected records.'); return; }
+    } catch (e) { window.alert('Network error.'); return; }
+    selectedClosed.clear();
+    await loadClosed();
+    renderLeadStats(); renderTabs(); renderTable();
+    if (window.lucide) lucide.createIcons();
+  }
+  async function deleteClosed(id) {
+    if (!window.confirm('Remove this closed lead?')) return;
+    try {
+      const res = await fetch('/api/closed/' + id, { method: 'DELETE', credentials: 'same-origin' });
+      if (!res.ok && res.status !== 404) { window.alert('Could not remove it.'); return; }
+    } catch (err) { window.alert('Network error.'); return; }
+    closedLeads = closedLeads.filter(r => String(r.id) !== String(id));
+    selectedClosed.delete(String(id));
+    renderLeadStats(); renderTabs(); renderTable();
+    if (window.lucide) lucide.createIcons();
+  }
+  function openClosedDetail(rec) {
+    const data = rec.data || {};
+    const keys = Object.keys(data);
+    const borrowerName = data[closedNameCol(keys)] || 'Closed lead';
+    document.getElementById('closed-detail-title').textContent = borrowerName;
+    document.getElementById('closed-detail-body').innerHTML = keys.map(k => {
+      const v = data[k];
+      const action = closedActionFor(k, v, borrowerName);
+      return `
+        <div class="flex items-start justify-between gap-3 py-2" style="border-bottom:1px solid var(--border-soft);">
+          <span class="text-[12px] text-muted flex-shrink-0" style="max-width:42%;">${esc(k)}</span>
+          <span class="text-[13px] font-medium text-right" style="word-break:break-word;display:flex;align-items:center;gap:6px;justify-content:flex-end;">
+            ${esc(v) || '<span class="text-soft">—</span>'}${action}
+          </span>
+        </div>`;
+    }).join('');
+    document.getElementById('closed-detail-modal').classList.remove('hidden');
+    if (window.lucide) lucide.createIcons();
+  }
+  function closeClosedDetail() { document.getElementById('closed-detail-modal').classList.add('hidden'); }
+  function closedSetMsg(text, ok) {
+    const el = document.getElementById('closed-msg');
+    if (!el) return;
+    el.style.color = ok ? '#138A4B' : '#D63333';
+    el.textContent = text || '';
+  }
+  // CSV parsing (handles quoted fields, commas, and newlines in quotes).
+  function closedParseCSV(text) {
+    text = String(text).replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    const rows = []; let cur = [], field = '', inQuotes = false, i = 0;
+    while (i < text.length) {
+      const c = text[i];
+      if (inQuotes) {
+        if (c === '"') { if (text[i + 1] === '"') { field += '"'; i += 2; continue; } inQuotes = false; i++; continue; }
+        field += c; i++; continue;
+      }
+      if (c === '"') { inQuotes = true; i++; continue; }
+      if (c === ',') { cur.push(field); field = ''; i++; continue; }
+      if (c === '\n') { cur.push(field); rows.push(cur); cur = []; field = ''; i++; continue; }
+      field += c; i++;
+    }
+    if (field !== '' || cur.length > 0) { cur.push(field); rows.push(cur); }
+    return rows;
+  }
+  function closedCsvToObjects(text) {
+    const rows = closedParseCSV(text).filter(r => r.some(c => String(c).trim() !== ''));
+    if (rows.length === 0) return { objects: [] };
+    const seen = {};
+    const headers = rows[0].map(h => {
+      let name = String(h).trim() || 'Column';
+      if (seen[name] == null) { seen[name] = 0; return name; }
+      seen[name]++; return `${name} (${seen[name]})`;
+    });
+    const objects = rows.slice(1).map(r => {
+      const o = {}; headers.forEach((h, idx) => { o[h] = r[idx] != null ? String(r[idx]).trim() : ''; }); return o;
+    });
+    return { objects };
+  }
+  async function handleClosedFile(file) {
+    if (!file) return;
+    closedSetMsg('Reading file…', true);
+    let text;
+    try { text = await file.text(); } catch (e) { closedSetMsg('Could not read the file.', false); return; }
+    const { objects } = closedCsvToObjects(text);
+    if (objects.length === 0) { closedSetMsg('That CSV has no data rows.', false); return; }
+    closedSetMsg(`Importing ${objects.length} row${objects.length === 1 ? '' : 's'}…`, true);
+    try {
+      const res = await fetch('/api/closed/import', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+        body: JSON.stringify({ rows: objects })
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) { closedSetMsg(body.error || `Import failed (HTTP ${res.status}).`, false); return; }
+      await loadClosed();
+      renderLeadStats(); renderTabs(); renderTable();
+      const parts = [`${body.imported || 0} new`];
+      if (body.updated) parts.push(`${body.updated} updated`);
+      const unchanged = body.unchanged != null ? body.unchanged : (body.skipped || 0);
+      if (unchanged) parts.push(`${unchanged} unchanged`);
+      closedSetMsg('Import complete · ' + parts.join(' · '), true);
+    } catch (e) { closedSetMsg('Network error. Is the server running?', false); }
+  }
+  function bindClosedImport() {
+    const fileInput = document.getElementById('closed-file');
+    const btn = document.getElementById('closed-import-btn');
+    if (btn) btn.addEventListener('click', () => fileInput.click());
+    if (fileInput) fileInput.addEventListener('change', e => {
+      const file = e.target.files && e.target.files[0];
+      handleClosedFile(file);
+      fileInput.value = '';
+    });
+  }
+  // Log a call to a closed lead (dial + log into Call History), with the timer.
+  let closedCallName = '', closedCallPhone = '', stopClosedCallTimer = null;
+  function syncClosedCallDuration(form) {
+    const o = form.elements['outcome'].value;
+    const dur = form.elements['duration'];
+    if (o === 'No Answer' || o === 'Voicemail') { dur.value = ''; dur.disabled = true; }
+    else { dur.disabled = false; if (!dur.value) dur.value = '0:00'; }
+  }
+  function openClosedCallModal(name, phone) {
+    closedCallName = name || 'Closed lead';
+    closedCallPhone = phone || '';
+    document.getElementById('closed-call-name').textContent = closedCallName;
+    const form = document.getElementById('closed-call-form');
+    form.reset();
+    form.elements['outcome'].value = 'Connected';
+    syncClosedCallDuration(form);
+    if (stopClosedCallTimer) { stopClosedCallTimer(); stopClosedCallTimer = null; }
+    stopClosedCallTimer = LF.startCallDurationTimer(form);
+    document.getElementById('closed-call-msg').textContent = '';
+    document.getElementById('closed-call-modal').classList.remove('hidden');
+  }
+  function closeClosedCallModal() {
+    document.getElementById('closed-call-modal').classList.add('hidden');
+    if (stopClosedCallTimer) { stopClosedCallTimer(); stopClosedCallTimer = null; }
+    LF.callTimer.clear();
+  }
+  function bindClosed() {
+    // Detail modal open/close.
+    document.getElementById('closed-detail-close').addEventListener('click', closeClosedDetail);
+    document.getElementById('closed-detail-backdrop').addEventListener('click', closeClosedDetail);
+    // Call / email actions from inside the detail modal.
+    document.getElementById('closed-detail-body').addEventListener('click', e => {
+      const callBtn = e.target.closest('[data-ccall]');
+      if (callBtn) {
+        const phone = callBtn.getAttribute('data-ccall');
+        const name = callBtn.getAttribute('data-ccall-name') || 'Closed lead';
+        LF.callTimer.start();
+        const tel = LF.telLink(phone); if (tel) window.location.href = tel;
+        openClosedCallModal(name, phone);
+        return;
+      }
+      const emailBtn = e.target.closest('[data-cemail]');
+      if (emailBtn) { window.open(closedGmailChooser(emailBtn.getAttribute('data-cemail')), '_blank'); return; }
+    });
+    // Call modal.
+    document.getElementById('closed-call-close').addEventListener('click', closeClosedCallModal);
+    document.getElementById('closed-call-cancel').addEventListener('click', closeClosedCallModal);
+    document.getElementById('closed-call-backdrop').addEventListener('click', closeClosedCallModal);
+    document.getElementById('closed-call-form').elements['outcome'].addEventListener('change', e => syncClosedCallDuration(e.target.form));
+    document.getElementById('closed-call-form').addEventListener('submit', async e => {
+      e.preventDefault();
+      const form = e.target, msg = document.getElementById('closed-call-msg');
+      msg.textContent = '';
+      const data = Object.fromEntries(new FormData(form));
+      const btn = form.querySelector('button[type="submit"]');
+      btn.disabled = true; btn.style.opacity = '0.7';
+      try {
+        const res = await fetch('/api/call-log', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+          body: JSON.stringify({ name: closedCallName, phone: closedCallPhone, outcome: data.outcome, duration: data.duration || '0:00', notes: data.notes || '' })
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) { msg.textContent = body.error || `Request failed (HTTP ${res.status}).`; return; }
+        closeClosedCallModal();
+      } catch (err) { msg.textContent = 'Network error. Is the server running?'; }
+      finally { btn.disabled = false; btn.style.opacity = ''; }
+    });
+  }
+
   document.addEventListener('DOMContentLoaded', async function () {
     // Layout must render first — it rebuilds #app's innerHTML, which wipes
     // any event listeners attached to elements inside it.
     await LF.renderLayout({ active: 'leads' });
     isAdmin = !!(LF_DATA.user && LF_DATA.user.rawRole === 'admin');
     await loadLeads();
+    await loadClosed();
     await loadAssignTargets();
     renderLeadStats();
     renderTabs();
@@ -1053,6 +1413,8 @@
     bindRealtorCall();
     bindImport();
     bindExport();
+    bindClosedImport();
+    bindClosed();
     if (window.lucide) lucide.createIcons();
   });
 })();

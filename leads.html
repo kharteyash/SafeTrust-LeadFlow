@@ -36,13 +36,19 @@
     <div id="import-msg" class="text-[12.5px] font-medium mb-3"></div>
 
     <!-- Stat strip for leads -->
-    <div id="lead-stats" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-5"></div>
+    <div id="lead-stats" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-5"></div>
 
     <!-- Lead table panel -->
     <div class="panel">
       <div class="p-5 pb-3 flex items-center flex-wrap gap-3 justify-between">
         <div class="flex items-center gap-5 flex-wrap" id="lead-tabs"></div>
-        <div id="leads-bulkbar"></div>
+        <div class="flex items-center gap-2">
+          <input id="closed-file" type="file" accept=".csv,text/csv" class="hidden" />
+          <button id="closed-import-btn" class="btn-secondary hidden" style="padding:6px 12px;font-size:12.5px;">
+            <i data-lucide="upload" style="width:14px;height:14px;"></i> Import CSV
+          </button>
+          <div id="leads-bulkbar"></div>
+        </div>
       </div>
 
       <!-- Search (just above the table) -->
@@ -52,6 +58,7 @@
           <input id="leads-search" class="input pl-9" placeholder="Search leads, phone, email, notes..." />
         </div>
       </div>
+      <div id="closed-msg" class="text-[12.5px] font-medium px-5 pb-2"></div>
 
       <div class="overflow-x-auto">
         <table class="lf-table" id="leads-table"></table>
@@ -435,6 +442,63 @@
             <button id="meet-cancel" class="btn-secondary">Cancel</button>
             <button id="meet-go" class="btn-primary"><i data-lucide="video" style="width:14px;height:14px;"></i> Create &amp; send</button>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Previously Closed: details modal -->
+    <div id="closed-detail-modal" class="hidden" style="position:fixed;inset:0;z-index:50;">
+      <div id="closed-detail-backdrop" style="position:absolute;inset:0;background:rgba(14,14,27,.45);"></div>
+      <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:100%;max-width:520px;" class="px-4">
+        <div class="bg-white rounded-2xl p-6 shadow-2xl" style="max-height:85vh;display:flex;flex-direction:column;">
+          <div class="flex items-center justify-between mb-3 flex-shrink-0">
+            <h3 id="closed-detail-title" class="text-[17px] font-bold">Closed lead</h3>
+            <button id="closed-detail-close" class="btn-icon" style="width:32px;height:32px;border:none;">
+              <i data-lucide="x" style="width:16px;height:16px;color:var(--text-muted);"></i>
+            </button>
+          </div>
+          <div id="closed-detail-body" class="overflow-y-auto" style="min-height:0;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Previously Closed: log call modal -->
+    <div id="closed-call-modal" class="hidden" style="position:fixed;inset:0;z-index:55;">
+      <div id="closed-call-backdrop" style="position:absolute;inset:0;background:rgba(14,14,27,.45);"></div>
+      <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:100%;max-width:440px;" class="px-4">
+        <div class="bg-white rounded-2xl p-6 shadow-2xl">
+          <div class="flex items-center justify-between mb-1">
+            <h3 class="text-[17px] font-bold">Log call</h3>
+            <button id="closed-call-close" class="btn-icon" style="width:32px;height:32px;border:none;">
+              <i data-lucide="x" style="width:16px;height:16px;color:var(--text-muted);"></i>
+            </button>
+          </div>
+          <p class="text-[12.5px] text-muted mb-4">Logging a call to <span id="closed-call-name" class="font-semibold" style="color:var(--text);"></span>.</p>
+          <form id="closed-call-form" class="flex flex-col gap-3">
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="text-[12px] font-semibold text-muted">Outcome</label>
+                <select name="outcome" class="input mt-1" style="cursor:pointer;">
+                  <option value="Connected">Connected</option>
+                  <option value="Voicemail">Voicemail</option>
+                  <option value="No Answer">No Answer</option>
+                </select>
+              </div>
+              <div>
+                <label class="text-[12px] font-semibold text-muted">Duration</label>
+                <input name="duration" maxlength="8" class="input mt-1" placeholder="m:ss" value="0:00" />
+              </div>
+            </div>
+            <div>
+              <label class="text-[12px] font-semibold text-muted">Notes</label>
+              <textarea name="notes" rows="3" maxlength="500" class="input mt-1" placeholder="What was discussed?"></textarea>
+            </div>
+            <div id="closed-call-msg" class="text-[12.5px] font-medium" style="color:#D63333;"></div>
+            <div class="flex items-center justify-end gap-2 mt-2">
+              <button type="button" id="closed-call-cancel" class="btn-secondary">Cancel</button>
+              <button type="submit" class="btn-primary"><i data-lucide="phone-call" style="width:14px;height:14px;"></i> Log call</button>
+            </div>
+          </form>
         </div>
       </div>
     </div>

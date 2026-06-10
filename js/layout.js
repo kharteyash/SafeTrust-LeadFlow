@@ -15,7 +15,6 @@ try { if (localStorage.getItem('lf-theme') === 'dark') document.documentElement.
 const NAV_ITEMS = [
   { id: 'dashboard',    label: 'Dashboard',    icon: 'layout-dashboard', href: 'index.html' },
   { id: 'leads',        label: 'Leads',        icon: 'users',            href: 'leads.html' },
-  { id: 'closed',       label: 'Previously Closed', icon: 'archive',     href: 'closed.html' },
   { id: 'contacts',     label: 'Contacts',     icon: 'contact',          href: 'contacts.html' },
   { id: 'tasks',        label: 'Tasks',        icon: 'check-square',     href: 'tasks.html' },
   { id: 'calendar',     label: 'Calendar',     icon: 'calendar',         href: 'calendar.html' },
