@@ -60,6 +60,47 @@
       </div>
     </div>
 
+    <!-- Log call modal (for a closed lead) -->
+    <div id="closed-call-modal" class="hidden" style="position:fixed;inset:0;z-index:55;">
+      <div id="closed-call-backdrop" style="position:absolute;inset:0;background:rgba(14,14,27,.45);"></div>
+      <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:100%;max-width:440px;" class="px-4">
+        <div class="bg-white rounded-2xl p-6 shadow-2xl">
+          <div class="flex items-center justify-between mb-1">
+            <h3 class="text-[17px] font-bold">Log call</h3>
+            <button id="closed-call-close" class="btn-icon" style="width:32px;height:32px;border:none;">
+              <i data-lucide="x" style="width:16px;height:16px;color:var(--text-muted);"></i>
+            </button>
+          </div>
+          <p class="text-[12.5px] text-muted mb-4">Logging a call to <span id="closed-call-name" class="font-semibold" style="color:var(--text);"></span>.</p>
+          <form id="closed-call-form" class="flex flex-col gap-3">
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="text-[12px] font-semibold text-muted">Outcome</label>
+                <select name="outcome" class="input mt-1" style="cursor:pointer;">
+                  <option value="Connected">Connected</option>
+                  <option value="Voicemail">Voicemail</option>
+                  <option value="No Answer">No Answer</option>
+                </select>
+              </div>
+              <div>
+                <label class="text-[12px] font-semibold text-muted">Duration</label>
+                <input name="duration" maxlength="8" class="input mt-1" placeholder="m:ss" value="0:00" />
+              </div>
+            </div>
+            <div>
+              <label class="text-[12px] font-semibold text-muted">Notes</label>
+              <textarea name="notes" rows="3" maxlength="500" class="input mt-1" placeholder="What was discussed?"></textarea>
+            </div>
+            <div id="closed-call-msg" class="text-[12.5px] font-medium" style="color:#D63333;"></div>
+            <div class="flex items-center justify-end gap-2 mt-2">
+              <button type="button" id="closed-call-cancel" class="btn-secondary">Cancel</button>
+              <button type="submit" class="btn-primary"><i data-lucide="phone-call" style="width:14px;height:14px;"></i> Log call</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
     <!-- Details modal -->
     <div id="closed-detail-modal" class="hidden" style="position:fixed;inset:0;z-index:50;">
       <div id="closed-detail-backdrop" style="position:absolute;inset:0;background:rgba(14,14,27,.45);"></div>

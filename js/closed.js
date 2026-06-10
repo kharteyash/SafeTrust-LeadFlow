@@ -46,14 +46,14 @@
     const compose = 'https://mail.google.com/mail/?view=cm&fs=1&to=' + encodeURIComponent(to);
     return 'https://accounts.google.com/AccountChooser?continue=' + encodeURIComponent(compose);
   }
-  function actionFor(header, value) {
+  function actionFor(header, value, name) {
     if (!value) return '';
     if (isEmailField(header)) {
       return `<button class="btn-icon" title="Send email" data-email="${escAttr(value)}" style="width:28px;height:28px;">
         <i data-lucide="mail" style="width:13px;height:13px;color:#2255a3;pointer-events:none;"></i></button>`;
     }
     if (isPhoneField(header)) {
-      return `<button class="btn-icon" title="Call" data-call="${escAttr(value)}" style="width:28px;height:28px;">
+      return `<button class="btn-icon" title="Call & log" data-call="${escAttr(value)}" data-call-name="${escAttr(name || '')}" style="width:28px;height:28px;">
         <i data-lucide="phone" style="width:13px;height:13px;color:#2255a3;pointer-events:none;"></i></button>`;
     }
     return '';
@@ -251,10 +251,11 @@
     const data = rec.data || {};
     const keys = Object.keys(data);
     const nameCol = nameColumn(keys);
-    document.getElementById('closed-detail-title').textContent = data[nameCol] || 'Closed lead';
+    const borrowerName = data[nameCol] || 'Closed lead';
+    document.getElementById('closed-detail-title').textContent = borrowerName;
     document.getElementById('closed-detail-body').innerHTML = keys.map(k => {
       const v = data[k];
-      const action = actionFor(k, v);
+      const action = actionFor(k, v, borrowerName);
       return `
         <div class="flex items-start justify-between gap-3 py-2" style="border-bottom:1px solid var(--border-soft);">
           <span class="text-[12px] text-muted flex-shrink-0" style="max-width:42%;">${esc(k)}</span>
@@ -352,9 +353,71 @@
     document.getElementById('closed-detail-backdrop').addEventListener('click', closeDetail);
     document.getElementById('closed-detail-body').addEventListener('click', e => {
       const callBtn = e.target.closest('[data-call]');
-      if (callBtn) { const tel = LF.telLink(callBtn.getAttribute('data-call')); if (tel) window.location.href = tel; return; }
+      if (callBtn) {
+        const phone = callBtn.getAttribute('data-call');
+        const name = callBtn.getAttribute('data-call-name') || 'Closed lead';
+        LF.callTimer.start(); // time the call from the moment it starts
+        const tel = LF.telLink(phone); if (tel) window.location.href = tel;
+        openClosedCallModal(name, phone);
+        return;
+      }
       const emailBtn = e.target.closest('[data-email]');
       if (emailBtn) { window.open(gmailChooser(emailBtn.getAttribute('data-email')), '_blank'); return; }
+    });
+
+    bindClosedCall();
+  }
+
+  // ----- Log a call to a closed lead (dial + log into Call History) -----
+  let closedCallName = '', closedCallPhone = '', stopClosedCallTimer = null;
+  function syncClosedCallDuration(form) {
+    const o = form.elements['outcome'].value;
+    const dur = form.elements['duration'];
+    if (o === 'No Answer' || o === 'Voicemail') { dur.value = ''; dur.disabled = true; }
+    else { dur.disabled = false; if (!dur.value) dur.value = '0:00'; }
+  }
+  function openClosedCallModal(name, phone) {
+    closedCallName = name || 'Closed lead';
+    closedCallPhone = phone || '';
+    document.getElementById('closed-call-name').textContent = closedCallName;
+    const form = document.getElementById('closed-call-form');
+    form.reset();
+    form.elements['outcome'].value = 'Connected';
+    syncClosedCallDuration(form);
+    if (stopClosedCallTimer) { stopClosedCallTimer(); stopClosedCallTimer = null; }
+    stopClosedCallTimer = LF.startCallDurationTimer(form);
+    document.getElementById('closed-call-msg').textContent = '';
+    document.getElementById('closed-call-modal').classList.remove('hidden');
+  }
+  function closeClosedCallModal() {
+    document.getElementById('closed-call-modal').classList.add('hidden');
+    if (stopClosedCallTimer) { stopClosedCallTimer(); stopClosedCallTimer = null; }
+    LF.callTimer.clear();
+  }
+  function bindClosedCall() {
+    document.getElementById('closed-call-close').addEventListener('click', closeClosedCallModal);
+    document.getElementById('closed-call-cancel').addEventListener('click', closeClosedCallModal);
+    document.getElementById('closed-call-backdrop').addEventListener('click', closeClosedCallModal);
+    document.getElementById('closed-call-form').elements['outcome'].addEventListener('change', e => syncClosedCallDuration(e.target.form));
+
+    const form = document.getElementById('closed-call-form');
+    const msg = document.getElementById('closed-call-msg');
+    form.addEventListener('submit', async e => {
+      e.preventDefault();
+      msg.textContent = '';
+      const data = Object.fromEntries(new FormData(form));
+      const btn = form.querySelector('button[type="submit"]');
+      btn.disabled = true; btn.style.opacity = '0.7';
+      try {
+        const res = await fetch('/api/call-log', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+          body: JSON.stringify({ name: closedCallName, phone: closedCallPhone, outcome: data.outcome, duration: data.duration || '0:00', notes: data.notes || '' })
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) { msg.textContent = body.error || `Request failed (HTTP ${res.status}).`; return; }
+        closeClosedCallModal();
+      } catch (err) { msg.textContent = 'Network error. Is the server running?'; }
+      finally { btn.disabled = false; btn.style.opacity = ''; }
     });
   }
 

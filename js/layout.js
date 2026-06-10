@@ -549,6 +549,41 @@ function renderNotifications(items, read) {
 // Tiny helper used by pages.
 LF.fmtNum = (n) => n.toLocaleString('en-US');
 
+// ----- Call timer -----
+// Times a phone call: started the instant the user taps a "Call" action, read
+// back when they submit the log-call form. Kept in sessionStorage so it survives
+// the tab leaving for the dialer and coming back. m:ss is the call's duration.
+LF.callTimer = {
+  start() { try { sessionStorage.setItem('lf-call-start', String(Date.now())); } catch (e) {} },
+  _get()  { try { const v = sessionStorage.getItem('lf-call-start'); return v ? Number(v) : null; } catch (e) { return null; } },
+  active() { return this._get() != null; },
+  elapsedSec() { const s = this._get(); return s ? Math.max(0, Math.round((Date.now() - s) / 1000)) : 0; },
+  label() { const s = this.elapsedSec(); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; },
+  clear() { try { sessionStorage.removeItem('lf-call-start'); } catch (e) {} }
+};
+
+// Drive a log-call modal's duration field live from the call timer. While a call
+// is being timed, the field auto-fills (read-only) and ticks every second, except
+// when the outcome is No Answer / Voicemail (no conversation → left blank).
+// Returns a stop() to call when the modal closes.
+LF.startCallDurationTimer = function (form) {
+  if (!form) return function () {};
+  const dur = form.elements['duration'];
+  const outcomeEl = form.elements['outcome'];
+  if (!dur || !LF.callTimer.active()) return function () {};
+  dur.readOnly = true;
+  dur.style.background = 'var(--surface-3)';
+  dur.title = 'Timing the call automatically';
+  const tick = () => {
+    const o = outcomeEl ? outcomeEl.value : 'Connected';
+    if (o === 'No Answer' || o === 'Voicemail' || o === 'Missed') return; // handled by the form's sync
+    dur.value = LF.callTimer.label();
+  };
+  tick();
+  const id = setInterval(tick, 1000);
+  return function () { clearInterval(id); dur.readOnly = false; dur.style.background = ''; dur.title = ''; };
+};
+
 // Build a tel: URI from a phone number (US default: prefix 1 for 10 digits).
 // Returns '' when there are no digits, so callers can disable the button.
 // Normalize any common phone format to an E.164-style "+<digits>" number.

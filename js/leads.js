@@ -399,6 +399,7 @@
       if (!item || !menuLead) return;
       const l = menuLead, action = item.getAttribute('data-action');
       if (action === 'Call & log') {
+        LF.callTimer.start(); // time the call from the moment it starts
         const tel = LF.telLink(l.phone); if (tel) window.location.href = tel;
         openCallLogModal(l.name, l.phone, false); // dial + log into Call History
       } else if (action === 'Text (SMS)') {
@@ -575,6 +576,7 @@
 
   // ----- Log a call (dial + log into Call History). Works for a lead or a realtor. -----
   let callLogName = '', callLogPhone = '', callIsRealtor = false;
+  let stopLeadCallTimer = null;
   // Voicemail / no answer = no conversation, so blank + disable the duration.
   function syncCallDuration(form) {
     const o = form.elements['outcome'].value;
@@ -593,12 +595,19 @@
     form.reset();
     form.elements['outcome'].value = 'Connected';
     syncCallDuration(form);
+    // Auto-time the call's duration when opened right after dialing.
+    if (stopLeadCallTimer) { stopLeadCallTimer(); stopLeadCallTimer = null; }
+    stopLeadCallTimer = LF.startCallDurationTimer(form);
     document.getElementById('realtor-call-msg').textContent = '';
     document.getElementById('realtor-call-modal').classList.remove('hidden');
   }
   // Back-compat alias for the realtor-phone entry point.
   function openRealtorCallModal(name, phone) { openCallLogModal(name, phone, true); }
-  function closeRealtorCallModal() { document.getElementById('realtor-call-modal').classList.add('hidden'); }
+  function closeRealtorCallModal() {
+    document.getElementById('realtor-call-modal').classList.add('hidden');
+    if (stopLeadCallTimer) { stopLeadCallTimer(); stopLeadCallTimer = null; }
+    LF.callTimer.clear();
+  }
   function bindRealtorCall() {
     document.getElementById('realtor-call-close').addEventListener('click', closeRealtorCallModal);
     document.getElementById('realtor-call-cancel').addEventListener('click', closeRealtorCallModal);
@@ -612,6 +621,7 @@
       const phone = btn.getAttribute('data-call-realtor');
       const name = btn.getAttribute('data-realtor-name') || 'Realtor';
       const tel = LF.telLink(phone);
+      LF.callTimer.start(); // time the realtor call from the moment it starts
       if (tel) window.location.href = tel;
       closeLeadDetail();
       openRealtorCallModal(name, phone);

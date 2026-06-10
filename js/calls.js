@@ -462,6 +462,7 @@
     if (o === 'No Answer' || o === 'Voicemail' || o === 'Missed') { dur.value = ''; dur.disabled = true; }
     else { dur.disabled = false; if (!dur.value) dur.value = '0:00'; }
   }
+  let stopCallTimer = null;
   function openLogModal(prefill, queueId) {
     pendingQueueId = queueId != null ? queueId : null;
     const form = document.getElementById('log-form');
@@ -470,11 +471,19 @@
     form.elements['phone'].value = (prefill && prefill.phone) || '';
     form.elements['outcome'].value = 'Connected';
     syncLogDuration(form);
+    // If this log was opened right after dialing, auto-time the call's duration.
+    if (stopCallTimer) { stopCallTimer(); stopCallTimer = null; }
+    stopCallTimer = LF.startCallDurationTimer(form);
     document.getElementById('log-form-msg').textContent = '';
     document.getElementById('log-modal').classList.remove('hidden');
     form.elements[prefill ? 'outcome' : 'name'].focus();
   }
-  function closeLogModal() { document.getElementById('log-modal').classList.add('hidden'); pendingQueueId = null; }
+  function closeLogModal() {
+    document.getElementById('log-modal').classList.add('hidden');
+    pendingQueueId = null;
+    if (stopCallTimer) { stopCallTimer(); stopCallTimer = null; }
+    LF.callTimer.clear();
+  }
 
   // ----- Add to queue modal -----
   function openQueueModal() {
@@ -536,6 +545,7 @@
       if (callT) {
         const phone = callT.getAttribute('data-call');
         const tel = LF.telLink(phone);
+        LF.callTimer.start(); // start timing the moment the call begins
         if (tel) window.location.href = tel;
         // Open the log-call modal so the call can be logged afterwards.
         openLogModal({ name: callT.getAttribute('data-call-name') || '', phone }, callT.getAttribute('data-call-queue'));
@@ -543,12 +553,13 @@
       }
 
       const newBtn = e.target.closest('[data-log-new]');
-      if (newBtn) { openLogModal(null, null); return; }
+      if (newBtn) { LF.callTimer.clear(); openLogModal(null, null); return; } // manual log, no timer
 
       const trigger = e.target.closest('[data-log-name]');
       if (trigger) {
         const phone = trigger.getAttribute('data-log-phone');
         if (phone) window.open(waLink(phone), '_blank');
+        LF.callTimer.clear(); // WhatsApp/manual log — duration is entered by hand
         openLogModal({ name: trigger.getAttribute('data-log-name'), phone }, trigger.getAttribute('data-log-queue'));
         return;
       }
