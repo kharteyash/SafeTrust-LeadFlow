@@ -1879,10 +1879,18 @@ app.post('/api/ai/generate', safe(async (req, res) => {
     (context ? `Context about the lead: ${context}` : 'No extra context was provided; keep it general.') +
     ` Return only the message text.`;
 
-  // Free-tier quotas are per-model, so if one is rate-limited (429) we try the
-  // next. An env override (GEMINI_MODEL) is tried first when set.
-  const models = [process.env.GEMINI_MODEL, 'gemini-2.0-flash-lite', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-flash-latest']
-    .filter(Boolean).filter((m, i, a) => a.indexOf(m) === i);
+  // Free-tier quotas/capacity are per-model, so if one is overloaded (503) or
+  // rate-limited (429) we try the next. The order leads with the highest-capacity
+  // models so it works in the most cases. An env override (GEMINI_MODEL) wins.
+  const models = [
+    process.env.GEMINI_MODEL,
+    'gemini-2.5-flash',        // current GA flash — most reliable / highest capacity
+    'gemini-flash-latest',     // moving alias to the latest stable flash
+    'gemini-2.0-flash',
+    'gemini-1.5-flash',        // older but very stable, generous free quota
+    'gemini-2.5-flash-lite',
+    'gemini-2.0-flash-lite'
+  ].filter(Boolean).filter((m, i, a) => a.indexOf(m) === i);
 
   const body = JSON.stringify({
     contents: [{ parts: [{ text: prompt }] }],
@@ -1891,8 +1899,8 @@ app.post('/api/ai/generate', safe(async (req, res) => {
 
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   let lastStatus = 0, lastDetail = '';
-  // Two passes: free models get briefly overloaded (503), so retry the list once.
-  for (let attempt = 0; attempt < 2; attempt++) {
+  // Three passes: free models get briefly overloaded (503), so retry the list.
+  for (let attempt = 0; attempt < 3; attempt++) {
     for (const model of models) {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
       try {
@@ -1918,7 +1926,7 @@ app.post('/api/ai/generate', safe(async (req, res) => {
         lastStatus = 0; lastDetail = String((e && e.message) || e);
       }
     }
-    if (attempt === 0) await sleep(1200); // brief pause before the second pass
+    if (attempt < 2) await sleep(800 * (attempt + 1)); // back off before retrying the list
   }
 
   // Everything failed — return a clear, specific reason.
