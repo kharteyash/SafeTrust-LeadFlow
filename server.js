@@ -1808,25 +1808,27 @@ app.get('/api/leads', safe(async (req, res) => {
   res.json(rows.map(leadRowToJson));
 }));
 
-// When a lead has a realtor attached, make sure that realtor shows up in the
-// owner's Contacts as a Realtor with an "unknown" relationship — but skip it if
-// a contact with the same email (or, lacking an email, the same name) exists.
-async function ensureRealtorContact(userId, realtor) {
-  const name = String(realtor.name || '').trim();
-  const email = String(realtor.email || '').trim();
-  const phone = String(realtor.phone || '').trim();
-  if (!name && !email) return; // nothing to add
-  try {
-    const existing = email
-      ? await one(`SELECT id FROM contacts WHERE user_id = $1 AND lower(email) = lower($2) LIMIT 1`, [userId, email])
-      : await one(`SELECT id FROM contacts WHERE user_id = $1 AND lower(name) = lower($2) LIMIT 1`, [userId, name]);
-    if (existing) return; // already a contact — ignore
-    await q(
-      `INSERT INTO contacts (user_id, name, email, phone, company, tag, relationship)
-       VALUES ($1, $2, $3, $4, '', 'Realtor', 'unknown')`,
-      [userId, name || email, email, phone]
-    );
-  } catch (e) { console.error('ensureRealtorContact:', e); } // best-effort
+// Add a contact for someone (realtor, loan officer, etc.) unless one with the
+// same email (or, lacking an email, the same name) already exists. Returns
+// { created } or { skipped } so callers can report counts.
+async function ensureContact(userId, c) {
+  const name = String(c.name || '').trim();
+  const email = String(c.email || '').trim();
+  const phone = String(c.phone || '').trim();
+  const company = String(c.company || '').trim();
+  const tag = String(c.tag || 'Other').slice(0, 40);
+  const relationship = c.relationship || '';
+  if (!name && !email) return { skipped: true }; // nothing identifiable
+  const existing = email
+    ? await one(`SELECT id FROM contacts WHERE user_id = $1 AND lower(email) = lower($2) LIMIT 1`, [userId, email])
+    : await one(`SELECT id FROM contacts WHERE user_id = $1 AND lower(name) = lower($2) LIMIT 1`, [userId, name]);
+  if (existing) return { skipped: true }; // already a contact — ignore
+  await q(
+    `INSERT INTO contacts (user_id, name, email, phone, company, tag, relationship)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [userId, name || email, email, phone, company, tag, relationship]
+  );
+  return { created: true };
 }
 
 app.post('/api/leads', safe(async (req, res) => {
@@ -1848,7 +1850,9 @@ app.post('/api/leads', safe(async (req, res) => {
 
   // A new lead with a realtor attached → surface that realtor in Contacts.
   if (f.realtorStatus === 'has') {
-    await ensureRealtorContact(req.user.id, { name: f.realtorName, email: f.realtorEmail, phone: f.realtorPhone });
+    try {
+      await ensureContact(req.user.id, { name: f.realtorName, email: f.realtorEmail, phone: f.realtorPhone, tag: 'Realtor', relationship: 'unknown' });
+    } catch (e) { console.error('ensureContact (lead realtor):', e); }
   }
 
   res.json(leadRowToJson({
@@ -2470,6 +2474,73 @@ app.delete('/api/contacts/:id', safe(async (req, res) => {
   const r = await pool.query('DELETE FROM contacts WHERE id = $1 AND user_id = $2', [id, req.user.id]);
   if (r.rowCount === 0) return res.status(404).json({ error: 'Contact not found.' });
   res.json({ ok: true });
+}));
+
+// ----- RETR (retr.app) webhook integration -----
+// RETR's "Push to CRM" posts a JSON object per contact to these URLs. There's no
+// user session, so we authenticate with a shared token (?token= or x-retr-token,
+// matched against RETR_TOKEN) and file the contact under the matching LeadFlow
+// user (by the RETR "Owner" email, else RETR_DEFAULT_EMAIL, else the admin).
+function retrAuthed(req) {
+  const token = process.env.RETR_TOKEN;
+  if (!token) return false; // integration disabled until a token is configured
+  const provided = (req.query && req.query.token) || req.get('x-retr-token') || '';
+  return provided === token;
+}
+async function retrTargetUserId(ownerEmail) {
+  const byEmail = async (e) => e ? await one('SELECT id FROM users WHERE lower(email) = lower($1) LIMIT 1', [String(e).trim()]) : null;
+  const row = (await byEmail(ownerEmail)) || (await byEmail(process.env.RETR_DEFAULT_EMAIL)) ||
+    (await one("SELECT id FROM users WHERE role = 'admin' ORDER BY id LIMIT 1", []));
+  return row ? row.id : null;
+}
+// RETR posts a single object; accept an array or common wrappers too, defensively.
+function retrRecords(body) {
+  if (Array.isArray(body)) return body;
+  if (body && typeof body === 'object') {
+    if (Array.isArray(body.contacts)) return body.contacts;
+    if (body.data && typeof body.data === 'object') return [body.data];
+    return [body];
+  }
+  return [];
+}
+const retrName = (r) => String(r.FullName || `${r.FirstName || ''} ${r.LastName || ''}`).trim();
+
+app.post('/api/integrations/retr/agents', safe(async (req, res) => {
+  if (!retrAuthed(req)) return res.status(401).json({ error: 'Invalid or missing token.' });
+  const records = retrRecords(req.body);
+  if (!records.length) return res.status(400).json({ error: 'No contact data received.' });
+  let created = 0, skipped = 0;
+  for (const r of records) {
+    const userId = await retrTargetUserId(r.Owner);
+    if (!userId) { skipped++; continue; }
+    try {
+      const out = await ensureContact(userId, {
+        name: retrName(r), email: r.Email || '', phone: r.Phone || '', company: r.Company || '',
+        tag: 'Realtor', relationship: 'unknown'
+      });
+      if (out && out.created) created++; else skipped++;
+    } catch (e) { console.error('retr agent:', e); skipped++; }
+  }
+  res.json({ ok: true, type: 'agents', created, skipped });
+}));
+
+app.post('/api/integrations/retr/loan-officers', safe(async (req, res) => {
+  if (!retrAuthed(req)) return res.status(401).json({ error: 'Invalid or missing token.' });
+  const records = retrRecords(req.body);
+  if (!records.length) return res.status(400).json({ error: 'No contact data received.' });
+  let created = 0, skipped = 0;
+  for (const r of records) {
+    const userId = await retrTargetUserId(r.Owner);
+    if (!userId) { skipped++; continue; }
+    try {
+      const out = await ensureContact(userId, {
+        name: retrName(r), email: r.Email_Work || r.Email_Personal || '', phone: r.Phone_Cell || r.Phone_Work || '',
+        company: r.Company || r.BranchName || '', tag: 'Loan Officer', relationship: ''
+      });
+      if (out && out.created) created++; else skipped++;
+    } catch (e) { console.error('retr LO:', e); skipped++; }
+  }
+  res.json({ ok: true, type: 'loan-officers', created, skipped });
 }));
 
 // ----- Tasks -----
