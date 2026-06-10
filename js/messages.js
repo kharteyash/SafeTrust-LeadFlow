@@ -273,20 +273,34 @@
       const raw = await res.text();
       let body = {}; try { body = raw ? JSON.parse(raw) : {}; } catch (e) {}
       if (res.ok && body.text) { showAISuggestion(body.text); return; }
-
-      // AI not configured / unavailable — fall back to a built-in sample so the tool still works.
-      const name = ctx ? ctx.split(/[ ,]/)[0] : 'there';
-      const samples = AI_SAMPLES[state.aiType] || AI_SAMPLES.reply;
-      const text = samples[aiIndex % samples.length].replace(/\{name\}/g, name);
-      aiIndex++;
-      showAISuggestion(text);
+      // Couldn't reach the model — show why, then a sample as a stopgap.
+      showAIFallback(body.error || `AI request failed (HTTP ${res.status}).`, ctx);
     } catch (e) {
-      const name = ctx ? ctx.split(/[ ,]/)[0] : 'there';
-      const samples = AI_SAMPLES[state.aiType] || AI_SAMPLES.reply;
-      showAISuggestion(samples[(aiIndex++) % samples.length].replace(/\{name\}/g, name));
+      showAIFallback('Could not reach the server.', ctx);
     } finally {
       if (btn) { btn.disabled = false; btn.style.opacity = ''; }
     }
+  }
+
+  // When real generation fails, explain why and still offer a built-in sample.
+  function showAIFallback(reason, ctx) {
+    const name = ctx ? ctx.split(/[ ,]/)[0] : 'there';
+    const samples = AI_SAMPLES[state.aiType] || AI_SAMPLES.reply;
+    const text = samples[(aiIndex++) % samples.length].replace(/\{name\}/g, name);
+    showAISuggestion(text);   // fills #ai-output with the card + working buttons
+    const out = document.getElementById('ai-output');
+    if (!out) return;
+    const notice = document.createElement('div');
+    notice.className = 'rounded-lg p-3 mb-3 text-[12.5px]';
+    notice.style.cssText = 'border:1px solid #E8C36A;background:#FBF4E2;color:#7A5A00;';
+    notice.innerHTML = `
+      <div class="flex items-start gap-2">
+        <i data-lucide="alert-triangle" style="width:14px;height:14px;flex-shrink:0;margin-top:1px;"></i>
+        <div><b>AI generation is off.</b> ${esc(reason)}<br>
+        Set a <b>GEMINI_API_KEY</b> in your hosting environment to turn on real AI drafts. Showing a sample below for now.</div>
+      </div>`;
+    out.insertBefore(notice, out.firstChild);
+    if (window.lucide) lucide.createIcons();
   }
 
   // ----- Dispatcher -----

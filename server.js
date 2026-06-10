@@ -1495,7 +1495,8 @@ app.get('/api/email/status', safe(async (req, res) => {
     smtpHost: smtp ? smtp.host : '',
     from: smtp ? smtp.from : '',
     ready: gAcct ? true : sharedReady,       // can this user send right now?
-    cronSet: !!process.env.CRON_SECRET
+    cronSet: !!process.env.CRON_SECRET,
+    aiReady: !!process.env.GEMINI_API_KEY    // is the AI Assistant's Gemini key set?
   });
 }));
 
