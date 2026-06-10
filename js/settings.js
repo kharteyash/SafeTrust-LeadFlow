@@ -43,6 +43,8 @@
       a: "Only the admin can. Click a lead's name to open its details — the admin sees an editable 1–5 rating field with a Save button." },
     { q: 'How do I improve a lead’s score?',
       a: "Hover over the stars to see the factor breakdown — the amber tips point out what's missing. Common wins: add a phone number, get the lead pre-approved, and attach a realtor (for purchases). Sooner buying timelines also raise the score." },
+    { q: 'What happens after too many wrong passwords?',
+      a: "Three wrong passwords in a row locks that account for 24 hours — sign-in is disabled even with the correct password until then. The admin sees a red “Login disabled” tag next to the user in Settings → Roles & Permissions and can click “Unlock” to re-enable sign-in right away." },
     { q: 'What happens when I forward (assign) a lead?',
       a: "Whoever you forward to gets a bell notification to Accept or Decline. The first person to accept becomes the new owner. The lead then leaves your “My Leads” view, is marked high priority, and its forwarding history is recorded in the lead's detail (user1 → user2 → user3)." },
     { q: 'Who can forward or assign leads?',
@@ -506,9 +508,13 @@
           <div class="flex items-center gap-2">
             <div class="avatar avatar-sm">${(u.name || '?').trim().split(/\s+/).map(s => s[0]).slice(0,2).join('').toUpperCase()}</div>
             <div>
-              ${u.role === 'team_leader'
-                ? `<button data-view-team="${u.id}" class="font-semibold text-[13px]" style="color:var(--accent);cursor:pointer;display:inline-flex;align-items:center;gap:4px;">${escAttr(u.name)} <i data-lucide="chevron-right" style="width:12px;height:12px;pointer-events:none;"></i></button>`
-                : `<div class="font-semibold text-[13px]">${escAttr(u.name)}</div>`}
+              <div class="flex items-center gap-1.5 flex-wrap">
+                ${u.role === 'team_leader'
+                  ? `<button data-view-team="${u.id}" class="font-semibold text-[13px]" style="color:var(--accent);cursor:pointer;display:inline-flex;align-items:center;gap:4px;">${escAttr(u.name)} <i data-lucide="chevron-right" style="width:12px;height:12px;pointer-events:none;"></i></button>`
+                  : `<span class="font-semibold text-[13px]">${escAttr(u.name)}</span>`}
+                ${u.locked ? `<span class="pill pill-red" style="font-size:10px;" title="Locked after 3 failed sign-ins — clears automatically after 24 hours"><i data-lucide="lock" style="width:9px;height:9px;display:inline;vertical-align:-1px;"></i> Login disabled</span>
+                  <button data-unlock-user="${u.id}" class="text-[11px] font-semibold" style="color:var(--accent);cursor:pointer;">Unlock</button>` : ''}
+              </div>
               <div class="text-[11.5px] text-muted">${escAttr(u.email)}</div>
             </div>
           </div>
@@ -664,6 +670,19 @@
         if (res.ok) bindRoles(); // refresh leader column
       } catch (e) { if (msg) { msg.style.color = '#D63333'; msg.textContent = 'Network error.'; } }
       finally { sel.disabled = false; }
+    }));
+
+    // Admin: clear a user's failed-login lock.
+    document.querySelectorAll('[data-unlock-user]').forEach(btn => btn.addEventListener('click', async () => {
+      const id = btn.getAttribute('data-unlock-user');
+      const msg = document.getElementById('roles-msg');
+      btn.disabled = true;
+      try {
+        const res = await fetch('/api/admin/users/' + id + '/unlock', { method: 'POST', credentials: 'same-origin' });
+        if (msg) { msg.style.color = res.ok ? '#138A4B' : '#D63333'; msg.textContent = res.ok ? 'Login re-enabled for that user.' : 'Could not unlock the user.'; }
+        if (res.ok) bindRoles();
+      } catch (e) { if (msg) { msg.style.color = '#D63333'; msg.textContent = 'Network error.'; } }
+      finally { btn.disabled = false; }
     }));
 
     // Admin: create a user account (emails them a temporary password).

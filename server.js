@@ -75,6 +75,9 @@ const SCHEMA = `
   ALTER TABLE users ADD COLUMN IF NOT EXISTS photo TEXT;
   -- True when the user was given a temporary password and must change it on first login.
   ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN DEFAULT FALSE;
+  -- Failed-login lockout: 3 wrong passwords locks the account for 24 hours.
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_attempts INTEGER DEFAULT 0;
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_until TIMESTAMPTZ;
 
   -- Team join invitations (a leader invites a user; the user accepts/rejects).
   CREATE TABLE IF NOT EXISTS team_invites (
@@ -414,15 +417,38 @@ app.post('/api/register', safe(async (req, res) => {
   res.json({ id: row.id, email: emailNorm, name: name.trim(), role: 'admin' });
 }));
 
+const MAX_LOGIN_ATTEMPTS = 3;
 app.post('/api/login', safe(async (req, res) => {
   const { email, password } = req.body || {};
   if (!email || !password) return res.status(400).json({ error: 'Email and password are required.' });
 
   const user = await one('SELECT * FROM users WHERE lower(email) = lower($1)', [email.trim()]);
+
+  // If the account is currently locked, refuse before checking the password.
+  if (user && user.locked_until && new Date(user.locked_until).getTime() > Date.now()) {
+    const hrs = Math.ceil((new Date(user.locked_until).getTime() - Date.now()) / 3600000);
+    return res.status(403).json({ error: `Too many failed attempts — this account is locked. Try again in about ${hrs} hour${hrs === 1 ? '' : 's'}.` });
+  }
+
   if (!user || !bcrypt.compareSync(password, user.password_hash)) {
+    // Count the failure against a real account (can't lock one that doesn't exist).
+    if (user) {
+      const attempts = (user.failed_attempts || 0) + 1;
+      if (attempts >= MAX_LOGIN_ATTEMPTS) {
+        await q("UPDATE users SET failed_attempts = 0, locked_until = now() + interval '24 hours' WHERE id = $1", [user.id]);
+        return res.status(403).json({ error: 'Too many failed attempts — this account is now locked for 24 hours.' });
+      }
+      await q('UPDATE users SET failed_attempts = $1 WHERE id = $2', [attempts, user.id]);
+      const left = MAX_LOGIN_ATTEMPTS - attempts;
+      return res.status(401).json({ error: `Invalid email or password. ${left} attempt${left === 1 ? '' : 's'} left before this account is locked for 24 hours.` });
+    }
     return res.status(401).json({ error: 'Invalid email or password.' });
   }
 
+  // Success — clear any prior failure/lock state.
+  if (user.failed_attempts || user.locked_until) {
+    await q('UPDATE users SET failed_attempts = 0, locked_until = NULL WHERE id = $1', [user.id]);
+  }
   const sid = await createSession(user.id);
   setSessionCookie(res, sid);
   res.json({ id: user.id, email: user.email, name: user.name, mustChangePassword: !!user.must_change_password });
@@ -501,11 +527,15 @@ app.get('/api/admin/users', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin only.' });
   const rows = await q(`
-    SELECT u.id, u.name, u.email, u.role, l.name AS leader_name
+    SELECT u.id, u.name, u.email, u.role, u.locked_until, l.name AS leader_name
     FROM users u LEFT JOIN users l ON l.id = u.leader_id
     ORDER BY (u.role='admin') DESC, (u.role='team_leader') DESC, lower(u.name)
   `, []);
-  res.json(rows.map(r => ({ id: r.id, name: r.name, email: r.email, role: r.role || 'user', leaderName: r.leader_name || '' })));
+  res.json(rows.map(r => ({
+    id: r.id, name: r.name, email: r.email, role: r.role || 'user', leaderName: r.leader_name || '',
+    locked: !!(r.locked_until && new Date(r.locked_until).getTime() > Date.now()),
+    lockedUntil: r.locked_until || null
+  })));
 }));
 
 // Admin: change a user's role (team_leader <-> user). Admins are not editable here.
@@ -527,6 +557,17 @@ app.patch('/api/admin/users/:id/role', safe(async (req, res) => {
     await q(`UPDATE team_invites SET status = 'cancelled' WHERE leader_id = $1 AND status = 'pending'`, [id]);
   }
   res.json({ ok: true, role });
+}));
+
+// Admin: clear a user's failed-login lock so they can sign in again immediately.
+app.post('/api/admin/users/:id/unlock', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin only.' });
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid user id.' });
+  const r = await pool.query('UPDATE users SET failed_attempts = 0, locked_until = NULL WHERE id = $1', [id]);
+  if (r.rowCount === 0) return res.status(404).json({ error: 'User not found.' });
+  res.json({ ok: true });
 }));
 
 // Admin: create an account for a user. The admin supplies an email (and optional
