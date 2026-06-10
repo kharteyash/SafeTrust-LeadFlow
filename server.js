@@ -550,8 +550,11 @@ app.post('/api/admin/users/create', safe(async (req, res) => {
   if (!name) name = email.split('@')[0]; // default the name to the email's local part
   if (name.length > 80) return res.status(400).json({ error: 'Name is too long.' });
 
-  const existing = await one('SELECT id FROM users WHERE lower(email) = $1', [email]);
-  if (existing) return res.status(409).json({ error: 'An account with that email already exists.' });
+  // Don't create a second account for an email that already has one.
+  const existing = await one('SELECT id, name FROM users WHERE lower(email) = $1', [email]);
+  if (existing) {
+    return res.status(409).json({ error: `A user with that email already exists${existing.name ? ` (${existing.name})` : ''}. You can't create another account for them.` });
+  }
 
   const tempPassword = generateTempPassword();
   const hash = bcrypt.hashSync(tempPassword, 10);
