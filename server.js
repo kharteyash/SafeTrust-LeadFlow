@@ -526,6 +526,23 @@ app.patch('/api/admin/users/:id/role', safe(async (req, res) => {
   res.json({ ok: true, role });
 }));
 
+// Admin: delete a user account entirely. The admin can't delete themselves or
+// another admin. All of the user's data (leads, tasks, calls, etc.) cascades away,
+// their team members are orphaned (leader_id -> NULL), and pending invites cancel.
+app.delete('/api/admin/users/:id', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin only.' });
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid user id.' });
+  if (id === req.user.id) return res.status(400).json({ error: 'You can’t delete your own account.' });
+  const target = await one('SELECT id, role FROM users WHERE id = $1', [id]);
+  if (!target) return res.status(404).json({ error: 'User not found.' });
+  if (target.role === 'admin') return res.status(400).json({ error: 'An admin account can’t be deleted.' });
+
+  await pool.query('DELETE FROM users WHERE id = $1', [id]); // FKs cascade / set null
+  res.json({ ok: true });
+}));
+
 // Admin: view the members under any team leader.
 app.get('/api/admin/users/:id/team', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });

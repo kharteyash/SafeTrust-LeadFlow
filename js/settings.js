@@ -520,13 +520,20 @@
                  <option value="team_leader" ${u.role === 'team_leader' ? 'selected' : ''}>Team Leader</option>
                </select>`}
         </td>
+        <td style="text-align:right;">
+          ${u.role === 'admin'
+            ? '<span class="text-soft">—</span>'
+            : `<button data-delete-user="${u.id}" data-user-name="${escAttr(u.name)}" class="btn-icon" title="Delete user" style="width:30px;height:30px;border:none;">
+                 <i data-lucide="trash-2" style="width:14px;height:14px;color:#D63333;pointer-events:none;"></i>
+               </button>`}
+        </td>
       </tr>`).join('');
     return `
       <h3 class="text-[15px] font-semibold mb-1">All users (${users.length})</h3>
-      <p class="text-[12px] text-soft mb-3">Click a team leader to see who's on their team.</p>
+      <p class="text-[12px] text-soft mb-3">Click a team leader to see who's on their team. Deleting a user removes their account and all their data.</p>
       <div class="rounded-xl overflow-hidden" style="border:1px solid var(--border);">
         <table class="lf-table">
-          <thead><tr><th>User</th><th>Team leader</th><th>Role</th></tr></thead>
+          <thead><tr><th>User</th><th>Team leader</th><th>Role</th><th></th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
       </div>
@@ -637,6 +644,22 @@
         if (res.ok) bindRoles(); // refresh leader column
       } catch (e) { if (msg) { msg.style.color = '#D63333'; msg.textContent = 'Network error.'; } }
       finally { sel.disabled = false; }
+    }));
+
+    // Admin: delete a user account.
+    document.querySelectorAll('[data-delete-user]').forEach(btn => btn.addEventListener('click', async () => {
+      const id = btn.getAttribute('data-delete-user');
+      const name = btn.getAttribute('data-user-name') || 'this user';
+      const msg = document.getElementById('roles-msg');
+      if (!window.confirm(`Delete ${name}? This permanently removes their account and all of their leads, tasks, calls, and other data. This can't be undone.`)) return;
+      btn.disabled = true;
+      try {
+        const res = await fetch('/api/admin/users/' + id, { method: 'DELETE', credentials: 'same-origin' });
+        const body = await res.json().catch(() => ({}));
+        if (msg) { msg.style.color = res.ok ? '#138A4B' : '#D63333'; msg.textContent = res.ok ? `${name} was deleted.` : (body.error || 'Could not delete the user.'); }
+        if (res.ok) bindRoles(); // refresh the list
+      } catch (e) { if (msg) { msg.style.color = '#D63333'; msg.textContent = 'Network error.'; } }
+      finally { btn.disabled = false; }
     }));
 
     // Leader: invite.
