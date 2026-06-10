@@ -854,13 +854,6 @@ app.delete('/api/events/:id', safe(async (req, res) => {
 
 // ----- Call log -----
 const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-function fmtCallDate(d) {
-  let h = d.getHours();
-  const m = d.getMinutes();
-  const ap = h >= 12 ? 'PM' : 'AM';
-  h = h % 12 || 12;
-  return `${MONTHS_SHORT[d.getMonth()]} ${d.getDate()}, ${h}:${String(m).padStart(2, '0')} ${ap}`;
-}
 function shortName(name) {
   const parts = (name || '').trim().split(/\s+/);
   if (parts.length < 2) return parts[0] || '';
@@ -887,7 +880,9 @@ app.post('/api/call-log', safe(async (req, res) => {
   if (!['Connected', 'Voicemail', 'No Answer', 'Missed'].includes(outcome)) return res.status(400).json({ error: 'Please choose a valid outcome.' });
 
   const agent = shortName(req.user.name);
-  const loggedAt = fmtCallDate(new Date());
+  // Store the exact instant as ISO (UTC); the client renders it in the user's
+  // own local timezone. (The old yearless local string lost the year + timezone.)
+  const loggedAt = new Date().toISOString();
   // No conversation happened on a voicemail / no-answer, so leave duration blank.
   const noTalk = outcome === 'Voicemail' || outcome === 'No Answer' || outcome === 'Missed';
   const dur = noTalk ? '' : ((duration || '0:00').trim() || '0:00');

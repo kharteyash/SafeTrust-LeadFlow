@@ -115,7 +115,7 @@
       ? hotLeads.map(l => personRow(l.name, l.phone, `<span class="pill pill-green mr-1" style="font-size:11px;">${l.score}</span>`)).join('')
       : emptyCardBody('No hot leads yet (score 80+).');
     const missedBody = missed.length
-      ? missed.map(c => personRow(c.name, c.phone, `<span class="text-[11.5px] mr-1" style="color:#D63333;">${esc(c.date)}</span>`)).join('')
+      ? missed.map(c => personRow(c.name, c.phone, `<span class="text-[11.5px] mr-1" style="color:#D63333;">${fmtCallShort(c.date)}</span>`)).join('')
       : emptyCardBody('No missed calls.');
     const aiBody = recs.length
       ? recs.map(r => `
@@ -267,7 +267,7 @@
             ${c.isRealtor ? '<span class="pill pill-purple" style="font-size:10px;">Realtor</span>' : ''}
           </div>
         </td>
-        <td class="text-muted">${esc(c.date)}</td>
+        <td class="text-muted">${fmtCallShort(c.date)}</td>
         <td class="text-muted">${esc(c.duration)}</td>
         <td><span class="pill ${outcomePill(c.outcome)}">${esc(c.outcome)}</span></td>
         <td class="text-muted">${esc(c.notes)}</td>
@@ -285,10 +285,23 @@
   }
 
   // ----- Call detail modal -----
+  // New call logs store an ISO instant (UTC); render it in the user's local
+  // timezone. Old logs are a pre-formatted local string — show those as-is.
+  function isISODate(v) { return /\d{4}-\d{2}-\d{2}T/.test(String(v || '')); }
   function fmtDateTime(v) {
-    const d = new Date(v);
-    if (isNaN(d.getTime())) return esc(String(v || '—'));
-    return d.toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    if (isISODate(v)) {
+      const d = new Date(v);
+      if (!isNaN(d.getTime())) return d.toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    }
+    return esc(String(v || '—'));
+  }
+  // Compact "Jun 10, 1:30 PM" for list rows.
+  function fmtCallShort(v) {
+    if (isISODate(v)) {
+      const d = new Date(v);
+      if (!isNaN(d.getTime())) return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    }
+    return esc(String(v || ''));
   }
   function detailRow(label, value) {
     return `<div class="flex justify-between gap-4 py-2" style="border-bottom:1px solid var(--border-soft);">
@@ -371,6 +384,8 @@
   function durToSec(d) { const m = /(\d+):(\d+)/.exec(d || ''); return m ? +m[1] * 60 + +m[2] : 0; }
   function secToDur(s) { return `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`; }
   function hourFromLogged(s) {
+    // ISO instant → the local hour; legacy string → parse the "h:mm AM/PM".
+    if (isISODate(s)) { const d = new Date(s); return isNaN(d.getTime()) ? null : d.getHours(); }
     const m = /(\d{1,2}):(\d{2})\s*(AM|PM)/i.exec(s || '');
     if (!m) return null;
     let h = parseInt(m[1], 10) % 12;
