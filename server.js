@@ -1853,6 +1853,61 @@ app.post('/api/meet', safe(async (req, res) => {
   res.json({ ok: true, meetLink, sentTo: to, when: whenLabel });
 }));
 
+// ----- AI Assistant (Google Gemini) -----
+// Generates a message draft from a kind + free-text context using Gemini's
+// free tier. Set GEMINI_API_KEY in the environment (https://aistudio.google.com/apikey).
+const AI_KINDS = {
+  reply:        'a warm, professional reply to a lead who just contacted us',
+  followup:     'a friendly follow-up message to re-engage a lead we spoke with earlier',
+  personalized: 'a personalized outreach message tailored to the lead’s situation'
+};
+app.post('/api/ai/generate', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) return res.status(400).json({ error: 'AI is not set up yet. Add a GEMINI_API_KEY to enable it.' });
+
+  const kind = String((req.body || {}).kind || 'reply');
+  const context = String((req.body || {}).context || '').slice(0, 1500).trim();
+  const goal = AI_KINDS[kind] || AI_KINDS.reply;
+  const senderName = req.user.name || 'the agent';
+
+  const prompt =
+    `You are a helpful assistant for a real-estate / mortgage agent named ${senderName}. ` +
+    `Write ${goal}. Keep it concise (2-4 sentences), friendly, and ready to send — ` +
+    `no subject line, no placeholders like [name], and no markdown. ` +
+    (context ? `Context about the lead: ${context}` : 'No extra context was provided; keep it general.') +
+    ` Return only the message text.`;
+
+  const model = 'gemini-2.0-flash';
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
+  try {
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.9, maxOutputTokens: 400 }
+      })
+    });
+    if (!r.ok) {
+      const detail = (await r.text().catch(() => '')).slice(0, 300);
+      console.error('gemini', r.status, detail);
+      const msg = r.status === 400 || r.status === 403
+        ? 'AI request was rejected — check that the GEMINI_API_KEY is valid.'
+        : `AI service error (HTTP ${r.status}).`;
+      return res.status(502).json({ error: msg });
+    }
+    const data = await r.json();
+    const parts = (((data.candidates || [])[0] || {}).content || {}).parts || [];
+    const text = parts.map(p => p.text || '').join('').trim();
+    if (!text) return res.status(502).json({ error: 'AI returned an empty response. Try again.' });
+    res.json({ text });
+  } catch (e) {
+    console.error('gemini err', e);
+    res.status(502).json({ error: 'Could not reach the AI service. Please try again.' });
+  }
+}));
+
 app.delete('/api/leads/:id', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
   const id = Number(req.params.id);

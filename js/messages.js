@@ -212,38 +212,73 @@
     document.querySelectorAll('[data-ai]').forEach(el => {
       el.addEventListener('click', () => { state.aiType = el.dataset.ai; renderAI(); });
     });
-    document.getElementById('ai-generate').addEventListener('click', () => {
-      const ctx = document.getElementById('ai-context').value.trim();
+    document.getElementById('ai-generate').addEventListener('click', generateAI);
+  }
+
+  // Render an AI suggestion card (with copy/regenerate) into #ai-output.
+  function showAISuggestion(text) {
+    const out = document.getElementById('ai-output');
+    if (!out) return;
+    out.innerHTML = `
+      <div class="rounded-xl p-4" style="border:1px solid var(--border);background:var(--surface-2);">
+        <div class="flex items-center gap-2 mb-2 text-[12px] font-semibold" style="color:#2255a3;">
+          <i data-lucide="sparkles" style="width:13px;height:13px;"></i> AI suggestion
+        </div>
+        <p class="text-[13.5px] leading-relaxed" style="white-space:pre-wrap;">${esc(text)}</p>
+        <div class="mt-3 flex items-center gap-2">
+          <button id="ai-copy" class="btn-secondary" style="padding:6px 12px;font-size:12.5px;"><i data-lucide="copy" style="width:13px;height:13px;"></i> Copy</button>
+          <button id="ai-regen" class="btn-secondary" style="padding:6px 12px;font-size:12.5px;">
+            <i data-lucide="refresh-cw" style="width:13px;height:13px;"></i> Regenerate
+          </button>
+        </div>
+      </div>`;
+    if (window.lucide) lucide.createIcons();
+
+    document.getElementById('ai-regen').addEventListener('click', generateAI);
+    const copyBtn = document.getElementById('ai-copy');
+    copyBtn.addEventListener('click', async () => {
+      await copyToClipboard(text);
+      copyBtn.innerHTML = '<i data-lucide="check" style="width:13px;height:13px;"></i> Copied';
+      if (window.lucide) lucide.createIcons();
+      setTimeout(() => {
+        copyBtn.innerHTML = '<i data-lucide="copy" style="width:13px;height:13px;"></i> Copy';
+        if (window.lucide) lucide.createIcons();
+      }, 1500);
+    });
+  }
+
+  // Generate a draft via Gemini; fall back to a canned sample if AI isn't set up.
+  async function generateAI() {
+    const ctx = (document.getElementById('ai-context').value || '').trim();
+    const btn = document.getElementById('ai-generate');
+    const out = document.getElementById('ai-output');
+    if (btn) { btn.disabled = true; btn.style.opacity = '0.7'; }
+    if (out) out.innerHTML = `<div class="text-[13px] text-muted flex items-center gap-2">
+      <i data-lucide="loader-2" class="animate-spin" style="width:14px;height:14px;"></i> Generating…</div>`;
+    if (window.lucide) lucide.createIcons();
+
+    try {
+      const res = await fetch('/api/ai/generate', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+        body: JSON.stringify({ kind: state.aiType, context: ctx })
+      });
+      const raw = await res.text();
+      let body = {}; try { body = raw ? JSON.parse(raw) : {}; } catch (e) {}
+      if (res.ok && body.text) { showAISuggestion(body.text); return; }
+
+      // AI not configured / unavailable — fall back to a built-in sample so the tool still works.
       const name = ctx ? ctx.split(/[ ,]/)[0] : 'there';
-      const samples = AI_SAMPLES[state.aiType];
+      const samples = AI_SAMPLES[state.aiType] || AI_SAMPLES.reply;
       const text = samples[aiIndex % samples.length].replace(/\{name\}/g, name);
       aiIndex++;
-      document.getElementById('ai-output').innerHTML = `
-        <div class="rounded-xl p-4" style="border:1px solid var(--border);background:var(--surface-2);">
-          <div class="flex items-center gap-2 mb-2 text-[12px] font-semibold" style="color:#2255a3;">
-            <i data-lucide="sparkles" style="width:13px;height:13px;"></i> AI suggestion
-          </div>
-          <p class="text-[13.5px] leading-relaxed">${esc(text)}</p>
-          <div class="mt-3 flex items-center gap-2">
-            <button id="ai-copy" class="btn-secondary" style="padding:6px 12px;font-size:12.5px;"><i data-lucide="copy" style="width:13px;height:13px;"></i> Copy</button>
-            <button class="btn-secondary" style="padding:6px 12px;font-size:12.5px;" onclick="document.getElementById('ai-generate').click()">
-              <i data-lucide="refresh-cw" style="width:13px;height:13px;"></i> Regenerate
-            </button>
-          </div>
-        </div>`;
-      if (window.lucide) lucide.createIcons();
-
-      const copyBtn = document.getElementById('ai-copy');
-      copyBtn.addEventListener('click', async () => {
-        await copyToClipboard(text);
-        copyBtn.innerHTML = '<i data-lucide="check" style="width:13px;height:13px;"></i> Copied';
-        if (window.lucide) lucide.createIcons();
-        setTimeout(() => {
-          copyBtn.innerHTML = '<i data-lucide="copy" style="width:13px;height:13px;"></i> Copy';
-          if (window.lucide) lucide.createIcons();
-        }, 1500);
-      });
-    });
+      showAISuggestion(text);
+    } catch (e) {
+      const name = ctx ? ctx.split(/[ ,]/)[0] : 'there';
+      const samples = AI_SAMPLES[state.aiType] || AI_SAMPLES.reply;
+      showAISuggestion(samples[(aiIndex++) % samples.length].replace(/\{name\}/g, name));
+    } finally {
+      if (btn) { btn.disabled = false; btn.style.opacity = ''; }
+    }
   }
 
   // ----- Dispatcher -----
