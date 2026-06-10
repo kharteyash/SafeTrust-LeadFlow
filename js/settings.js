@@ -27,12 +27,15 @@
     { id: 'roles',           label: 'Roles & Permissions', icon: 'shield' },
     { id: 'notifications',   label: 'Notifications',       icon: 'bell' },
     { id: 'autoemails',      label: 'Automated Emails',    icon: 'cake' },
+    { id: 'integrations',    label: 'Integrations',        icon: 'plug' },
     { id: 'changepassword',  label: 'Change Password',     icon: 'key-round' },
     { id: 'help',            label: 'Help & FAQ',          icon: 'help-circle' }
   ];
 
   // Frequently asked questions — answers written to orient new users.
   const FAQS = [
+    { q: 'How do I connect RETR (retr.app) to LeadFlow?',
+      a: "Open Settings → Integrations. You'll see two personal webhook URLs (one for agents, one for loan officers). In RETR's CRM Integrations, choose “Other”, name it “LeadFlow”, and paste those URLs. When you push agents/loan officers from RETR, they're added to your Contacts (agents as Realtor, loan officers as Loan Officer), skipping anyone already there. The URLs are unique to you, so each person connects their own account — and you can regenerate your token any time." },
     { q: 'How do I send emails from LeadFlow?',
       a: "Go to the Messages page and click “Connect Google account.” After you approve, everything you send — scheduled messages, “Send now,” campaigns, and the automatic birthday/anniversary emails — goes out from your own Gmail, so recipients see your name and address. No password is stored." },
     { q: "Why aren't my scheduled or automatic emails being sent?",
@@ -917,6 +920,77 @@
     });
   }
 
+  // ----- Integrations (per-user RETR webhook URLs) -----
+  function renderIntegrations() {
+    return `
+      <div class="mb-5">
+        <h2 class="text-[18px] font-bold">Integrations</h2>
+        <p class="text-[13px] text-muted mt-1">Connect external tools to your LeadFlow account.</p>
+      </div>
+      <div class="rounded-xl p-5 max-w-[760px]" style="border:1px solid var(--border);">
+        <div class="flex items-center gap-2 mb-1">
+          <i data-lucide="webhook" style="width:16px;height:16px;color:#2255a3;"></i>
+          <h3 class="text-[14.5px] font-semibold">RETR (retr.app)</h3>
+        </div>
+        <p class="text-[12.5px] text-muted mb-4">In RETR → CRM Integrations, pick <b>Other</b>, name it <b>LeadFlow</b>, and paste the URLs below. Pushed agents are added to your Contacts as <b>Realtor</b>; loan officers as <b>Loan Officer</b> (duplicates are skipped). These URLs are personal to you — anyone with them can add contacts to your account, so don't share them.</p>
+        <div id="retr-urls" class="text-[13px] text-muted">Loading your webhook URLs…</div>
+        <div class="mt-4 flex items-center gap-3 flex-wrap">
+          <button id="retr-regen" class="btn-secondary" style="font-size:12.5px;"><i data-lucide="refresh-cw" style="width:13px;height:13px;"></i> Regenerate token</button>
+          <span id="retr-msg" class="text-[12px]"></span>
+        </div>
+      </div>`;
+  }
+  function urlRow(label, url) {
+    return `
+      <div class="mb-3">
+        <div class="text-[12px] font-semibold text-muted mb-1">${label}</div>
+        <div class="flex items-center gap-2">
+          <input readonly value="${escAttr(url)}" onclick="this.select()" class="input" style="font-size:12px;font-family:ui-monospace,Menlo,monospace;" />
+          <button class="btn-secondary" data-copy="${escAttr(url)}" title="Copy" style="white-space:nowrap;font-size:12px;padding:7px 10px;"><i data-lucide="copy" style="width:13px;height:13px;pointer-events:none;"></i></button>
+        </div>
+      </div>`;
+  }
+  function bindIntegrations() {
+    const host = document.getElementById('retr-urls');
+    const origin = window.location.origin;
+    const fillUrls = (token) => {
+      const agent = `${origin}/api/integrations/retr/agents?token=${token}`;
+      const lo = `${origin}/api/integrations/retr/loan-officers?token=${token}`;
+      host.innerHTML = urlRow('Webhook URL for Agent Contact Data', agent) + urlRow('Webhook URL for LO Contact Data', lo);
+      if (window.lucide) lucide.createIcons();
+      host.querySelectorAll('[data-copy]').forEach(btn => btn.addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(btn.getAttribute('data-copy'));
+          btn.innerHTML = '<i data-lucide="check" style="width:13px;height:13px;pointer-events:none;"></i>';
+          if (window.lucide) lucide.createIcons();
+          setTimeout(() => { btn.innerHTML = '<i data-lucide="copy" style="width:13px;height:13px;pointer-events:none;"></i>'; if (window.lucide) lucide.createIcons(); }, 1200);
+        } catch (e) {}
+      }));
+    };
+    (async () => {
+      try {
+        const res = await fetch('/api/integrations/token', { credentials: 'same-origin' });
+        const body = await res.json().catch(() => ({}));
+        if (res.ok && body.token) fillUrls(body.token);
+        else host.innerHTML = '<span style="color:#D63333;">Could not load your token.</span>';
+      } catch (e) { host.innerHTML = '<span style="color:#D63333;">Network error.</span>'; }
+    })();
+
+    const regen = document.getElementById('retr-regen');
+    if (regen) regen.addEventListener('click', async () => {
+      if (!window.confirm('Regenerate your token? Any RETR URLs you already saved will stop working until you paste the new ones.')) return;
+      const msg = document.getElementById('retr-msg');
+      regen.disabled = true;
+      try {
+        const res = await fetch('/api/integrations/token/regenerate', { method: 'POST', credentials: 'same-origin' });
+        const body = await res.json().catch(() => ({}));
+        if (res.ok && body.token) { fillUrls(body.token); if (msg) { msg.style.color = '#138A4B'; msg.textContent = 'New token generated — update your RETR URLs.'; } }
+        else if (msg) { msg.style.color = '#D63333'; msg.textContent = 'Could not regenerate.'; }
+      } catch (e) { if (msg) { msg.style.color = '#D63333'; msg.textContent = 'Network error.'; } }
+      finally { regen.disabled = false; }
+    });
+  }
+
   // ----- Section dispatcher -----
   // ----- Automated emails (birthday / loan anniversary templates) -----
   function renderAutoEmails() {
@@ -1057,6 +1131,7 @@
       roles:          renderRoles,
       notifications:  renderNotifications,
       autoemails:     renderAutoEmails,
+      integrations:   renderIntegrations,
       changepassword: renderChangePassword,
       help:           renderHelp
     };
@@ -1067,6 +1142,7 @@
     if (state.section === 'roles')          bindRoles();
     if (state.section === 'notifications')  bindToggles();
     if (state.section === 'autoemails')     bindAutoEmails();
+    if (state.section === 'integrations')   bindIntegrations();
     if (state.section === 'changepassword') bindChangePassword();
     if (state.section === 'help')           bindHelp();
 

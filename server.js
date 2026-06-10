@@ -78,6 +78,10 @@ const SCHEMA = `
   -- Failed-login lockout: 3 wrong passwords locks the account for 24 hours.
   ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_attempts INTEGER DEFAULT 0;
   ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_until TIMESTAMPTZ;
+  -- Per-user secret for inbound integrations (e.g. the RETR webhook). Identifies
+  -- AND authenticates the user, so each person connects their own account.
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS webhook_token TEXT;
+  CREATE UNIQUE INDEX IF NOT EXISTS users_webhook_token_idx ON users (webhook_token);
 
   -- Team join invitations (a leader invites a user; the user accepts/rejects).
   CREATE TABLE IF NOT EXISTS team_invites (
@@ -2476,21 +2480,37 @@ app.delete('/api/contacts/:id', safe(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// ----- Inbound integration tokens (per user) -----
+// Every user gets their own secret so they can connect their own account.
+async function getOrCreateWebhookToken(userId) {
+  const cur = await one('SELECT webhook_token FROM users WHERE id = $1', [userId]);
+  if (cur && cur.webhook_token) return cur.webhook_token;
+  const token = 'lf_' + crypto.randomBytes(24).toString('hex');
+  await q('UPDATE users SET webhook_token = $1 WHERE id = $2', [token, userId]);
+  return token;
+}
+// Return (creating if needed) the current user's integration token.
+app.get('/api/integrations/token', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  res.json({ token: await getOrCreateWebhookToken(req.user.id) });
+}));
+// Rotate the token (invalidates any URLs already configured in RETR).
+app.post('/api/integrations/token/regenerate', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  const token = 'lf_' + crypto.randomBytes(24).toString('hex');
+  await q('UPDATE users SET webhook_token = $1 WHERE id = $2', [token, req.user.id]);
+  res.json({ token });
+}));
+
 // ----- RETR (retr.app) webhook integration -----
 // RETR's "Push to CRM" posts a JSON object per contact to these URLs. There's no
-// user session, so we authenticate with a shared token (?token= or x-retr-token,
-// matched against RETR_TOKEN) and file the contact under the matching LeadFlow
-// user (by the RETR "Owner" email, else RETR_DEFAULT_EMAIL, else the admin).
-function retrAuthed(req) {
-  const token = process.env.RETR_TOKEN;
-  if (!token) return false; // integration disabled until a token is configured
+// user session, so the user's personal token (?token= or x-retr-token) both
+// authenticates the request AND identifies whose Contacts to fill — so every RETR
+// user connects their own LeadFlow account with their own URLs.
+async function retrUserFromToken(req) {
   const provided = (req.query && req.query.token) || req.get('x-retr-token') || '';
-  return provided === token;
-}
-async function retrTargetUserId(ownerEmail) {
-  const byEmail = async (e) => e ? await one('SELECT id FROM users WHERE lower(email) = lower($1) LIMIT 1', [String(e).trim()]) : null;
-  const row = (await byEmail(ownerEmail)) || (await byEmail(process.env.RETR_DEFAULT_EMAIL)) ||
-    (await one("SELECT id FROM users WHERE role = 'admin' ORDER BY id LIMIT 1", []));
+  if (!provided) return null;
+  const row = await one('SELECT id FROM users WHERE webhook_token = $1', [String(provided)]);
   return row ? row.id : null;
 }
 // RETR posts a single object; accept an array or common wrappers too, defensively.
@@ -2506,13 +2526,12 @@ function retrRecords(body) {
 const retrName = (r) => String(r.FullName || `${r.FirstName || ''} ${r.LastName || ''}`).trim();
 
 app.post('/api/integrations/retr/agents', safe(async (req, res) => {
-  if (!retrAuthed(req)) return res.status(401).json({ error: 'Invalid or missing token.' });
+  const userId = await retrUserFromToken(req);
+  if (!userId) return res.status(401).json({ error: 'Invalid or missing token.' });
   const records = retrRecords(req.body);
   if (!records.length) return res.status(400).json({ error: 'No contact data received.' });
   let created = 0, skipped = 0;
   for (const r of records) {
-    const userId = await retrTargetUserId(r.Owner);
-    if (!userId) { skipped++; continue; }
     try {
       const out = await ensureContact(userId, {
         name: retrName(r), email: r.Email || '', phone: r.Phone || '', company: r.Company || '',
@@ -2525,13 +2544,12 @@ app.post('/api/integrations/retr/agents', safe(async (req, res) => {
 }));
 
 app.post('/api/integrations/retr/loan-officers', safe(async (req, res) => {
-  if (!retrAuthed(req)) return res.status(401).json({ error: 'Invalid or missing token.' });
+  const userId = await retrUserFromToken(req);
+  if (!userId) return res.status(401).json({ error: 'Invalid or missing token.' });
   const records = retrRecords(req.body);
   if (!records.length) return res.status(400).json({ error: 'No contact data received.' });
   let created = 0, skipped = 0;
   for (const r of records) {
-    const userId = await retrTargetUserId(r.Owner);
-    if (!userId) { skipped++; continue; }
     try {
       const out = await ensureContact(userId, {
         name: retrName(r), email: r.Email_Work || r.Email_Personal || '', phone: r.Phone_Cell || r.Phone_Work || '',
