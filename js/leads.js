@@ -274,16 +274,21 @@
     });
   }
 
-  // ----- Search (driven by the topbar input rendered by layout.js) -----
+  // ----- Search (the in-panel box above the table, plus the topbar input) -----
   function bindSearch() {
-    const input = document.getElementById('topbar-search');
-    if (!input) return;
-    input.addEventListener('input', e => {
-      state.search = e.target.value;
+    const local = document.getElementById('leads-search');
+    const topbar = document.getElementById('topbar-search');
+    const onSearch = (val) => {
+      state.search = val;
       state.page = 1;
       selectedLeads.clear();
+      // Keep the two inputs in sync so either one reflects the active query.
+      if (local && local.value !== val) local.value = val;
+      if (topbar && topbar.value !== val) topbar.value = val;
       renderTable();
-    });
+    };
+    if (local)  local.addEventListener('input', e => onSearch(e.target.value));
+    if (topbar) topbar.addEventListener('input', e => onSearch(e.target.value));
   }
 
   // ----- Rows per page -----
