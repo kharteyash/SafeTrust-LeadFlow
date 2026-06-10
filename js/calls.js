@@ -104,16 +104,16 @@
 
     // AI-style recommendations derived from the data above.
     const recs = [];
-    if (hotLeads[0]) recs.push({ text: `Call ${hotLeads[0].name} now — lead score ${hotLeads[0].score}.`, meta: 'High intent' });
+    if (hotLeads[0]) recs.push({ text: `Call ${hotLeads[0].name} now — lead score ${LF.scoreStars(hotLeads[0].score)}/5.`, meta: 'High intent' });
     if (missed[0]) recs.push({ text: `Retry ${missed[0].name} — last call was missed.`, meta: 'Missed callback' });
     if (notContacted[0]) recs.push({ text: `Reach out to ${notContacted[0].name} — no call logged yet.`, meta: 'New lead' });
 
     const notContactedBody = notContacted.length
-      ? notContacted.map(l => personRow(l.name, l.phone, `<span class="pill ${scorePill(l.score)} mr-1" style="font-size:11px;">${l.score}</span>`)).join('')
+      ? notContacted.map(l => personRow(l.name, l.phone, `<span class="mr-1">${LF.scoreStarsHTML(l, 12)}</span>`)).join('')
       : emptyCardBody('All your leads have been contacted.');
     const hotBody = hotLeads.length
-      ? hotLeads.map(l => personRow(l.name, l.phone, `<span class="pill pill-green mr-1" style="font-size:11px;">${l.score}</span>`)).join('')
-      : emptyCardBody('No hot leads yet (score 80+).');
+      ? hotLeads.map(l => personRow(l.name, l.phone, `<span class="mr-1">${LF.scoreStarsHTML(l, 12)}</span>`)).join('')
+      : emptyCardBody('No hot leads yet (4–5 stars).');
     const missedBody = missed.length
       ? missed.map(c => personRow(c.name, c.phone, `<span class="text-[11.5px] mr-1" style="color:#D63333;">${fmtCallShort(c.date)}</span>`)).join('')
       : emptyCardBody('No missed calls.');

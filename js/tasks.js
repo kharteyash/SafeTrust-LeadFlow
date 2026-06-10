@@ -175,7 +175,7 @@
           <div class="text-[13px] font-semibold truncate">${esc(l.name)}</div>
           <div class="text-[11.5px] text-muted">${esc(l.phone) || 'No number'}${l.timeline ? ' · ' + esc(l.timeline) : ''}</div>
         </div>
-        <span class="pill ${scorePill(l.score)}" style="font-size:10.5px;">${l.score}</span>
+        <span>${LF.scoreStarsHTML(l, 12)}</span>
         ${callBtns(l.phone, l.id)}
       </div>`).join('');
 

@@ -216,6 +216,9 @@ LF.renderLayout = async function ({ active }) {
 
   // Populate notifications from real data (non-blocking).
   loadNotifications();
+
+  // Floating "how the score is calculated" tooltip (set up once).
+  LF.initScoreTips();
 };
 
 // Let pages re-run the notifications bell (e.g. after changing a password).
@@ -368,7 +371,7 @@ async function loadNotifications() {
       .slice(0, 5)
       .forEach(l => {
         items.push({ key: `lead-hot-${l.id}`, sort: 5, icon: 'flame', color: '#E0721B',
-          text: `Hot lead: ${notifEsc(l.name)}`, sub: `Score ${l.score} · no call logged yet`, href: 'leads.html' });
+          text: `Hot lead: ${notifEsc(l.name)}`, sub: `${LF.scoreStars(l.score)}/5 stars · no call logged yet`, href: 'leads.html' });
       });
   }
 
@@ -654,6 +657,78 @@ LF.scorePill = (score) => {
   if (score >= 80) return 'pill-green';
   if (score >= 60) return 'pill-yellow';
   return 'pill-red';
+};
+
+// ----- Lead score shown as a 1–5 star rating (1 = lowest) -----
+LF.scoreStars = (score) => Math.min(5, Math.max(1, Math.ceil((Number(score) || 0) / 20)));
+// Renders five stars (filled up to the rating) + the "n/5" number. When a lead
+// object with scoreBreakdown is passed, the element carries a hover tooltip that
+// explains how the score is calculated.
+LF.scoreStarsHTML = function (lead, size) {
+  const score = (lead && typeof lead === 'object') ? lead.score : lead;
+  const n = LF.scoreStars(score);
+  size = size || 14;
+  const star = (on) =>
+    `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="${on ? '#F5A623' : 'none'}" stroke="${on ? '#F5A623' : '#C4C4D4'}" stroke-width="1.8" style="flex-shrink:0;pointer-events:none;"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`;
+  let stars = '';
+  for (let i = 1; i <= 5; i++) stars += star(i <= n);
+  let attrs = 'style="display:inline-flex;align-items:center;gap:1px;vertical-align:middle;cursor:default;"';
+  if (lead && typeof lead === 'object' && Array.isArray(lead.scoreBreakdown)) {
+    const payload = encodeURIComponent(JSON.stringify({ stars: n, breakdown: lead.scoreBreakdown, note: lead.scoreNote || '' }));
+    attrs = `data-score-tip="${payload}" ${attrs}`;
+  }
+  return `<span ${attrs}>${stars}<span style="font-size:11px;color:var(--text-muted);margin-left:4px;">${n}/5</span></span>`;
+};
+LF.scoreTipHTML = function (data) {
+  const esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const rows = (data.breakdown || []).map(p => {
+    const tip = p.tip ? `<div style="color:#B07A00;font-size:10.5px;margin-top:1px;">↑ ${esc(p.tip)}</div>` : '';
+    return `<div style="padding:5px 0;border-bottom:1px solid var(--border-soft);">
+      <div style="display:flex;justify-content:space-between;gap:12px;">
+        <span style="font-weight:600;">${esc(p.label)}</span>
+        <span style="color:var(--text-muted);white-space:nowrap;">${p.points}/${p.max} pts</span>
+      </div>
+      <div style="font-size:11px;color:var(--text-muted);">${esc(p.value)}</div>${tip}
+    </div>`;
+  }).join('');
+  const note = data.note ? `<div style="font-size:10.5px;color:#2255a3;margin-top:6px;">${esc(data.note)}</div>` : '';
+  return `<div style="font-size:12.5px;font-weight:700;margin-bottom:5px;">Lead score: ${data.stars}/5 ★</div>
+    <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">How it's calculated:</div>
+    ${rows}
+    <div style="font-size:10.5px;color:var(--text-muted);margin-top:6px;">Amber tips show how to raise the score.</div>${note}`;
+};
+// One-time: a floating tooltip + delegated hover, shared across all pages.
+LF.initScoreTips = function () {
+  if (LF._scoreTipsReady) return;
+  LF._scoreTipsReady = true;
+  const tip = document.createElement('div');
+  tip.id = 'lf-score-tip';
+  tip.className = 'hidden';
+  tip.style.cssText = 'position:fixed;z-index:80;width:250px;max-width:88vw;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 28px var(--shadow);padding:10px 12px;pointer-events:none;';
+  document.body.appendChild(tip);
+  const place = (el) => {
+    const r = el.getBoundingClientRect();
+    const tr = tip.getBoundingClientRect();
+    let left = r.left;
+    if (left + tr.width > window.innerWidth - 8) left = window.innerWidth - tr.width - 8;
+    if (left < 8) left = 8;
+    let top = r.bottom + 8;
+    if (top + tr.height > window.innerHeight - 8) top = r.top - tr.height - 8; // flip above
+    tip.style.left = left + 'px';
+    tip.style.top = Math.max(8, top) + 'px';
+  };
+  document.addEventListener('mouseover', (e) => {
+    const el = e.target.closest && e.target.closest('[data-score-tip]');
+    if (!el) return;
+    let data; try { data = JSON.parse(decodeURIComponent(el.getAttribute('data-score-tip'))); } catch (err) { return; }
+    tip.innerHTML = LF.scoreTipHTML(data);
+    tip.classList.remove('hidden');
+    place(el);
+  });
+  document.addEventListener('mouseout', (e) => {
+    const el = e.target.closest && e.target.closest('[data-score-tip]');
+    if (el) tip.classList.add('hidden');
+  });
 };
 LF.timelinePill = (t) => {
   if (t === 'Buying Immediately') return 'pill-green';

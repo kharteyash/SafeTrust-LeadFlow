@@ -1653,30 +1653,52 @@ const LEAD_TYPES = ['Purchase', 'Refinance'];
 const REFI_TYPES = ['Rate & Term', 'Cash Out'];
 const REALTOR_STATUSES = ['has', 'unavailable', 'none'];
 
-// Weighted 0–100 model. Each factor contributes a capped share, and the parts
-// sum to 100 only for an ideal lead — so a top score is earned, not the default.
+// Weighted 0–100 model (shown to users as a 1–5 star rating). Each factor
+// contributes a capped share, and the parts sum to 100 only for an ideal lead —
+// so a top score is earned, not the default.
 //   Buying intent (timeline) ...... up to 45   (the dominant signal)
 //   Pre-approved .................. 25          (readiness to transact)
 //   Reachable by phone ............ 10
 //   Loan profile .................. up to 20    (refi subtype, or purchase w/ realtor)
-function computeLeadScore(timeline, phone, leadType, refiType, preapproved, realtorStatus) {
+// Returns the factor breakdown so the UI can explain how to improve the score.
+function leadScoreParts(timeline, phone, leadType, refiType, preapproved, realtorStatus) {
   const timelinePoints = {
     'Buying Immediately': 45, '1-3 Months': 30, '3-6 Months': 17, '6+ Months': 8
   }[timeline] || 17;
-
-  const preapprovedPoints = preapproved ? 25 : 0;
   const phonePoints = (phone && String(phone).trim()) ? 10 : 0;
+  const preapprovedPoints = preapproved ? 25 : 0;
 
   // Loan profile: refinances scored by subtype (cash-out is hottest); purchases
   // by whether a realtor is already attached (further along the funnel).
-  let loanPoints;
+  let loanPoints, loanValue, loanTip;
   if (leadType === 'Refinance') {
     loanPoints = refiType === 'Cash Out' ? 20 : 12;
+    loanValue = `Refinance — ${refiType || 'Rate & Term'}`;
+    loanTip = refiType === 'Cash Out' ? '' : 'Cash-out refinances score highest.';
   } else {
     loanPoints = realtorStatus === 'has' ? 20 : 10;
+    loanValue = realtorStatus === 'has' ? 'Purchase — realtor attached' : 'Purchase — no realtor yet';
+    loanTip = realtorStatus === 'has' ? '' : 'A lead with a realtor attached scores higher.';
   }
 
-  return Math.min(100, timelinePoints + preapprovedPoints + phonePoints + loanPoints);
+  return [
+    { label: 'Buying intent', value: timeline || 'Unknown', points: timelinePoints, max: 45,
+      tip: timelinePoints >= 45 ? '' : 'Sooner buyers score higher — “Buying Immediately” is best.' },
+    { label: 'Pre-approved', value: preapproved ? 'Yes' : 'No', points: preapprovedPoints, max: 25,
+      tip: preapproved ? '' : 'Getting the lead pre-approved adds the most points.' },
+    { label: 'Reachable by phone', value: phonePoints ? 'Yes' : 'No', points: phonePoints, max: 10,
+      tip: phonePoints ? '' : 'Add a phone number so the lead is reachable.' },
+    { label: 'Loan profile', value: loanValue, points: loanPoints, max: 20, tip: loanTip }
+  ];
+}
+function computeLeadScore(timeline, phone, leadType, refiType, preapproved, realtorStatus) {
+  const parts = leadScoreParts(timeline, phone, leadType, refiType, preapproved, realtorStatus);
+  return Math.min(100, parts.reduce((sum, p) => sum + p.points, 0));
+}
+// Map the internal 0–100 score to a 1–5 star rating (1 = lowest).
+function scoreToStars(score) {
+  const s = Number(score) || 0;
+  return Math.min(5, Math.max(1, Math.ceil(s / 20)));
 }
 
 // Normalize the lead-type fields from a request body (clears irrelevant ones).
@@ -1697,9 +1719,17 @@ function normalizeLeadType(b) {
   return out;
 }
 function leadRowToJson(r) {
+  const breakdown = leadScoreParts(r.timeline, r.phone, r.lead_type, r.refi_type, r.preapproved, r.realtor_status);
+  const factorSum = breakdown.reduce((s, p) => s + p.points, 0);
+  // When the stored score is higher than the factors alone (a forwarded lead's
+  // priority floor, or an admin override), say so so the tooltip isn't confusing.
+  const scoreNote = (Number(r.score) || 0) > factorSum + 2
+    ? 'Boosted — forwarded to you or set by an admin.' : '';
   return {
     id: r.id, name: r.name, email: r.email || '', phone: r.phone || '',
-    timeline: r.timeline, score: r.score, owner: r.owner || '', notes: r.notes || '',
+    timeline: r.timeline, score: r.score, stars: scoreToStars(r.score),
+    scoreBreakdown: breakdown, scoreNote,
+    owner: r.owner || '', notes: r.notes || '',
     state: r.state || '',
     preapproved: !!r.preapproved, leadType: r.lead_type || 'Purchase', refiType: r.refi_type || '',
     realtorStatus: r.realtor_status || 'none', realtorName: r.realtor_name || '',
@@ -1838,20 +1868,23 @@ app.patch('/api/leads/:id', safe(async (req, res) => {
   }));
 }));
 
-// Manually override a lead's score. Admin-only, and works on any user's lead
-// (the admin can see and curate every lead). Regular edits still auto-rescore.
+// Manually override a lead's star rating (1–5). Admin-only, and works on any
+// user's lead. The star is mapped to a representative 0–100 score internally so
+// the hot-lead / forwarding thresholds keep working. Regular edits auto-rescore.
+const STARS_TO_SCORE = { 1: 10, 2: 30, 3: 50, 4: 70, 5: 90 };
 app.patch('/api/leads/:id/score', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Only the admin can change a lead score.' });
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid lead id.' });
-  const score = Number((req.body || {}).score);
-  if (!Number.isInteger(score) || score < 0 || score > 100) {
-    return res.status(400).json({ error: 'Score must be a whole number from 0 to 100.' });
+  const stars = Number((req.body || {}).stars);
+  if (!Number.isInteger(stars) || stars < 1 || stars > 5) {
+    return res.status(400).json({ error: 'Rating must be a whole number from 1 to 5.' });
   }
+  const score = STARS_TO_SCORE[stars];
   const r = await pool.query('UPDATE leads SET score = $1 WHERE id = $2 RETURNING id', [score, id]);
   if (r.rowCount === 0) return res.status(404).json({ error: 'Lead not found.' });
-  res.json({ ok: true, score });
+  res.json({ ok: true, score, stars });
 }));
 
 // Create a Google Meet link (via the user's Google Calendar) and email it to
@@ -2063,7 +2096,7 @@ app.post('/api/leads/:id/close', safe(async (req, res) => {
     // Loan / pipeline context.
     'Loan Purpose': lead.lead_type || '',
     'Buying Timeline': lead.timeline || '',
-    'Lead Score': lead.score != null ? String(lead.score) : '',
+    'Lead Score': lead.score != null ? `${scoreToStars(lead.score)}/5` : '',
     'Owner': lead.owner || '',
     'Lead Notes': lead.notes || '',
     'Closed Date': serverToday()

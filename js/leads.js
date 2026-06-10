@@ -146,7 +146,7 @@
               <td class="text-muted">${l.email}</td>
               <td>${l.phone}</td>
               <td><span class="pill ${LF.timelinePill(l.timeline)}">${l.timeline}</span></td>
-              <td><span class="pill ${LF.scorePill(l.score)}">${l.score}</span></td>
+              <td>${LF.scoreStarsHTML(l)}</td>
               <td class="text-muted">${l.last}</td>
               <td>
                 <div class="flex items-center gap-2">
@@ -499,13 +499,14 @@
     rows.push(detailRow('Buying timeline', `<span class="pill ${LF.timelinePill(lead.timeline)}">${esc(lead.timeline)}</span>`));
     const scoreCell = isAdmin
       ? `<span class="inline-flex items-center gap-2 justify-end">
-           <input type="number" min="0" max="100" value="${lead.score}" data-score-input
-             style="width:58px;padding:3px 6px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:13px;text-align:center;" />
-           <button type="button" data-score-save title="Save score"
+           ${LF.scoreStarsHTML(lead, 13)}
+           <input type="number" min="1" max="5" value="${lead.stars || LF.scoreStars(lead.score)}" data-score-input title="Set a 1–5 rating"
+             style="width:48px;padding:3px 6px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:13px;text-align:center;" />
+           <button type="button" data-score-save title="Save rating"
              style="background:var(--accent);color:#fff;border:none;border-radius:6px;padding:4px 11px;font-size:12px;font-weight:600;cursor:pointer;">Save</button>
            <span data-score-msg style="font-size:11px;color:var(--text-muted);"></span>
          </span>`
-      : `<span class="pill ${LF.scorePill(lead.score)}">${lead.score}</span>`;
+      : LF.scoreStarsHTML(lead, 14);
     rows.push(detailRow('Lead score', scoreCell));
     rows.push(detailRow('Preapproved', lead.preapproved ? 'Yes' : 'No'));
     rows.push(detailRow('Lead type', esc(type)));
@@ -636,16 +637,16 @@
       const msgEl = document.querySelector('#lead-detail-body [data-score-msg]');
       if (!lead || !lead.id || !input) { if (msgEl) msgEl.textContent = 'Cannot edit'; return; }
       const val = parseInt(input.value, 10);
-      if (isNaN(val) || val < 0 || val > 100) { if (msgEl) msgEl.textContent = 'Enter 0–100'; return; }
+      if (isNaN(val) || val < 1 || val > 5) { if (msgEl) msgEl.textContent = 'Enter 1–5'; return; }
       saveBtn.disabled = true; if (msgEl) msgEl.textContent = 'Saving…';
       try {
         const res = await fetch('/api/leads/' + lead.id + '/score', {
           method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
-          body: JSON.stringify({ score: val })
+          body: JSON.stringify({ stars: val })
         });
         const raw = await res.text(); let body = {}; try { body = raw ? JSON.parse(raw) : {}; } catch (err) {}
         if (!res.ok) { if (msgEl) msgEl.textContent = body.error || `Failed (HTTP ${res.status}).`; saveBtn.disabled = false; return; }
-        lead.score = body.score;
+        lead.score = body.score; lead.stars = body.stars;
         if (msgEl) msgEl.textContent = 'Saved';
         renderTable(); if (window.lucide) lucide.createIcons();
       } catch (err) { if (msgEl) msgEl.textContent = 'Network error'; saveBtn.disabled = false; }
@@ -906,7 +907,7 @@
     const headers = ['Name', 'Email', 'Phone', 'Buying Timeline', 'Lead Score', 'Last Contacted', 'Owner'];
     const lines = [headers.join(',')];
     rows.forEach(l => lines.push(
-      [l.name, l.email, l.phone, l.timeline, l.score, l.last, l.owner].map(csvEscape).join(',')
+      [l.name, l.email, l.phone, l.timeline, `${l.stars || LF.scoreStars(l.score)}/5`, l.last, l.owner].map(csvEscape).join(',')
     ));
     // BOM so Excel reads UTF-8 correctly.
     const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });

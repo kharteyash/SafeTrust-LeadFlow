@@ -148,7 +148,7 @@
           <div class="text-[13.5px] font-semibold truncate">${esc(p.name)}</div>
           <div class="text-[12px] text-muted">${esc(p.phone) || '—'}</div>
         </div>
-        <span class="pill ${scorePill(p.score)} mr-1" style="font-size:11px;">${p.score}</span>
+        <span class="mr-1">${LF.scoreStarsHTML(p, 12)}</span>
         <button class="btn-icon" title="Call" data-call="${esc(p.phone)}" style="width:32px;height:32px;" ${p.phone ? '' : 'disabled'}>
           <i data-lucide="phone" style="width:14px;height:14px;color:#2255a3;pointer-events:none;"></i>
         </button>
@@ -204,7 +204,7 @@
             <td class="text-muted">${esc(l.email)}</td>
             <td>${esc(l.phone)}</td>
             <td><span class="pill ${timelinePill(l.timeline)}">${esc(l.timeline)}</span></td>
-            <td><span class="pill ${scorePill(l.score)}">${l.score}</span></td>
+            <td>${LF.scoreStarsHTML(l, 13)}</td>
             <td>
               <div class="flex items-center gap-2">
                 <div class="avatar avatar-sm">${initials(l.owner)}</div>
@@ -255,7 +255,7 @@
     rows.push(detailRow('Email', lead.email ? `<a href="mailto:${escAttr(lead.email)}" style="color:var(--accent);">${esc(lead.email)}</a>` : '—'));
     rows.push(detailRow('Phone', (lead.phone && tel) ? `<a href="${tel}" style="color:var(--accent);font-weight:600;">${esc(lead.phone)}</a>` : (esc(lead.phone) || '—')));
     rows.push(detailRow('Buying timeline', `<span class="pill ${timelinePill(lead.timeline)}">${esc(lead.timeline)}</span>`));
-    rows.push(detailRow('Lead score', `<span class="pill ${scorePill(lead.score)}">${lead.score}</span>`));
+    rows.push(detailRow('Lead score', LF.scoreStarsHTML(lead, 13)));
     rows.push(detailRow('Pre-approved', lead.preapproved ? 'Yes' : 'No'));
     rows.push(detailRow('Lead type', esc(type)));
     if (type === 'Refinance') {
