@@ -21,12 +21,6 @@
     </div>
     <p id="auth-subtitle" class="text-[13.5px] text-muted mb-6">Sign in to continue to your dashboard.</p>
 
-    <!-- Tabs -->
-    <div class="flex gap-1 mb-5 p-1 rounded-xl" style="background:var(--surface-3);">
-      <button class="auth-tab active flex-1" data-tab="login">Sign In</button>
-      <button class="auth-tab flex-1" data-tab="register">Create Account</button>
-    </div>
-
     <!-- Login form -->
     <form id="login-form" class="flex flex-col gap-3">
       <div>
@@ -41,23 +35,9 @@
       <button type="submit" class="btn-primary mt-1" style="justify-content:center;padding:11px;font-size:14px;">Sign In</button>
     </form>
 
-    <!-- Register form -->
-    <form id="register-form" class="flex-col gap-3 hidden">
-      <div>
-        <label class="text-[12px] font-semibold text-muted">Full name</label>
-        <input name="name" required autocomplete="name" class="input mt-1" placeholder="Jane Doe" />
-      </div>
-      <div>
-        <label class="text-[12px] font-semibold text-muted">Email</label>
-        <input name="email" type="email" required autocomplete="email" class="input mt-1" placeholder="you@example.com" />
-      </div>
-      <div>
-        <label class="text-[12px] font-semibold text-muted">Password</label>
-        <input name="password" type="password" required minlength="6" autocomplete="new-password" class="input mt-1" placeholder="At least 6 characters" />
-      </div>
-      <div id="register-error" class="text-[12.5px] font-medium" style="color:#D63333;"></div>
-      <button type="submit" class="btn-primary mt-1" style="justify-content:center;padding:11px;font-size:14px;">Create Account</button>
-    </form>
+    <p class="text-[12px] text-muted mt-5 text-center">
+      Need an account? Your administrator creates it for you and emails a temporary password.
+    </p>
   </div>
 
   <script src="js/auth.js"></script>

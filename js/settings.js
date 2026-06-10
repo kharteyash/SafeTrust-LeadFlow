@@ -528,9 +528,27 @@
                </button>`}
         </td>
       </tr>`).join('');
+    const createBox = `
+      <div class="rounded-xl p-4 mb-5" style="border:1px solid var(--border);">
+        <div class="text-[13.5px] font-semibold mb-1">Create a user account</div>
+        <p class="text-[12px] text-soft mb-3">Enter the new user's email (and optional name). They'll be emailed a temporary password and asked to change it on first sign-in.</p>
+        <div class="flex items-end gap-2 flex-wrap">
+          <div style="flex:1 1 220px;">
+            <label class="text-[12px] font-semibold text-muted">Email</label>
+            <input id="new-user-email" type="email" class="input mt-1" placeholder="user@example.com" />
+          </div>
+          <div style="flex:1 1 180px;">
+            <label class="text-[12px] font-semibold text-muted">Name (optional)</label>
+            <input id="new-user-name" maxlength="80" class="input mt-1" placeholder="Full name" />
+          </div>
+          <button id="create-user-btn" class="btn-primary" style="white-space:nowrap;"><i data-lucide="user-plus" style="width:14px;height:14px;"></i> Create account</button>
+        </div>
+        <div id="create-user-msg" class="text-[12.5px] font-medium mt-3"></div>
+      </div>`;
     return `
       <h3 class="text-[15px] font-semibold mb-1">All users (${users.length})</h3>
       <p class="text-[12px] text-soft mb-3">Click a team leader to see who's on their team. Deleting a user removes their account and all their data.</p>
+      ${createBox}
       <div class="rounded-xl overflow-hidden" style="border:1px solid var(--border);">
         <table class="lf-table">
           <thead><tr><th>User</th><th>Team leader</th><th>Role</th><th></th></tr></thead>
@@ -646,6 +664,38 @@
       finally { sel.disabled = false; }
     }));
 
+    // Admin: create a user account (emails them a temporary password).
+    const createUserBtn = document.getElementById('create-user-btn');
+    if (createUserBtn) createUserBtn.addEventListener('click', async () => {
+      const emailEl = document.getElementById('new-user-email');
+      const nameEl = document.getElementById('new-user-name');
+      const msg = document.getElementById('create-user-msg');
+      const email = (emailEl && emailEl.value || '').trim();
+      const name = (nameEl && nameEl.value || '').trim();
+      if (!email) { if (msg) { msg.style.color = '#D63333'; msg.textContent = 'Enter an email address.'; } return; }
+      createUserBtn.disabled = true;
+      try {
+        const res = await fetch('/api/admin/users/create', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+          body: JSON.stringify({ email, name })
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) { if (msg) { msg.style.color = '#D63333'; msg.textContent = body.error || 'Could not create the account.'; } return; }
+        if (msg) {
+          msg.style.color = '#138A4B';
+          msg.innerHTML = body.emailed
+            ? `Account created for <b>${escAttr(body.email)}</b>. A temporary password was emailed to them.`
+            : `Account created for <b>${escAttr(body.email)}</b>, but the email couldn't be sent${body.emailError ? ` (${escAttr(body.emailError)})` : ''}. Share this temporary password with them: <b>${escAttr(body.tempPassword)}</b>`;
+        }
+        if (emailEl) emailEl.value = '';
+        if (nameEl) nameEl.value = '';
+        // Refresh the list to include the new user — but only when the email sent.
+        // If it didn't, the temp password is on screen, so keep it visible.
+        if (body.emailed) setTimeout(() => bindRoles(), 1500);
+      } catch (e) { if (msg) { msg.style.color = '#D63333'; msg.textContent = 'Network error.'; } }
+      finally { createUserBtn.disabled = false; }
+    });
+
     // Admin: delete a user account.
     document.querySelectorAll('[data-delete-user]').forEach(btn => btn.addEventListener('click', async () => {
       const id = btn.getAttribute('data-delete-user');
@@ -746,11 +796,20 @@
 
   // ----- Change Password -----
   function renderChangePassword() {
+    const mustChange = !!(D.user && D.user.mustChangePassword);
+    const banner = mustChange ? `
+      <div class="rounded-lg p-3 mb-4 text-[12.5px]" style="border:1px solid #E8C36A;background:#FBF4E2;color:#7A5A00;">
+        <div class="flex items-start gap-2">
+          <i data-lucide="key-round" style="width:14px;height:14px;flex-shrink:0;margin-top:1px;"></i>
+          <div>You're signed in with a <b>temporary password</b>. Enter it as your current password below and choose a new, secure one.</div>
+        </div>
+      </div>` : '';
     return `
       <div class="mb-5">
         <h2 class="text-[18px] font-bold">Change Password</h2>
         <p class="text-[13px] text-muted mt-1">Update the password you use to sign in.</p>
       </div>
+      ${banner}
 
       <form id="change-password-form" class="max-w-[640px]" autocomplete="off">
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -823,6 +882,11 @@
         msg.style.color = '#138A4B';
         msg.textContent = 'Password updated successfully.';
         form.reset();
+        // Clear the temporary-password state so the banner + bell prompt go away.
+        if (D.user && D.user.mustChangePassword) {
+          D.user.mustChangePassword = false;
+          if (window.LF && typeof LF.refreshNotifications === 'function') LF.refreshNotifications();
+        }
       } catch (err) {
         msg.textContent = 'Network error. Is the server running?';
       } finally {
@@ -991,6 +1055,9 @@
   // ----- Mount -----
   document.addEventListener('DOMContentLoaded', async function () {
     await LF.renderLayout({ active: 'settings' });
+    // Deep link, e.g. settings.html#changepassword, opens that section directly.
+    const hash = (window.location.hash || '').replace('#', '');
+    if (SECTIONS.some(s => s.id === hash)) state.section = hash;
     renderNav();
     renderContent();
     if (window.lucide) lucide.createIcons();

@@ -73,6 +73,8 @@ const SCHEMA = `
   ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'user';
   ALTER TABLE users ADD COLUMN IF NOT EXISTS leader_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
   ALTER TABLE users ADD COLUMN IF NOT EXISTS photo TEXT;
+  -- True when the user was given a temporary password and must change it on first login.
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN DEFAULT FALSE;
 
   -- Team join invitations (a leader invites a user; the user accepts/rejects).
   CREATE TABLE IF NOT EXISTS team_invites (
@@ -300,7 +302,7 @@ async function loadUserFromSession(sid) {
   if (!sid) return null;
   const row = await one(`
     SELECT u.id, u.email, u.name, u.phone, u.title, u.bio, u.role, u.leader_id, u.photo,
-           l.name AS leader_name
+           u.must_change_password, l.name AS leader_name
     FROM sessions s JOIN users u ON u.id = s.user_id
     LEFT JOIN users l ON l.id = u.leader_id
     WHERE s.id = $1 AND s.expires_at > now()
@@ -310,7 +312,7 @@ async function loadUserFromSession(sid) {
     id: row.id, email: row.email, name: row.name,
     phone: row.phone || '', title: row.title || '', bio: row.bio || '',
     role: row.role || 'user', leaderId: row.leader_id || null, leaderName: row.leader_name || '',
-    photo: row.photo || ''
+    photo: row.photo || '', mustChangePassword: !!row.must_change_password
   };
 }
 
@@ -391,25 +393,25 @@ async function getGoogleToken(userId) {
 }
 
 // ----- API: auth -----
+// Self-service signup is disabled — accounts are created by the admin (see
+// POST /api/admin/users/create). This route only survives to bootstrap the very
+// first account (the Admin) on a brand-new, empty database.
 app.post('/api/register', safe(async (req, res) => {
+  const anyUser = await one('SELECT id FROM users LIMIT 1', []);
+  if (anyUser) return res.status(403).json({ error: 'Accounts are created by your administrator. Ask them to create one for you.' });
+
   const { email, name, password } = req.body || {};
   if (!email || !name || !password) return res.status(400).json({ error: 'All fields are required.' });
   if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters.' });
 
   const emailNorm = email.trim().toLowerCase();
-  const existing = await one('SELECT id FROM users WHERE lower(email) = $1', [emailNorm]);
-  if (existing) return res.status(409).json({ error: 'An account with that email already exists.' });
-
   const hash = bcrypt.hashSync(password, 10);
-  // The very first account to register becomes the Admin (superuser).
-  const anyUser = await one('SELECT id FROM users LIMIT 1', []);
-  const role = anyUser ? 'user' : 'admin';
   const row = await one('INSERT INTO users (email, name, password_hash, role) VALUES ($1, $2, $3, $4) RETURNING id',
-    [emailNorm, name.trim(), hash, role]);
+    [emailNorm, name.trim(), hash, 'admin']); // first account is the Admin
 
   const sid = await createSession(row.id);
   setSessionCookie(res, sid);
-  res.json({ id: row.id, email: emailNorm, name: name.trim(), role });
+  res.json({ id: row.id, email: emailNorm, name: name.trim(), role: 'admin' });
 }));
 
 app.post('/api/login', safe(async (req, res) => {
@@ -423,7 +425,7 @@ app.post('/api/login', safe(async (req, res) => {
 
   const sid = await createSession(user.id);
   setSessionCookie(res, sid);
-  res.json({ id: user.id, email: user.email, name: user.name });
+  res.json({ id: user.id, email: user.email, name: user.name, mustChangePassword: !!user.must_change_password });
 }));
 
 app.post('/api/logout', safe(async (req, res) => {
@@ -472,7 +474,8 @@ app.post('/api/change-password', safe(async (req, res) => {
     return res.status(401).json({ error: 'Current password is incorrect.' });
   }
   const newHash = bcrypt.hashSync(newPassword, 10);
-  await q('UPDATE users SET password_hash = $1 WHERE id = $2', [newHash, req.user.id]);
+  // Clear the temporary-password flag once they set their own password.
+  await q('UPDATE users SET password_hash = $1, must_change_password = FALSE WHERE id = $2', [newHash, req.user.id]);
   res.json({ ok: true });
 }));
 
@@ -524,6 +527,63 @@ app.patch('/api/admin/users/:id/role', safe(async (req, res) => {
     await q(`UPDATE team_invites SET status = 'cancelled' WHERE leader_id = $1 AND status = 'pending'`, [id]);
   }
   res.json({ ok: true, role });
+}));
+
+// Admin: create an account for a user. The admin supplies an email (and optional
+// name); the system generates a temporary password, emails it to that address,
+// and flags the account so the user must change it on first login.
+function generateTempPassword() {
+  // Readable, unambiguous characters (no O/0/I/l/1) so it's easy to type once.
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+  const bytes = crypto.randomBytes(10);
+  let out = '';
+  for (let i = 0; i < 10; i++) out += chars[bytes[i] % chars.length];
+  return out;
+}
+app.post('/api/admin/users/create', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin only.' });
+
+  const email = String((req.body || {}).email || '').trim().toLowerCase();
+  if (!email || !/^\S+@\S+\.\S+$/.test(email)) return res.status(400).json({ error: 'Enter a valid email address.' });
+  let name = String((req.body || {}).name || '').trim();
+  if (!name) name = email.split('@')[0]; // default the name to the email's local part
+  if (name.length > 80) return res.status(400).json({ error: 'Name is too long.' });
+
+  const existing = await one('SELECT id FROM users WHERE lower(email) = $1', [email]);
+  if (existing) return res.status(409).json({ error: 'An account with that email already exists.' });
+
+  const tempPassword = generateTempPassword();
+  const hash = bcrypt.hashSync(tempPassword, 10);
+  const row = await one(
+    `INSERT INTO users (email, name, password_hash, role, must_change_password)
+     VALUES ($1, $2, $3, 'user', TRUE) RETURNING id`,
+    [email, name, hash]
+  );
+
+  // Email the temporary password to the new user (from the admin's connected
+  // Google account, or the shared backend). Best-effort: if it fails, the admin
+  // still gets the temp password back so they can share it manually.
+  const appUrl = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
+  const subject = 'Your LeadFlow account is ready';
+  const text =
+    `Hi ${name},\n\n` +
+    `An account has been created for you on LeadFlow.\n\n` +
+    `Sign in here: ${appUrl}/login.html\n` +
+    `Email: ${email}\n` +
+    `Temporary password: ${tempPassword}\n\n` +
+    `For your security, you'll be asked to set a new password the first time you sign in.\n`;
+
+  let emailed = false, emailError = '';
+  try {
+    await sendEmailAsUser(req.user.id, { to: email, subject, text });
+    emailed = true;
+  } catch (e) {
+    emailError = String((e && e.message) || e).slice(0, 200);
+    console.error('create-user email failed:', emailError);
+  }
+
+  res.json({ ok: true, id: row.id, email, name, emailed, emailError, tempPassword });
 }));
 
 // Admin: delete a user account entirely. The admin can't delete themselves or

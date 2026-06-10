@@ -60,6 +60,7 @@ LF.renderLayout = async function ({ active }) {
     leaderId: user.leaderId || null,
     leaderName: user.leaderName || '',
     photo: user.photo || '',
+    mustChangePassword: !!user.mustChangePassword,
     initials: getInitials(user.name)
   };
 
@@ -217,6 +218,9 @@ LF.renderLayout = async function ({ active }) {
   loadNotifications();
 };
 
+// Let pages re-run the notifications bell (e.g. after changing a password).
+LF.refreshNotifications = function () { try { loadNotifications(); } catch (e) {} };
+
 // Render an .avatar element as a photo (if set) or fall back to initials.
 LF.applyAvatar = function (el, user) {
   if (!el) return;
@@ -291,6 +295,14 @@ async function loadNotifications() {
   const todayKey = notifTodayKey();
   const nowMin = notifNowMin();
   const items = [];
+
+  // 0) Must change a temporary password — persistent until they set a new one.
+  if (window.LF_DATA && LF_DATA.user && LF_DATA.user.mustChangePassword) {
+    items.push({ key: 'must-change-password', sort: -3, type: 'security', persist: true,
+      icon: 'key-round', color: '#D63333', text: 'Set a new password',
+      sub: 'You’re using a temporary password — choose a secure one',
+      href: 'settings.html#changepassword' });
+  }
 
   // 0) Team invitations — actionable (Accept / Decline).
   invites.forEach(inv => {
@@ -373,7 +385,7 @@ async function loadNotifications() {
   let lastDay = null;
   try { lastDay = localStorage.getItem('lf-notifs-day'); } catch (e) {}
   if (lastDay !== todayKey) {
-    items.forEach(i => { if (!['invite', 'assignment', 'outcome'].includes(i.type)) read.add(i.key); });
+    items.forEach(i => { if (!i.persist && !['invite', 'assignment', 'outcome'].includes(i.type)) read.add(i.key); });
     try { localStorage.setItem('lf-notifs-day', todayKey); } catch (e) {}
   }
 
@@ -431,7 +443,8 @@ function renderNotifications(items, read) {
   if (!list || !badge) return;
 
   // Only unread notifications are shown — once read (or cleared), they disappear.
-  const shown = items.filter(i => !read.has(i.key));
+  // Persistent items (e.g. "set a new password") always show until resolved.
+  const shown = items.filter(i => i.persist || !read.has(i.key));
   const unread = shown.length;
   if (unread > 0) {
     badge.textContent = unread > 9 ? '9+' : String(unread);
@@ -523,9 +536,9 @@ function renderNotifications(items, read) {
     e.preventDefault(); e.stopPropagation(); dismissOutcome(b.getAttribute('data-outcome-seen'), b);
   }));
 
-  // Mark all read.
+  // Mark all read (persistent items stay — they're resolved by acting on them).
   if (readAll) readAll.onclick = () => {
-    const r = notifReadSet(); items.forEach(i => r.add(i.key)); notifSaveRead(r);
+    const r = notifReadSet(); items.forEach(i => { if (!i.persist) r.add(i.key); }); notifSaveRead(r);
     renderNotifications(items, r);
     if (window.lucide) lucide.createIcons();
   };
