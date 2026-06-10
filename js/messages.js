@@ -293,11 +293,13 @@
     const notice = document.createElement('div');
     notice.className = 'rounded-lg p-3 mb-3 text-[12.5px]';
     notice.style.cssText = 'border:1px solid #E8C36A;background:#FBF4E2;color:#7A5A00;';
+    // Only nudge about the API key when the failure is actually a setup/key issue.
+    const keyHint = /GEMINI_API_KEY|not set up|valid|enabled/i.test(reason)
+      ? ' Set a <b>GEMINI_API_KEY</b> in your hosting environment to turn on real AI drafts.' : '';
     notice.innerHTML = `
       <div class="flex items-start gap-2">
         <i data-lucide="alert-triangle" style="width:14px;height:14px;flex-shrink:0;margin-top:1px;"></i>
-        <div><b>AI generation is off.</b> ${esc(reason)}<br>
-        Set a <b>GEMINI_API_KEY</b> in your hosting environment to turn on real AI drafts. Showing a sample below for now.</div>
+        <div><b>AI draft unavailable.</b> ${esc(reason)}${keyHint}<br>Showing a sample below for now.</div>
       </div>`;
     out.insertBefore(notice, out.firstChild);
     if (window.lucide) lucide.createIcons();

@@ -1889,39 +1889,44 @@ app.post('/api/ai/generate', safe(async (req, res) => {
     generationConfig: { temperature: 0.9, maxOutputTokens: 400 }
   });
 
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   let lastStatus = 0, lastDetail = '';
-  for (const model of models) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
-    try {
-      const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
-      if (r.ok) {
-        const data = await r.json();
-        const parts = (((data.candidates || [])[0] || {}).content || {}).parts || [];
-        const text = parts.map(p => p.text || '').join('').trim();
-        if (text) return res.json({ text, model });
-        lastStatus = 502; lastDetail = 'empty response';
-        continue;
+  // Two passes: free models get briefly overloaded (503), so retry the list once.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    for (const model of models) {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
+      try {
+        const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+        if (r.ok) {
+          const data = await r.json();
+          const parts = (((data.candidates || [])[0] || {}).content || {}).parts || [];
+          const text = parts.map(p => p.text || '').join('').trim();
+          if (text) return res.json({ text, model });
+          lastStatus = 502; lastDetail = 'empty response';
+          continue;
+        }
+        lastStatus = r.status;
+        const raw = (await r.text().catch(() => ''));
+        try { lastDetail = (JSON.parse(raw).error || {}).message || raw; } catch (e) { lastDetail = raw; }
+        lastDetail = String(lastDetail).slice(0, 300);
+        console.error('gemini', model, r.status, lastDetail);
+        // Rate-limited (429), overloaded (500/503), or model unavailable (404) → try the next model.
+        if ([429, 404, 500, 503].includes(r.status)) continue;
+        return res.status(502).json({ error: 'Gemini rejected the request — check the GEMINI_API_KEY is valid and the Generative Language API is enabled' + (lastDetail ? ` (${lastDetail})` : '') + '.' });
+      } catch (e) {
+        console.error('gemini err', model, e);
+        lastStatus = 0; lastDetail = String((e && e.message) || e);
       }
-      lastStatus = r.status;
-      const raw = (await r.text().catch(() => ''));
-      try { lastDetail = (JSON.parse(raw).error || {}).message || raw; } catch (e) { lastDetail = raw; }
-      lastDetail = String(lastDetail).slice(0, 300);
-      console.error('gemini', model, r.status, lastDetail);
-      // 429 (rate limit) / 404 (model not available to this key) → try the next model.
-      if (r.status === 429 || r.status === 404) continue;
-      break; // 400/403 etc. won't be fixed by another model
-    } catch (e) {
-      console.error('gemini err', model, e);
-      lastStatus = 0; lastDetail = String((e && e.message) || e);
     }
+    if (attempt === 0) await sleep(1200); // brief pause before the second pass
   }
 
-  // All models failed — return a clear, specific reason.
+  // Everything failed — return a clear, specific reason.
   if (lastStatus === 429) {
-    return res.status(429).json({ error: 'Gemini rate limit/quota reached on the free tier. Wait a minute and try again' + (lastDetail ? ` (${lastDetail})` : '') + '.' });
+    return res.status(429).json({ error: 'Gemini free-tier quota reached. Wait a minute and try again' + (lastDetail ? ` (${lastDetail})` : '') + '.' });
   }
-  if (lastStatus === 400 || lastStatus === 403) {
-    return res.status(502).json({ error: 'Gemini rejected the request — check the GEMINI_API_KEY is valid and the Generative Language API is enabled' + (lastDetail ? ` (${lastDetail})` : '') + '.' });
+  if (lastStatus === 500 || lastStatus === 503) {
+    return res.status(503).json({ error: 'Gemini is temporarily overloaded — this is on Google’s side and usually clears in a minute. Please try again shortly.' });
   }
   return res.status(502).json({ error: `AI service error${lastStatus ? ` (HTTP ${lastStatus})` : ''}${lastDetail ? ` — ${lastDetail}` : ''}.` });
 }));
