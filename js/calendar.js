@@ -184,18 +184,24 @@
   function eventBlock(ev, compact) {
     const s = typeStyle(ev.type);
     const isGoogle = ev.source === 'google';
-    // If this event has a Google Meet link, clicking it joins the meeting.
-    const link = ev.meetLink
-      ? `data-open-link="${escAttr(ev.meetLink)}" title="Join the meeting" style="cursor:pointer;` : `style="`;
+    const isQueue = ev.source === 'callqueue';
+    const readOnly = isGoogle || isQueue; // pulled-in items can't be deleted here
+    // Clicking opens the relevant thing: a Meet join link, or the Call Queue.
+    const openUrl = ev.meetLink || ev.openUrl;
+    const openTitle = ev.meetLink ? 'Join the meeting' : (isQueue ? 'Open the call queue' : '');
+    const link = openUrl
+      ? `data-open-link="${escAttr(openUrl)}" title="${openTitle}" style="cursor:pointer;` : `style="`;
+    const badge = ev.meetLink ? 'Join' : (isQueue ? 'Queue' : (isGoogle ? 'Google' : s.label));
+    const suffix = ev.meetLink ? ' · Join' : (isQueue ? ' · Queue' : (isGoogle ? ' · Google' : ''));
     if (compact) {
       return `
         <div class="rounded-md px-2 py-1 mb-1" ${link}position:relative;background:${s.bg};border-left:3px solid ${s.fg};">
-          ${isGoogle ? '' : `<button data-delete-uid="${ev._uid}" title="Remove event"
+          ${readOnly ? '' : `<button data-delete-uid="${ev._uid}" title="Remove event"
                   style="position:absolute;top:1px;right:1px;width:15px;height:15px;display:flex;align-items:center;justify-content:center;color:${s.fg};opacity:.65;">
             <i data-lucide="x" style="width:10px;height:10px;pointer-events:none;"></i>
           </button>`}
           <div class="text-[11px] font-semibold truncate" style="color:${s.fg};padding-right:12px;pointer-events:none;">${esc(ev.title)}</div>
-          <div class="text-[10px]" style="color:${s.fg};opacity:.8;pointer-events:none;">${fmtTime(ev.start)}${ev.meetLink ? ' · Join' : (isGoogle ? ' · Google' : '')}</div>
+          <div class="text-[10px]" style="color:${s.fg};opacity:.8;pointer-events:none;">${fmtTime(ev.start)}${suffix}</div>
         </div>`;
     }
     return `
@@ -203,8 +209,8 @@
         <div class="flex items-center justify-between gap-2">
           <span class="text-[13px] font-semibold" style="color:${s.fg};pointer-events:none;">${esc(ev.title)}</span>
           <div class="flex items-center gap-1.5">
-            <span class="pill" style="background:var(--surface);color:${s.fg};font-size:10.5px;pointer-events:none;">${ev.meetLink ? 'Join' : (isGoogle ? 'Google' : s.label)}</span>
-            ${isGoogle ? '' : `<button data-delete-uid="${ev._uid}" title="Remove event" class="btn-icon"
+            <span class="pill" style="background:var(--surface);color:${s.fg};font-size:10.5px;pointer-events:none;">${badge}</span>
+            ${readOnly ? '' : `<button data-delete-uid="${ev._uid}" title="Remove event" class="btn-icon"
                     style="width:26px;height:26px;border:none;background:transparent;">
               <i data-lucide="trash-2" style="width:13px;height:13px;color:${s.fg};pointer-events:none;"></i>
             </button>`}
@@ -314,16 +320,20 @@
         const d = parseDate(e.date);
         const dayLabel = sameDay(d, TODAY) ? 'Today' : `${DOW[d.getDay()]}, ${MONTHS[d.getMonth()].slice(0,3)} ${d.getDate()}`;
         const isGoogle = e.source === 'google';
-        const link = e.meetLink
-          ? `data-open-link="${escAttr(e.meetLink)}" title="Join the meeting" style="cursor:pointer;border:1px solid var(--border);` : `style="border:1px solid var(--border);`;
+        const isQueue = e.source === 'callqueue';
+        const openUrl = e.meetLink || e.openUrl;
+        const openTitle = e.meetLink ? 'Join the meeting' : (isQueue ? 'Open the call queue' : '');
+        const link = openUrl
+          ? `data-open-link="${escAttr(openUrl)}" title="${openTitle}" style="cursor:pointer;border:1px solid var(--border);` : `style="border:1px solid var(--border);`;
         const badge = e.meetLink
           ? ' <span class="pill" style="font-size:9.5px;background:#E6F8EC;color:#138A4B;">Join</span>'
-          : (isGoogle ? ' <span class="pill pill-gray" style="font-size:9.5px;">Google</span>' : '');
+          : (isQueue ? ' <span class="pill pill-gray" style="font-size:9.5px;">Queue</span>'
+          : (isGoogle ? ' <span class="pill pill-gray" style="font-size:9.5px;">Google</span>' : ''));
         return `
           <div class="rounded-lg p-3 mb-2" ${link}">
             <div class="flex items-start justify-between gap-2">
               <div class="text-[13px] font-semibold">${esc(e.title)}${badge}</div>
-              ${isGoogle ? '' : `<button data-delete-uid="${e._uid}" title="Remove event" class="btn-icon"
+              ${(isGoogle || isQueue) ? '' : `<button data-delete-uid="${e._uid}" title="Remove event" class="btn-icon"
                       style="width:26px;height:26px;border:none;background:transparent;flex-shrink:0;">
                 <i data-lucide="trash-2" style="width:13px;height:13px;color:#D63333;pointer-events:none;"></i>
               </button>`}
@@ -398,6 +408,32 @@
       const res = await fetch('/api/tasks', { credentials: 'same-origin' });
       tasks = res.ok ? await res.json() : [];
     } catch (e) { tasks = []; }
+  }
+  // Parse a queue time label ("2:30 PM") into "HH:MM"; default to 9 AM if none.
+  function queueStart(label) {
+    const m = /(\d{1,2}):(\d{2})\s*(AM|PM)/i.exec(label || '');
+    if (!m) return '09:00';
+    let h = parseInt(m[1], 10) % 12;
+    if (/PM/i.test(m[3])) h += 12;
+    return `${String(h).padStart(2, '0')}:${m[2]}`;
+  }
+  // Pull the user's call queue and show each call on the calendar (read-only here;
+  // clicking opens the Call Queue page). Runs after loadEvents so it isn't wiped.
+  async function loadCallQueue() {
+    try {
+      const res = await fetch('/api/call-queue', { credentials: 'same-origin' });
+      if (!res.ok) return;
+      const items = await res.json();
+      items.forEach(c => {
+        const date = (c.date && c.date.trim()) || toKey(TODAY);
+        const start = queueStart(c.time);
+        events.push(withUid({
+          date, start, end: addHour(start),
+          title: 'Call: ' + (c.name || 'Lead') + (c.reason ? ' — ' + c.reason : ''),
+          type: 'call', with: c.phone || '', source: 'callqueue', openUrl: 'calls.html'
+        }));
+      });
+    } catch (e) { /* offline — skip */ }
   }
   // Pull the user's Google Calendar events (read-only) and merge them in.
   // Runs after loadEvents (which replaces the array) so they aren't wiped.
@@ -476,9 +512,14 @@
     document.getElementById('cal-body').addEventListener('click', (e) => {
       const btn = e.target.closest('[data-delete-uid]');
       if (btn) { deleteEvent(btn.getAttribute('data-delete-uid')); return; }
-      // Clicking a meeting opens its Google Meet join link (new tab).
+      // Clicking opens the linked thing: external links (Meet) in a new tab,
+      // internal pages (the Call Queue) in the same tab.
       const open = e.target.closest('[data-open-link]');
-      if (open) window.open(open.getAttribute('data-open-link'), '_blank', 'noopener');
+      if (open) {
+        const url = open.getAttribute('data-open-link');
+        if (/^https?:\/\//i.test(url)) window.open(url, '_blank', 'noopener');
+        else window.location.href = url;
+      }
     });
   }
 
@@ -587,6 +628,7 @@
   document.addEventListener('DOMContentLoaded', async function () {
     await LF.renderLayout({ active: 'calendar' });
     await Promise.all([loadEvents(), loadTasks()]);
+    await loadCallQueue();      // merge call-queue items after local events load
     await loadGoogleEvents();   // merge Google Calendar events after local ones load
     bindModal();
     bindDelete();
