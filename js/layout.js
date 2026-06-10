@@ -19,10 +19,10 @@ const NAV_ITEMS = [
   { id: 'contacts',     label: 'Contacts',     icon: 'contact',          href: 'contacts.html' },
   { id: 'tasks',        label: 'Tasks',        icon: 'check-square',     href: 'tasks.html' },
   { id: 'calendar',     label: 'Calendar',     icon: 'calendar',         href: 'calendar.html' },
-  { id: 'calls',        label: 'Calls',        icon: 'phone',            href: 'calls.html', chevron: true },
-  { id: 'messages',     label: 'Messages',     icon: 'message-square',   href: 'messages.html', chevron: true },
+  { id: 'calls',        label: 'Calls',        icon: 'phone',            href: 'calls.html' },
+  { id: 'messages',     label: 'Messages',     icon: 'message-square',   href: 'messages.html' },
   { id: 'campaigns',    label: 'Campaigns',    icon: 'megaphone',        href: 'campaigns.html' },
-  { id: 'reports',      label: 'Reports',      icon: 'bar-chart-3',      href: 'reports.html', chevron: true },
+  { id: 'reports',      label: 'Reports',      icon: 'bar-chart-3',      href: 'reports.html' },
   { id: 'settings',     label: 'Settings',     icon: 'settings',         href: 'settings.html' }
 ];
 
