@@ -19,9 +19,12 @@ const NAV_ITEMS = [
   { id: 'contacts',     label: 'Contacts',     icon: 'contact',          href: 'contacts.html' },
   { id: 'tasks',        label: 'Tasks',        icon: 'check-square',     href: 'tasks.html' },
   { id: 'calendar',     label: 'Calendar',     icon: 'calendar',         href: 'calendar.html' },
-  { id: 'calls',        label: 'Calls',        icon: 'phone',            href: 'calls.html' },
-  { id: 'messages',     label: 'Messages',     icon: 'message-square',   href: 'messages.html' },
-  { id: 'campaigns',    label: 'Campaigns',    icon: 'megaphone',        href: 'campaigns.html' },
+  // Outreach channels grouped under a collapsible "Connect" section.
+  { id: 'connect',      label: 'Connect',      icon: 'share-2', group: true, children: [
+    { id: 'calls',      label: 'Calls',        icon: 'phone',            href: 'calls.html' },
+    { id: 'messages',   label: 'Messages',     icon: 'message-square',   href: 'messages.html' },
+    { id: 'campaigns',  label: 'Campaigns',    icon: 'megaphone',        href: 'campaigns.html' }
+  ] },
   { id: 'reports',      label: 'Reports',      icon: 'bar-chart-3',      href: 'reports.html' },
   { id: 'settings',     label: 'Settings',     icon: 'settings',         href: 'settings.html' }
 ];
@@ -67,14 +70,34 @@ LF.renderLayout = async function ({ active }) {
   const pageContent = root.innerHTML;
   const collapsed = localStorage.getItem('lf-sidebar-collapsed') === '1';
 
-  const nav = NAV_ITEMS.map(item => `
-    <a href="${item.href}" class="nav-item ${active === item.id ? 'active' : ''}" title="${item.label}">
+  const navLink = (item, isChild) => `
+    <a href="${item.href}" class="nav-item ${isChild ? 'nav-subitem' : ''} ${active === item.id ? 'active' : ''}" title="${item.label}">
       <i data-lucide="${item.icon}"></i>
       <span class="nav-label">${item.label}</span>
       ${item.badge ? `<span class="badge">${item.badge}</span>` : ''}
-      ${item.chevron ? `<i data-lucide="chevron-down" class="nav-chevron" style="margin-left:auto;width:14px;height:14px;opacity:.6;"></i>` : ''}
-    </a>
-  `).join('');
+    </a>`;
+  // Builds the nav markup. When the sidebar is collapsed, groups flatten into
+  // plain icons so every page stays reachable.
+  function navHTML(isCollapsed) {
+    return NAV_ITEMS.map(item => {
+      if (!item.group) return navLink(item, false);
+      if (isCollapsed) return item.children.map(c => navLink(c, false)).join('');
+      const childActive = item.children.some(c => c.id === active);
+      const open = childActive || localStorage.getItem('lf-nav-' + item.id) === '1';
+      return `
+        <div class="nav-group ${open ? 'open' : ''}" data-group="${item.id}">
+          <div class="nav-item nav-group-header" data-group-toggle="${item.id}" title="${item.label}" role="button" tabindex="0">
+            <i data-lucide="${item.icon}"></i>
+            <span class="nav-label">${item.label}</span>
+            <i data-lucide="chevron-down" class="nav-chevron" style="margin-left:auto;width:14px;height:14px;opacity:.6;transition:transform .15s;"></i>
+          </div>
+          <div class="nav-group-children" style="${open ? '' : 'display:none;'}">
+            ${item.children.map(c => navLink(c, true)).join('')}
+          </div>
+        </div>`;
+    }).join('');
+  }
+  const nav = navHTML(collapsed);
 
   root.innerHTML = `
     <div class="flex" style="height:100vh;overflow:hidden;">
@@ -86,7 +109,7 @@ LF.renderLayout = async function ({ active }) {
           </div>
           <span class="brand-text text-white text-[17px] font-bold tracking-tight">LeadFlow</span>
         </div>
-        <nav class="px-3 mt-2 flex-1 flex flex-col gap-1 overflow-y-auto min-h-0">
+        <nav id="lf-nav" class="px-3 mt-2 flex-1 flex flex-col gap-1 overflow-y-auto min-h-0">
           ${nav}
         </nav>
 
@@ -156,6 +179,26 @@ LF.renderLayout = async function ({ active }) {
   `;
 
   // Wire up collapse toggle.
+  // Expand/collapse a nav group (e.g. "Connect") and remember the state.
+  function bindNavGroups() {
+    document.querySelectorAll('#lf-nav [data-group-toggle]').forEach(header => {
+      header.addEventListener('click', () => {
+        const id = header.getAttribute('data-group-toggle');
+        const group = header.closest('.nav-group');
+        const children = group.querySelector('.nav-group-children');
+        const chevron = header.querySelector('.nav-chevron');
+        const willOpen = children.style.display === 'none';
+        children.style.display = willOpen ? '' : 'none';
+        group.classList.toggle('open', willOpen);
+        if (chevron) chevron.style.transform = willOpen ? 'rotate(180deg)' : '';
+        localStorage.setItem('lf-nav-' + id, willOpen ? '1' : '0');
+      });
+    });
+    // Reflect the initial open state on chevrons.
+    document.querySelectorAll('#lf-nav .nav-group.open .nav-chevron').forEach(c => { c.style.transform = 'rotate(180deg)'; });
+  }
+  bindNavGroups();
+
   const btn = document.getElementById('lf-collapse-btn');
   const sidebar = document.getElementById('lf-sidebar');
   btn.addEventListener('click', () => {
@@ -164,7 +207,11 @@ LF.renderLayout = async function ({ active }) {
     localStorage.setItem('lf-sidebar-collapsed', nowCollapsed ? '1' : '0');
     btn.setAttribute('title', nowCollapsed ? 'Expand sidebar' : 'Collapse sidebar');
     btn.innerHTML = `<i data-lucide="${nowCollapsed ? 'chevrons-right' : 'chevrons-left'}"></i>`;
+    // Re-render the nav so groups flatten (collapsed) or restore (expanded).
+    const navEl = document.getElementById('lf-nav');
+    if (navEl) { navEl.innerHTML = navHTML(nowCollapsed); }
     if (window.lucide) lucide.createIcons();
+    bindNavGroups();
   });
 
   // Theme toggle (light/dark).

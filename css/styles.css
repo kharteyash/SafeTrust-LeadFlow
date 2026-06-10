@@ -102,6 +102,10 @@ html.dark .sidebar { border-right: 1px solid rgba(255,255,255,.06); }
 }
 .sidebar .nav-item.active svg { color: #acbdd4; }
 .sidebar .nav-item svg { width: 18px; height: 18px; flex-shrink: 0; }
+/* Collapsible nav group (e.g. "Connect"). */
+.sidebar .nav-group-children { display: flex; flex-direction: column; gap: 4px; margin-top: 3px; }
+.sidebar .nav-subitem { padding-left: 30px; font-size: 13.5px; }
+.sidebar .nav-subitem svg { width: 16px; height: 16px; }
 .sidebar .badge {
   background: #2255a3;
   color: #FFF;
