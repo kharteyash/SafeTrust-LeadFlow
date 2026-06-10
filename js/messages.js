@@ -225,7 +225,8 @@
           <i data-lucide="sparkles" style="width:13px;height:13px;"></i> AI suggestion
         </div>
         <p class="text-[13.5px] leading-relaxed" style="white-space:pre-wrap;">${esc(text)}</p>
-        <div class="mt-3 flex items-center gap-2">
+        <div class="mt-3 flex items-center gap-2 flex-wrap">
+          <button id="ai-use" class="btn-primary" style="padding:6px 12px;font-size:12.5px;"><i data-lucide="calendar-plus" style="width:13px;height:13px;"></i> Use this draft</button>
           <button id="ai-copy" class="btn-secondary" style="padding:6px 12px;font-size:12.5px;"><i data-lucide="copy" style="width:13px;height:13px;"></i> Copy</button>
           <button id="ai-regen" class="btn-secondary" style="padding:6px 12px;font-size:12.5px;">
             <i data-lucide="refresh-cw" style="width:13px;height:13px;"></i> Regenerate
@@ -235,6 +236,13 @@
     if (window.lucide) lucide.createIcons();
 
     document.getElementById('ai-regen').addEventListener('click', generateAI);
+    // Drop the draft straight into a new scheduled email.
+    document.getElementById('ai-use').addEventListener('click', () => {
+      const typeLabel = { reply: 'Reply', followup: 'Follow-up', personalized: 'Personalized message' }[state.aiType] || 'Message';
+      state.tab = 'scheduled';
+      render();
+      openMsgModal({ body: text, type: typeLabel });
+    });
     const copyBtn = document.getElementById('ai-copy');
     copyBtn.addEventListener('click', async () => {
       await copyToClipboard(text);
@@ -314,7 +322,7 @@
       t.removeAttribute('min');
     }
   }
-  function openMsgModal() {
+  function openMsgModal(prefill) {
     const form = document.getElementById('msg-form');
     form.reset();
     const now = new Date();
@@ -325,6 +333,9 @@
     const next = new Date(now.getTime() + 60 * 60 * 1000);
     form.elements['time'].value = `${pad(next.getHours())}:00`;
     form.elements['channel'].value = 'Email';
+    // Optionally seed the message body (e.g. from an AI draft).
+    if (prefill && prefill.body) form.elements['body'].value = prefill.body;
+    if (prefill && prefill.type) form.elements['type'].value = prefill.type;
     syncTimeMin(form);
     document.getElementById('msg-form-msg').textContent = '';
     document.getElementById('msg-modal').classList.remove('hidden');
@@ -333,7 +344,7 @@
   function closeMsgModal() { document.getElementById('msg-modal').classList.add('hidden'); }
 
   function bindCompose() {
-    document.getElementById('new-msg-btn').addEventListener('click', openMsgModal);
+    document.getElementById('new-msg-btn').addEventListener('click', () => openMsgModal());
     document.getElementById('msg-modal-close').addEventListener('click', closeMsgModal);
     document.getElementById('msg-cancel').addEventListener('click', closeMsgModal);
     document.getElementById('msg-modal-backdrop').addEventListener('click', closeMsgModal);
