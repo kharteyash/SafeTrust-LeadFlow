@@ -184,21 +184,24 @@
   function eventBlock(ev, compact) {
     const s = typeStyle(ev.type);
     const isGoogle = ev.source === 'google';
+    // Clicking the block opens it in Google Calendar (when we have a link for it).
+    const link = ev.htmlLink
+      ? `data-open-link="${escAttr(ev.htmlLink)}" title="Open in Google Calendar" style="cursor:pointer;` : `style="`;
     if (compact) {
       return `
-        <div class="rounded-md px-2 py-1 mb-1" style="position:relative;background:${s.bg};border-left:3px solid ${s.fg};">
+        <div class="rounded-md px-2 py-1 mb-1" ${link}position:relative;background:${s.bg};border-left:3px solid ${s.fg};">
           ${isGoogle ? '' : `<button data-delete-uid="${ev._uid}" title="Remove event"
                   style="position:absolute;top:1px;right:1px;width:15px;height:15px;display:flex;align-items:center;justify-content:center;color:${s.fg};opacity:.65;">
             <i data-lucide="x" style="width:10px;height:10px;pointer-events:none;"></i>
           </button>`}
-          <div class="text-[11px] font-semibold truncate" style="color:${s.fg};padding-right:12px;">${esc(ev.title)}</div>
-          <div class="text-[10px]" style="color:${s.fg};opacity:.8;">${fmtTime(ev.start)}${isGoogle ? ' · Google' : ''}</div>
+          <div class="text-[11px] font-semibold truncate" style="color:${s.fg};padding-right:12px;pointer-events:none;">${esc(ev.title)}</div>
+          <div class="text-[10px]" style="color:${s.fg};opacity:.8;pointer-events:none;">${fmtTime(ev.start)}${isGoogle ? ' · Google' : ''}</div>
         </div>`;
     }
     return `
-      <div class="rounded-lg px-3 py-2" style="background:${s.bg};border-left:3px solid ${s.fg};">
+      <div class="rounded-lg px-3 py-2" ${link}background:${s.bg};border-left:3px solid ${s.fg};">
         <div class="flex items-center justify-between gap-2">
-          <span class="text-[13px] font-semibold" style="color:${s.fg};">${esc(ev.title)}</span>
+          <span class="text-[13px] font-semibold" style="color:${s.fg};pointer-events:none;">${esc(ev.title)}</span>
           <div class="flex items-center gap-1.5">
             <span class="pill" style="background:var(--surface);color:${s.fg};font-size:10.5px;">${isGoogle ? 'Google' : s.label}</span>
             ${isGoogle ? '' : `<button data-delete-uid="${ev._uid}" title="Remove event" class="btn-icon"
@@ -207,7 +210,7 @@
             </button>`}
           </div>
         </div>
-        <div class="text-[12px] mt-0.5" style="color:${s.fg};opacity:.85;">
+        <div class="text-[12px] mt-0.5" style="color:${s.fg};opacity:.85;pointer-events:none;">
           ${fmtRange(ev.start, ev.end)}${ev.with ? ' · ' + esc(ev.with) : ''}
         </div>
       </div>`;
@@ -311,8 +314,10 @@
         const d = parseDate(e.date);
         const dayLabel = sameDay(d, TODAY) ? 'Today' : `${DOW[d.getDay()]}, ${MONTHS[d.getMonth()].slice(0,3)} ${d.getDate()}`;
         const isGoogle = e.source === 'google';
+        const link = e.htmlLink
+          ? `data-open-link="${escAttr(e.htmlLink)}" title="Open in Google Calendar" style="cursor:pointer;border:1px solid var(--border);` : `style="border:1px solid var(--border);`;
         return `
-          <div class="rounded-lg p-3 mb-2" style="border:1px solid var(--border);">
+          <div class="rounded-lg p-3 mb-2" ${link}">
             <div class="flex items-start justify-between gap-2">
               <div class="text-[13px] font-semibold">${esc(e.title)}${isGoogle ? ' <span class="pill pill-gray" style="font-size:9.5px;">Google</span>' : ''}</div>
               ${isGoogle ? '' : `<button data-delete-uid="${e._uid}" title="Remove event" class="btn-icon"
@@ -467,8 +472,10 @@
     // Delegated — survives #cal-body re-renders.
     document.getElementById('cal-body').addEventListener('click', (e) => {
       const btn = e.target.closest('[data-delete-uid]');
-      if (!btn) return;
-      deleteEvent(btn.getAttribute('data-delete-uid'));
+      if (btn) { deleteEvent(btn.getAttribute('data-delete-uid')); return; }
+      // Clicking the event itself opens it in Google Calendar (new tab).
+      const open = e.target.closest('[data-open-link]');
+      if (open) window.open(open.getAttribute('data-open-link'), '_blank', 'noopener');
     });
   }
 
