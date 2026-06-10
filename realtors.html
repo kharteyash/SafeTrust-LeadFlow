@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Realtors — LeadFlow</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  <script>try{if(localStorage.getItem('lf-theme')==='dark')document.documentElement.classList.add('dark')}catch(e){}</script>
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <div id="app">
+
+    <!-- Page header -->
+    <div class="flex items-start justify-between mb-6 flex-wrap gap-4">
+      <div>
+        <h1 class="text-[26px] font-bold tracking-tight">Realtors</h1>
+        <p class="text-[13.5px] text-muted mt-1">Realtor contacts — pulled from RETR and from realtors attached to your leads.</p>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="p-5 pb-3 flex items-center justify-between flex-wrap gap-3">
+        <h3 class="text-[15px] font-semibold">All Realtors <span id="realtor-count" class="text-muted font-normal"></span></h3>
+        <div class="relative">
+          <i data-lucide="search" style="width:14px;height:14px;color:#8A8AA0;position:absolute;left:12px;top:50%;transform:translateY(-50%);"></i>
+          <input id="realtor-search" class="input pl-9" style="padding-top:7px;padding-bottom:7px;font-size:12.5px;width:240px;" placeholder="Search realtors..." />
+        </div>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="lf-table" id="realtors-table"></table>
+      </div>
+    </div>
+
+    <!-- Person detail modal -->
+    <div id="person-modal" class="hidden" style="position:fixed;inset:0;z-index:50;">
+      <div id="person-backdrop" style="position:absolute;inset:0;background:rgba(14,14,27,.45);"></div>
+      <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:100%;max-width:480px;" class="px-4">
+        <div class="bg-white rounded-2xl p-6 shadow-2xl" style="max-height:85vh;display:flex;flex-direction:column;">
+          <div class="flex items-center justify-between mb-3 flex-shrink-0">
+            <h3 id="person-title" class="text-[17px] font-bold">Realtor</h3>
+            <button id="person-close" class="btn-icon" style="width:32px;height:32px;border:none;">
+              <i data-lucide="x" style="width:16px;height:16px;color:var(--text-muted);"></i>
+            </button>
+          </div>
+          <div id="person-body" class="overflow-y-auto" style="min-height:0;"></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="js/data.js"></script>
+  <script src="js/layout.js"></script>
+  <script src="js/people.js"></script>
+  <script src="js/realtors.js"></script>
+</body>
+</html>

@@ -16,7 +16,7 @@
     <div class="flex items-start justify-between mb-6 flex-wrap gap-4">
       <div>
         <h1 class="text-[26px] font-bold tracking-tight">Contacts</h1>
-        <p class="text-[13.5px] text-muted mt-1">Your buyers, sellers, and investors.</p>
+        <p class="text-[13.5px] text-muted mt-1">Everyone you know — leads, realtors, clients, and saved contacts.</p>
       </div>
       <button id="add-contact-btn" class="btn-primary">
         <i data-lucide="plus" style="width:14px;height:14px;"></i> Add Contact
@@ -25,14 +25,31 @@
 
     <div class="panel">
       <div class="p-5 pb-3 flex items-center justify-between flex-wrap gap-3">
-        <h3 class="text-[15px] font-semibold">All Contacts <span id="contact-count" class="text-muted font-normal"></span></h3>
+        <div class="flex items-center gap-5 flex-wrap" id="contact-filters"></div>
         <div class="relative">
           <i data-lucide="search" style="width:14px;height:14px;color:#8A8AA0;position:absolute;left:12px;top:50%;transform:translateY(-50%);"></i>
-          <input id="contact-search" class="input pl-9" style="padding-top:7px;padding-bottom:7px;font-size:12.5px;width:240px;" placeholder="Search contacts..." />
+          <input id="contact-search" class="input pl-9" style="padding-top:7px;padding-bottom:7px;font-size:12.5px;width:240px;" placeholder="Search people..." />
         </div>
       </div>
+      <div class="px-5 pb-2 text-[12px] text-muted">All people <span id="contact-count" class="font-normal"></span></div>
       <div class="overflow-x-auto">
         <table class="lf-table" id="contacts-table"></table>
+      </div>
+    </div>
+
+    <!-- Person detail modal (read-only, for leads/realtors/clients/contacts) -->
+    <div id="person-modal" class="hidden" style="position:fixed;inset:0;z-index:50;">
+      <div id="person-backdrop" style="position:absolute;inset:0;background:rgba(14,14,27,.45);"></div>
+      <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:100%;max-width:480px;" class="px-4">
+        <div class="bg-white rounded-2xl p-6 shadow-2xl" style="max-height:85vh;display:flex;flex-direction:column;">
+          <div class="flex items-center justify-between mb-3 flex-shrink-0">
+            <h3 id="person-title" class="text-[17px] font-bold">Details</h3>
+            <button id="person-close" class="btn-icon" style="width:32px;height:32px;border:none;">
+              <i data-lucide="x" style="width:16px;height:16px;color:var(--text-muted);"></i>
+            </button>
+          </div>
+          <div id="person-body" class="overflow-y-auto" style="min-height:0;"></div>
+        </div>
       </div>
     </div>
 
@@ -137,6 +154,7 @@
 
   <script src="js/data.js"></script>
   <script src="js/layout.js"></script>
+  <script src="js/people.js"></script>
   <script src="js/contacts.js"></script>
 </body>
 </html>

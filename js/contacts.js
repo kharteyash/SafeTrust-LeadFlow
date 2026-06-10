@@ -1,20 +1,26 @@
-// Contacts page: real per-user contacts (Postgres-backed CRUD).
+// Contacts page: a unified directory of every person — your leads, realtors,
+// clients (previously closed leads), and saved contacts. Real contacts are
+// editable here; leads and clients are view-only (manage them on their pages).
 (function () {
-  let contacts = [];
+  let contacts = [];   // raw contacts (editable)
+  let leads = [];      // raw leads (view-only)
+  let clients = [];    // raw closed leads (view-only)
   let query = '';
-  let editingId = null;   // contact being edited, if any
+  let filterId = 'all';
+  let editingId = null;
   const STD_TAGS = ['Buyer', 'Seller', 'Investor', 'Realtor'];
 
-  function esc(s) {
-    return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  }
-  function escAttr(s) {
-    return String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  }
-  function initials(name) {
-    return (name || '?').trim().split(/\s+/).map(s => s[0]).slice(0, 2).join('').toUpperCase() || '?';
-  }
-  // Shared, format-tolerant phone helpers (accept +1, (xxx), E.164, etc.).
+  const FILTERS = [
+    { id: 'all',      label: 'All' },
+    { id: 'lead',     label: 'Leads' },
+    { id: 'contact',  label: 'Contacts' },
+    { id: 'realtor',  label: 'Realtors' },
+    { id: 'client',   label: 'Clients' }
+  ];
+
+  function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  function escAttr(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  function initials(name) { return (name || '?').trim().split(/\s+/).map(s => s[0]).slice(0, 2).join('').toUpperCase() || '?'; }
   function waLink(phone) { return LF.waLink(phone); }
   function smsLink(phone) { return LF.smsLink(phone); }
   function gmailCompose(to) {
@@ -22,7 +28,7 @@
     return 'https://accounts.google.com/AccountChooser?continue=' + encodeURIComponent(compose);
   }
 
-  // ----- "Contact" popup menu (Call / Text / WhatsApp / Email) -----
+  // ----- "Contact" popup menu (Call / Text / WhatsApp / Email / Meet) -----
   let menuContact = null;
   function menuItem(icon, label, color) {
     return `<button class="flex items-center gap-2.5 w-full text-left rounded-md px-3 py-2 hover:bg-[#FAFAFC]" data-action="${label}" style="font-size:13px;">
@@ -100,59 +106,60 @@
       finally { btn.disabled = false; btn.style.opacity = ''; }
     });
   }
-  function tagPill(tag) {
-    if (tag === 'Buyer')    return 'pill-blue';
-    if (tag === 'Seller')   return 'pill-purple';
-    if (tag === 'Investor') return 'pill-green';
-    if (tag === 'Realtor')  return 'pill-yellow';
-    return 'pill-gray';
-  }
-  function relLabel(r) {
-    return r === 'established' ? 'Established' : r === 'developing' ? 'Developing' : r === 'unknown' ? 'Unknown' : '';
-  }
-  // Type cell: the tag pill, plus the realtor relationship when present.
-  function typeCell(c) {
-    const pill = `<span class="pill ${tagPill(c.tag)}">${esc(c.tag)}</span>`;
-    if (c.tag === 'Realtor' && c.relationship) {
-      return `${pill} <span class="text-[11px] text-muted">· ${relLabel(c.relationship)}</span>`;
-    }
-    return pill;
+
+  // ----- Load (contacts + leads + clients) -----
+  async function loadAll() {
+    const get = async (u) => { try { const r = await fetch(u, { credentials: 'same-origin' }); return r.ok ? await r.json() : []; } catch (e) { return []; } };
+    [contacts, leads, clients] = await Promise.all([get('/api/contacts'), get('/api/leads'), get('/api/closed')]);
   }
 
-  // ----- Load -----
-  async function load() {
-    try {
-      const res = await fetch('/api/contacts', { credentials: 'same-origin' });
-      contacts = res.ok ? await res.json() : [];
-    } catch (e) { contacts = []; }
-  }
-
-  function filtered() {
-    const term = query.trim().toLowerCase();
-    if (!term) return contacts;
-    return contacts.filter(c =>
-      c.name.toLowerCase().includes(term) ||
-      c.email.toLowerCase().includes(term) ||
-      c.phone.toLowerCase().includes(term) ||
-      c.company.toLowerCase().includes(term)
+  // Unified people list (each tagged with its group via LF.People).
+  function allPeople() {
+    return [].concat(
+      contacts.map(LF.People.fromContact),
+      leads.map(LF.People.fromLead),
+      clients.map(LF.People.fromClient)
     );
+  }
+  function filteredPeople() {
+    let list = allPeople();
+    if (filterId !== 'all') list = list.filter(p => p.group === filterId);
+    const t = query.trim().toLowerCase();
+    if (t) list = list.filter(p =>
+      p.name.toLowerCase().includes(t) || p.email.toLowerCase().includes(t) ||
+      p.phone.toLowerCase().includes(t) || (p.company || '').toLowerCase().includes(t));
+    return list.sort((a, b) => a.name.localeCompare(b.name));
   }
 
   // ----- Render -----
+  function renderFilters() {
+    const counts = allPeople().reduce((m, p) => { m[p.group] = (m[p.group] || 0) + 1; m.all = (m.all || 0) + 1; return m; }, {});
+    document.getElementById('contact-filters').innerHTML = FILTERS.map(f => `
+      <div class="tab ${filterId === f.id ? 'active' : ''}" data-filter="${f.id}">
+        ${f.label}
+        <span class="ml-1.5 text-[11px] font-semibold rounded-full px-1.5 py-[1px]"
+              style="background:${filterId === f.id ? 'rgba(34,85,163,0.12)' : 'var(--chip)'};color:${filterId === f.id ? '#2255a3' : 'var(--text-muted)'};">
+          ${counts[f.id] || 0}
+        </span>
+      </div>`).join('');
+    document.querySelectorAll('#contact-filters .tab').forEach(el => el.addEventListener('click', () => {
+      filterId = el.dataset.filter; render();
+    }));
+  }
   function render() {
-    const rows = filtered();
-    document.getElementById('contact-count').textContent = `(${contacts.length})`;
-
+    renderFilters();
+    const rows = filteredPeople();
+    document.getElementById('contact-count').textContent = `(${allPeople().length})`;
     const table = document.getElementById('contacts-table');
-    if (contacts.length === 0) {
+    if (allPeople().length === 0) {
       table.innerHTML = `
         <tbody><tr><td>
           <div class="text-center py-16">
             <div class="mx-auto mb-3 stat-icon" style="background:var(--surface-3);width:48px;height:48px;border-radius:12px;">
               <i data-lucide="contact" style="width:22px;height:22px;color:#8A8AA0;"></i>
             </div>
-            <div class="text-[14px] font-semibold mb-1">No contacts yet</div>
-            <div class="text-[13px] text-muted mb-4">Add your first contact to get started.</div>
+            <div class="text-[14px] font-semibold mb-1">No people yet</div>
+            <div class="text-[13px] text-muted mb-4">Add a contact, or your leads, realtors, and clients will show up here.</div>
             <button class="btn-primary" onclick="document.getElementById('add-contact-btn').click()">
               <i data-lucide="plus" style="width:14px;height:14px;"></i> Add Contact
             </button>
@@ -161,46 +168,62 @@
       if (window.lucide) lucide.createIcons();
       return;
     }
-
     table.innerHTML = `
       <thead>
-        <tr><th>Name</th><th>Email</th><th>Phone</th><th>Company</th><th>Type</th><th>Action</th></tr>
+        <tr><th>Name</th><th>Type</th><th>Email</th><th>Phone</th><th>Company</th><th>Action</th></tr>
       </thead>
       <tbody>
-        ${rows.length ? rows.map(c => `
+        ${rows.length ? rows.map(p => {
+          const editable = p.group === 'contact' || p.group === 'realtor';
+          const actions = editable ? `
+            <div class="flex items-center gap-1">
+              ${(p.phone || p.email) ? `<button class="btn-secondary" title="Contact" data-contact="${p.id}" style="padding:5px 11px;font-size:12px;display:inline-flex;align-items:center;gap:5px;">
+                <i data-lucide="message-circle" style="width:13px;height:13px;pointer-events:none;"></i> Contact
+                <i data-lucide="chevron-down" style="width:12px;height:12px;pointer-events:none;opacity:.7;"></i>
+              </button>` : ''}
+              <button class="btn-icon" title="Edit contact" data-edit="${p.id}" style="width:30px;height:30px;">
+                <i data-lucide="pencil" style="width:13px;height:13px;color:var(--text-muted);pointer-events:none;"></i>
+              </button>
+              <button class="btn-icon" title="Delete contact" data-del="${p.id}" style="width:30px;height:30px;border:none;">
+                <i data-lucide="trash-2" style="width:14px;height:14px;color:#D63333;pointer-events:none;"></i>
+              </button>
+            </div>`
+            : `<button class="btn-secondary" data-person="${p.group}:${p.id}" style="padding:5px 11px;font-size:12px;">View</button>`;
+          return `
           <tr>
             <td>
               <div class="flex items-center gap-2">
-                <div class="avatar avatar-sm">${initials(c.name)}</div>
-                <span class="font-semibold text-[13px]">${esc(c.name)}</span>
+                <div class="avatar avatar-sm">${initials(p.name)}</div>
+                <span class="font-semibold text-[13px]" data-person="${p.group}:${p.id}" style="cursor:pointer;color:var(--accent);">${esc(p.name)}</span>
               </div>
             </td>
-            <td class="text-muted">${esc(c.email)}</td>
-            <td>${esc(c.phone)}</td>
-            <td class="text-muted">${esc(c.company)}</td>
-            <td>${typeCell(c)}</td>
-            <td>
-              <div class="flex items-center gap-1">
-                ${(c.phone || c.email) ? `<button class="btn-secondary" title="Contact" data-contact="${c.id}" style="padding:5px 11px;font-size:12px;display:inline-flex;align-items:center;gap:5px;">
-                  <i data-lucide="message-circle" style="width:13px;height:13px;pointer-events:none;"></i> Contact
-                  <i data-lucide="chevron-down" style="width:12px;height:12px;pointer-events:none;opacity:.7;"></i>
-                </button>` : ''}
-                <button class="btn-icon" title="Edit contact" data-edit="${c.id}" style="width:30px;height:30px;">
-                  <i data-lucide="pencil" style="width:13px;height:13px;color:var(--text-muted);pointer-events:none;"></i>
-                </button>
-                <button class="btn-icon" title="Delete contact" data-del="${c.id}" style="width:30px;height:30px;border:none;">
-                  <i data-lucide="trash-2" style="width:14px;height:14px;color:#D63333;pointer-events:none;"></i>
-                </button>
-              </div>
-            </td>
-          </tr>
-        `).join('') : `<tr><td colspan="6" class="text-center py-8 text-muted">No contacts match that search.</td></tr>`}
+            <td><span class="pill ${LF.People.typePill(p.group)}">${esc(p.type)}</span></td>
+            <td class="text-muted">${esc(p.email)}</td>
+            <td>${esc(p.phone)}</td>
+            <td class="text-muted">${esc(p.company)}</td>
+            <td>${actions}</td>
+          </tr>`;
+        }).join('') : `<tr><td colspan="6" class="text-center py-8 text-muted">No one matches that search.</td></tr>`}
       </tbody>`;
     if (window.lucide) lucide.createIcons();
   }
 
-  // ----- Modal -----
-  // Show the "specify type" box for Other, and the relationship box for Realtor.
+  // ----- Person detail modal (read-only, all fields) -----
+  function openPerson(group, id) {
+    const p = allPeople().find(x => x.group === group && String(x.id) === String(id));
+    if (!p) return;
+    document.getElementById('person-title').textContent = p.name || 'Details';
+    const editBtn = (p.group === 'contact' || p.group === 'realtor')
+      ? `<div class="mt-4 flex justify-end"><button id="person-edit" class="btn-secondary" style="font-size:12.5px;"><i data-lucide="pencil" style="width:13px;height:13px;"></i> Edit</button></div>` : '';
+    document.getElementById('person-body').innerHTML = LF.People.detailBodyHTML(p) + editBtn;
+    document.getElementById('person-modal').classList.remove('hidden');
+    if (window.lucide) lucide.createIcons();
+    const eb = document.getElementById('person-edit');
+    if (eb) eb.addEventListener('click', () => { closePerson(); openModal(p.raw); });
+  }
+  function closePerson() { document.getElementById('person-modal').classList.add('hidden'); }
+
+  // ----- Add / Edit contact modal -----
   function syncTypeBoxes() {
     const form = document.getElementById('contact-form');
     const tag = form.elements['tag'].value;
@@ -210,17 +233,11 @@
     document.getElementById('contact-rel-wrap').classList.toggle('hidden', !isRealtor);
     if (!isOther) form.elements['otherTag'].value = '';
   }
-  // Make sure an "Unknown" option exists (only auto-created realtors use it) so
-  // editing such a contact shows its real state; otherwise keep just the two.
   function setRelationshipValue(rel) {
     const sel = document.getElementById('contact-relationship');
     const unknownOpt = sel.querySelector('option[value="unknown"]');
     if (rel === 'unknown') {
-      if (!unknownOpt) {
-        const opt = document.createElement('option');
-        opt.value = 'unknown'; opt.textContent = 'Unknown (not set)';
-        sel.appendChild(opt);
-      }
+      if (!unknownOpt) { const opt = document.createElement('option'); opt.value = 'unknown'; opt.textContent = 'Unknown (not set)'; sel.appendChild(opt); }
       sel.value = 'unknown';
     } else {
       if (unknownOpt) unknownOpt.remove();
@@ -238,7 +255,6 @@
       form.elements['email'].value = contact.email || '';
       form.elements['phone'].value = contact.phone || '';
       form.elements['company'].value = contact.company || '';
-      // A non-standard tag means it was a custom "Other" value.
       if (STD_TAGS.includes(contact.tag)) {
         form.elements['tag'].value = contact.tag;
       } else {
@@ -263,14 +279,15 @@
     document.getElementById('contact-cancel').addEventListener('click', closeModal);
     document.getElementById('contact-modal-backdrop').addEventListener('click', closeModal);
     document.getElementById('contact-tag').addEventListener('change', syncTypeBoxes);
+    document.getElementById('person-close').addEventListener('click', closePerson);
+    document.getElementById('person-backdrop').addEventListener('click', closePerson);
 
-    document.getElementById('contact-search').addEventListener('input', e => {
-      query = e.target.value;
-      render();
-    });
+    document.getElementById('contact-search').addEventListener('input', e => { query = e.target.value; render(); });
 
-    // Delegated table actions: contact menu + edit + delete.
+    // Delegated table actions.
     document.getElementById('contacts-table').addEventListener('click', async e => {
+      const personEl = e.target.closest('[data-person]');
+      if (personEl) { const [g, id] = personEl.getAttribute('data-person').split(':'); openPerson(g, id); return; }
       const contactBtn = e.target.closest('[data-contact]');
       if (contactBtn) {
         const c = contacts.find(x => String(x.id) === contactBtn.getAttribute('data-contact'));
@@ -297,7 +314,6 @@
       }
     });
 
-    // Contact menu: run the chosen action, then close.
     document.getElementById('contact-menu').addEventListener('click', e => {
       const item = e.target.closest('[data-action]');
       if (!item || !menuContact) return;
@@ -309,7 +325,6 @@
       else if (action === 'Google Meet') { createMeet(c); }
       closeContactMenu();
     });
-    // Close the menu on an outside click or when scrolling.
     document.addEventListener('click', e => {
       if (document.getElementById('contact-menu').classList.contains('hidden')) return;
       if (e.target.closest('#contact-menu') || e.target.closest('[data-contact]')) return;
@@ -324,13 +339,8 @@
       msg.textContent = '';
       const data = Object.fromEntries(new FormData(form));
       if (!data.name.trim()) { msg.textContent = 'Name is required.'; return; }
-      // When "Other" is chosen, use whatever they typed (falls back to "Other").
       let tag = data.tag;
-      if (tag === 'Other') {
-        const other = (data.otherTag || '').trim();
-        if (other) tag = other;
-      }
-
+      if (tag === 'Other') { const other = (data.otherTag || '').trim(); if (other) tag = other; }
       const btn = form.querySelector('button[type="submit"]');
       btn.disabled = true; btn.style.opacity = '0.7';
       const payload = { name: data.name, email: data.email || '', phone: data.phone || '', company: data.company || '', tag };
@@ -340,17 +350,10 @@
           method: editingId ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
           body: JSON.stringify(payload)
         });
-        const raw = await res.text();
-        let body = {};
-        try { body = raw ? JSON.parse(raw) : {}; } catch (err) {}
+        const raw = await res.text(); let body = {}; try { body = raw ? JSON.parse(raw) : {}; } catch (err) {}
         if (!res.ok) { msg.textContent = body.error || `Request failed (HTTP ${res.status}).`; return; }
-        if (editingId) {
-          const i = contacts.findIndex(x => String(x.id) === String(editingId));
-          if (i >= 0) contacts[i] = body;
-        } else {
-          contacts.push(body);
-        }
-        contacts.sort((a, b) => a.name.localeCompare(b.name));
+        if (editingId) { const i = contacts.findIndex(x => String(x.id) === String(editingId)); if (i >= 0) contacts[i] = body; }
+        else { contacts.push(body); }
         closeModal();
         render();
       } catch (err) {
@@ -361,10 +364,9 @@
     });
   }
 
-  // ----- Mount -----
   document.addEventListener('DOMContentLoaded', async function () {
     await LF.renderLayout({ active: 'contacts' });
-    await load();
+    await loadAll();
     bind();
     bindMeet();
     render();
