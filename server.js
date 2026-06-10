@@ -241,6 +241,8 @@ const SCHEMA = `
     tag        TEXT,
     created_at TIMESTAMPTZ DEFAULT now()
   );
+  -- For Realtor contacts: 'established', 'developing', or 'unknown'.
+  ALTER TABLE contacts ADD COLUMN IF NOT EXISTS relationship TEXT;
 
   CREATE TABLE IF NOT EXISTS tasks (
     id         SERIAL PRIMARY KEY,
@@ -1806,6 +1808,27 @@ app.get('/api/leads', safe(async (req, res) => {
   res.json(rows.map(leadRowToJson));
 }));
 
+// When a lead has a realtor attached, make sure that realtor shows up in the
+// owner's Contacts as a Realtor with an "unknown" relationship — but skip it if
+// a contact with the same email (or, lacking an email, the same name) exists.
+async function ensureRealtorContact(userId, realtor) {
+  const name = String(realtor.name || '').trim();
+  const email = String(realtor.email || '').trim();
+  const phone = String(realtor.phone || '').trim();
+  if (!name && !email) return; // nothing to add
+  try {
+    const existing = email
+      ? await one(`SELECT id FROM contacts WHERE user_id = $1 AND lower(email) = lower($2) LIMIT 1`, [userId, email])
+      : await one(`SELECT id FROM contacts WHERE user_id = $1 AND lower(name) = lower($2) LIMIT 1`, [userId, name]);
+    if (existing) return; // already a contact — ignore
+    await q(
+      `INSERT INTO contacts (user_id, name, email, phone, company, tag, relationship)
+       VALUES ($1, $2, $3, $4, '', 'Realtor', 'unknown')`,
+      [userId, name || email, email, phone]
+    );
+  } catch (e) { console.error('ensureRealtorContact:', e); } // best-effort
+}
+
 app.post('/api/leads', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
   const { name, email, phone, timeline, owner, notes } = req.body || {};
@@ -1822,6 +1845,11 @@ app.post('/api/leads', safe(async (req, res) => {
     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id
   `, [req.user.id, name.trim(), email.trim(), (phone || '').trim(), timeline, score, (owner || '').trim(), (notes || '').trim(), state,
       f.preapproved, f.leadType, f.refiType, f.realtorStatus, f.realtorName, f.realtorEmail, f.realtorPhone]);
+
+  // A new lead with a realtor attached → surface that realtor in Contacts.
+  if (f.realtorStatus === 'has') {
+    await ensureRealtorContact(req.user.id, { name: f.realtorName, email: f.realtorEmail, phone: f.realtorPhone });
+  }
 
   res.json(leadRowToJson({
     id: row.id, name: name.trim(), email: email.trim(), phone: (phone || '').trim(),
@@ -2375,15 +2403,22 @@ app.post('/api/closed/bulk-delete', safe(async (req, res) => {
 // ----- Contacts -----
 const CONTACT_TAGS = ['Buyer', 'Seller', 'Investor', 'Other'];
 
+// Relationship only applies to Realtor contacts; keep it to the known values.
+function normalizeRelationship(v, tag) {
+  if (tag !== 'Realtor') return '';
+  const r = String(v || '').trim().toLowerCase();
+  return ['established', 'developing', 'unknown'].includes(r) ? r : 'unknown';
+}
+
 app.get('/api/contacts', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
   const rows = await q(`
-    SELECT id, name, email, phone, company, tag
+    SELECT id, name, email, phone, company, tag, relationship
     FROM contacts WHERE user_id = $1 ORDER BY name
   `, [req.user.id]);
   res.json(rows.map(r => ({
     id: r.id, name: r.name, email: r.email || '', phone: r.phone || '',
-    company: r.company || '', tag: r.tag || 'Other'
+    company: r.company || '', tag: r.tag || 'Other', relationship: r.relationship || ''
   })));
 }));
 
@@ -2393,16 +2428,17 @@ app.post('/api/contacts', safe(async (req, res) => {
   // Accept the standard tags, or a custom one (e.g. when "Other" is specified).
   const rawTag = String((req.body && req.body.tag) || '').trim();
   const tag = rawTag ? rawTag.slice(0, 40) : 'Other';
+  const relationship = normalizeRelationship((req.body || {}).relationship, tag);
   if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required.' });
 
   const row = await one(`
-    INSERT INTO contacts (user_id, name, email, phone, company, tag)
-    VALUES ($1, $2, $3, $4, $5, $6) RETURNING id
-  `, [req.user.id, name.trim(), (email || '').trim(), (phone || '').trim(), (company || '').trim(), tag]);
+    INSERT INTO contacts (user_id, name, email, phone, company, tag, relationship)
+    VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id
+  `, [req.user.id, name.trim(), (email || '').trim(), (phone || '').trim(), (company || '').trim(), tag, relationship]);
 
   res.json({
     id: row.id, name: name.trim(), email: (email || '').trim(),
-    phone: (phone || '').trim(), company: (company || '').trim(), tag
+    phone: (phone || '').trim(), company: (company || '').trim(), tag, relationship
   });
 }));
 
@@ -2410,7 +2446,7 @@ app.patch('/api/contacts/:id', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid contact id.' });
-  const cur = await one('SELECT name, email, phone, company, tag FROM contacts WHERE id = $1 AND user_id = $2', [id, req.user.id]);
+  const cur = await one('SELECT name, email, phone, company, tag, relationship FROM contacts WHERE id = $1 AND user_id = $2', [id, req.user.id]);
   if (!cur) return res.status(404).json({ error: 'Contact not found.' });
 
   const b = req.body || {};
@@ -2419,11 +2455,12 @@ app.patch('/api/contacts/:id', safe(async (req, res) => {
   const phone   = b.phone   != null ? String(b.phone).trim()   : (cur.phone || '');
   const company = b.company != null ? String(b.company).trim() : (cur.company || '');
   const tag     = b.tag     != null ? (String(b.tag).trim().slice(0, 40) || 'Other') : (cur.tag || 'Other');
+  const relationship = b.relationship != null ? normalizeRelationship(b.relationship, tag) : normalizeRelationship(cur.relationship, tag);
   if (!name) return res.status(400).json({ error: 'Name is required.' });
 
-  await pool.query(`UPDATE contacts SET name=$1, email=$2, phone=$3, company=$4, tag=$5 WHERE id=$6 AND user_id=$7`,
-    [name, email, phone, company, tag, id, req.user.id]);
-  res.json({ id, name, email, phone, company, tag });
+  await pool.query(`UPDATE contacts SET name=$1, email=$2, phone=$3, company=$4, tag=$5, relationship=$6 WHERE id=$7 AND user_id=$8`,
+    [name, email, phone, company, tag, relationship, id, req.user.id]);
+  res.json({ id, name, email, phone, company, tag, relationship });
 }));
 
 app.delete('/api/contacts/:id', safe(async (req, res) => {

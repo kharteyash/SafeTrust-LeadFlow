@@ -74,12 +74,20 @@
                 <option value="Buyer">Buyer</option>
                 <option value="Seller">Seller</option>
                 <option value="Investor">Investor</option>
+                <option value="Realtor">Realtor</option>
                 <option value="Other">Other</option>
+              </select>
+            </div>
+            <div id="contact-rel-wrap" class="hidden">
+              <label class="text-[12px] font-semibold text-muted">Relationship</label>
+              <select name="relationship" id="contact-relationship" class="input mt-1" style="cursor:pointer;">
+                <option value="established">Established relationship</option>
+                <option value="developing">Developing relationship</option>
               </select>
             </div>
             <div id="contact-other-wrap" class="hidden">
               <label class="text-[12px] font-semibold text-muted">Specify type</label>
-              <input name="otherTag" maxlength="40" class="input mt-1" placeholder="e.g. Realtor, Lender, Attorney, Vendor" />
+              <input name="otherTag" maxlength="40" class="input mt-1" placeholder="e.g. Lender, Attorney, Vendor" />
             </div>
             <div id="contact-form-msg" class="text-[12.5px] font-medium" style="color:#D63333;"></div>
             <div class="flex items-center justify-end gap-2 mt-2">

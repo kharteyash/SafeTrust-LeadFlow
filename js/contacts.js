@@ -3,7 +3,7 @@
   let contacts = [];
   let query = '';
   let editingId = null;   // contact being edited, if any
-  const STD_TAGS = ['Buyer', 'Seller', 'Investor'];
+  const STD_TAGS = ['Buyer', 'Seller', 'Investor', 'Realtor'];
 
   function esc(s) {
     return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -104,7 +104,19 @@
     if (tag === 'Buyer')    return 'pill-blue';
     if (tag === 'Seller')   return 'pill-purple';
     if (tag === 'Investor') return 'pill-green';
+    if (tag === 'Realtor')  return 'pill-yellow';
     return 'pill-gray';
+  }
+  function relLabel(r) {
+    return r === 'established' ? 'Established' : r === 'developing' ? 'Developing' : r === 'unknown' ? 'Unknown' : '';
+  }
+  // Type cell: the tag pill, plus the realtor relationship when present.
+  function typeCell(c) {
+    const pill = `<span class="pill ${tagPill(c.tag)}">${esc(c.tag)}</span>`;
+    if (c.tag === 'Realtor' && c.relationship) {
+      return `${pill} <span class="text-[11px] text-muted">· ${relLabel(c.relationship)}</span>`;
+    }
+    return pill;
   }
 
   // ----- Load -----
@@ -166,7 +178,7 @@
             <td class="text-muted">${esc(c.email)}</td>
             <td>${esc(c.phone)}</td>
             <td class="text-muted">${esc(c.company)}</td>
-            <td><span class="pill ${tagPill(c.tag)}">${esc(c.tag)}</span></td>
+            <td>${typeCell(c)}</td>
             <td>
               <div class="flex items-center gap-1">
                 ${(c.phone || c.email) ? `<button class="btn-secondary" title="Contact" data-contact="${c.id}" style="padding:5px 11px;font-size:12px;display:inline-flex;align-items:center;gap:5px;">
@@ -188,13 +200,32 @@
   }
 
   // ----- Modal -----
-  // Show the "specify type" box only when the Type is "Other".
-  function syncOtherBox() {
+  // Show the "specify type" box for Other, and the relationship box for Realtor.
+  function syncTypeBoxes() {
     const form = document.getElementById('contact-form');
-    const wrap = document.getElementById('contact-other-wrap');
-    const isOther = form.elements['tag'].value === 'Other';
-    wrap.classList.toggle('hidden', !isOther);
+    const tag = form.elements['tag'].value;
+    const isOther = tag === 'Other';
+    const isRealtor = tag === 'Realtor';
+    document.getElementById('contact-other-wrap').classList.toggle('hidden', !isOther);
+    document.getElementById('contact-rel-wrap').classList.toggle('hidden', !isRealtor);
     if (!isOther) form.elements['otherTag'].value = '';
+  }
+  // Make sure an "Unknown" option exists (only auto-created realtors use it) so
+  // editing such a contact shows its real state; otherwise keep just the two.
+  function setRelationshipValue(rel) {
+    const sel = document.getElementById('contact-relationship');
+    const unknownOpt = sel.querySelector('option[value="unknown"]');
+    if (rel === 'unknown') {
+      if (!unknownOpt) {
+        const opt = document.createElement('option');
+        opt.value = 'unknown'; opt.textContent = 'Unknown (not set)';
+        sel.appendChild(opt);
+      }
+      sel.value = 'unknown';
+    } else {
+      if (unknownOpt) unknownOpt.remove();
+      sel.value = (rel === 'developing') ? 'developing' : 'established';
+    }
   }
   function openModal(contact) {
     const form = document.getElementById('contact-form');
@@ -214,10 +245,12 @@
         form.elements['tag'].value = 'Other';
         form.elements['otherTag'].value = contact.tag === 'Other' ? '' : (contact.tag || '');
       }
+      if (contact.tag === 'Realtor') setRelationshipValue(contact.relationship || 'unknown');
     } else {
       form.elements['tag'].value = 'Buyer';
+      setRelationshipValue('established');
     }
-    syncOtherBox();
+    syncTypeBoxes();
     document.getElementById('contact-form-msg').textContent = '';
     document.getElementById('contact-modal').classList.remove('hidden');
     form.elements['name'].focus();
@@ -229,7 +262,7 @@
     document.getElementById('contact-modal-close').addEventListener('click', closeModal);
     document.getElementById('contact-cancel').addEventListener('click', closeModal);
     document.getElementById('contact-modal-backdrop').addEventListener('click', closeModal);
-    document.getElementById('contact-tag').addEventListener('change', syncOtherBox);
+    document.getElementById('contact-tag').addEventListener('change', syncTypeBoxes);
 
     document.getElementById('contact-search').addEventListener('input', e => {
       query = e.target.value;
@@ -301,6 +334,7 @@
       const btn = form.querySelector('button[type="submit"]');
       btn.disabled = true; btn.style.opacity = '0.7';
       const payload = { name: data.name, email: data.email || '', phone: data.phone || '', company: data.company || '', tag };
+      if (tag === 'Realtor') payload.relationship = data.relationship || 'established';
       try {
         const res = await fetch(editingId ? '/api/contacts/' + editingId : '/api/contacts', {
           method: editingId ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
