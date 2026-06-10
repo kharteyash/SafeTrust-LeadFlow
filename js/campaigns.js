@@ -5,6 +5,10 @@
   let audiences = [];   // [{ key, label, count }]
 
   let editingId = null;   // null = creating, otherwise the campaign being edited
+  let tab = 'active';     // 'active' = ongoing, 'past' = Completed campaigns
+
+  // Completed campaigns live in the Past tab so the active list stays uncluttered.
+  function isPast(c) { return c.status === 'Completed'; }
 
   function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 
@@ -64,22 +68,35 @@
         </tr>`;
     };
 
-    const tracking = campaigns.length ? `
+    const activeCount = campaigns.filter(c => !isPast(c)).length;
+    const pastCount = campaigns.filter(isPast).length;
+    const shown = campaigns.filter(c => (tab === 'past') === isPast(c));
+
+    const tabs = `
+      <div class="flex items-center gap-5 flex-wrap mb-4" style="border-bottom:1px solid var(--border);">
+        <div class="tab ${tab === 'active' ? 'active' : ''}" data-tab="active">Active${activeCount ? ` (${activeCount})` : ''}</div>
+        <div class="tab ${tab === 'past' ? 'active' : ''}" data-tab="past">Past campaigns${pastCount ? ` (${pastCount})` : ''}</div>
+      </div>`;
+
+    const emptyMsg = tab === 'past'
+      ? 'No past campaigns yet. Completed campaigns show up here.'
+      : 'No active campaigns. Create one above to start sending.';
+    const tracking = shown.length ? `
       <div class="overflow-x-auto rounded-xl" style="border:1px solid var(--border);">
         <table class="lf-table">
           <thead><tr><th>Campaign</th><th>Audience</th><th>Recipients</th><th>Sent</th><th>Status</th><th></th></tr></thead>
-          <tbody>${campaigns.map(rowFor).join('')}</tbody>
+          <tbody>${shown.map(rowFor).join('')}</tbody>
         </table>
       </div>`
       : `
       <div class="text-center py-12 rounded-xl" style="border:1px dashed var(--border-strong);">
-        <div class="text-[13px] text-muted">No campaigns yet. Create one above to start sending.</div>
+        <div class="text-[13px] text-muted">${emptyMsg}</div>
       </div>`;
 
     document.getElementById('campaigns-body').innerHTML = `
       <h3 class="text-[15px] font-semibold mb-3">Create a campaign</h3>
       <div class="mb-6">${createCard}</div>
-      <h3 class="text-[15px] font-semibold mb-3">Campaigns</h3>
+      ${tabs}
       ${tracking}`;
     if (window.lucide) lucide.createIcons();
   }
@@ -202,6 +219,9 @@
 
     // Delegated: name (detail) + create card + send + edit + delete (body re-renders).
     document.getElementById('campaigns-body').addEventListener('click', async e => {
+      const tabEl = e.target.closest('[data-tab]');
+      if (tabEl) { tab = tabEl.getAttribute('data-tab'); render(); return; }
+
       const detail = e.target.closest('[data-detail]');
       if (detail) { openDetail(detail.getAttribute('data-detail')); return; }
 
