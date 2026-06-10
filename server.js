@@ -1879,34 +1879,51 @@ app.post('/api/ai/generate', safe(async (req, res) => {
     (context ? `Context about the lead: ${context}` : 'No extra context was provided; keep it general.') +
     ` Return only the message text.`;
 
-  const model = 'gemini-2.0-flash';
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
-  try {
-    const r = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.9, maxOutputTokens: 400 }
-      })
-    });
-    if (!r.ok) {
-      const detail = (await r.text().catch(() => '')).slice(0, 300);
-      console.error('gemini', r.status, detail);
-      const msg = r.status === 400 || r.status === 403
-        ? 'AI request was rejected — check that the GEMINI_API_KEY is valid.'
-        : `AI service error (HTTP ${r.status}).`;
-      return res.status(502).json({ error: msg });
+  // Free-tier quotas are per-model, so if one is rate-limited (429) we try the
+  // next. An env override (GEMINI_MODEL) is tried first when set.
+  const models = [process.env.GEMINI_MODEL, 'gemini-2.0-flash-lite', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-flash-latest']
+    .filter(Boolean).filter((m, i, a) => a.indexOf(m) === i);
+
+  const body = JSON.stringify({
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: { temperature: 0.9, maxOutputTokens: 400 }
+  });
+
+  let lastStatus = 0, lastDetail = '';
+  for (const model of models) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
+    try {
+      const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+      if (r.ok) {
+        const data = await r.json();
+        const parts = (((data.candidates || [])[0] || {}).content || {}).parts || [];
+        const text = parts.map(p => p.text || '').join('').trim();
+        if (text) return res.json({ text, model });
+        lastStatus = 502; lastDetail = 'empty response';
+        continue;
+      }
+      lastStatus = r.status;
+      const raw = (await r.text().catch(() => ''));
+      try { lastDetail = (JSON.parse(raw).error || {}).message || raw; } catch (e) { lastDetail = raw; }
+      lastDetail = String(lastDetail).slice(0, 300);
+      console.error('gemini', model, r.status, lastDetail);
+      // 429 (rate limit) / 404 (model not available to this key) → try the next model.
+      if (r.status === 429 || r.status === 404) continue;
+      break; // 400/403 etc. won't be fixed by another model
+    } catch (e) {
+      console.error('gemini err', model, e);
+      lastStatus = 0; lastDetail = String((e && e.message) || e);
     }
-    const data = await r.json();
-    const parts = (((data.candidates || [])[0] || {}).content || {}).parts || [];
-    const text = parts.map(p => p.text || '').join('').trim();
-    if (!text) return res.status(502).json({ error: 'AI returned an empty response. Try again.' });
-    res.json({ text });
-  } catch (e) {
-    console.error('gemini err', e);
-    res.status(502).json({ error: 'Could not reach the AI service. Please try again.' });
   }
+
+  // All models failed — return a clear, specific reason.
+  if (lastStatus === 429) {
+    return res.status(429).json({ error: 'Gemini rate limit/quota reached on the free tier. Wait a minute and try again' + (lastDetail ? ` (${lastDetail})` : '') + '.' });
+  }
+  if (lastStatus === 400 || lastStatus === 403) {
+    return res.status(502).json({ error: 'Gemini rejected the request — check the GEMINI_API_KEY is valid and the Generative Language API is enabled' + (lastDetail ? ` (${lastDetail})` : '') + '.' });
+  }
+  return res.status(502).json({ error: `AI service error${lastStatus ? ` (HTTP ${lastStatus})` : ''}${lastDetail ? ` — ${lastDetail}` : ''}.` });
 }));
 
 app.delete('/api/leads/:id', safe(async (req, res) => {
