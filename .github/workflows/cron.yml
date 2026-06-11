@@ -1,0 +1,21 @@
+name: LeadFlow cron dispatch
+
+# Pings the app's dispatcher so all email automations fire:
+# scheduled messages, birthday/anniversary emails, the 15-day nurture,
+# the daily digest, and recurring (triggered) campaigns.
+on:
+  schedule:
+    - cron: '*/15 * * * *'   # every 15 minutes (UTC). GitHub may delay a few min.
+  workflow_dispatch: {}        # lets you run it manually from the Actions tab
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hit the dispatch endpoint
+        run: |
+          curl -fsS --max-time 120 \
+            "https://leadflow-536t.onrender.com/api/cron/dispatch?key=${CRON_SECRET}" \
+            || echo "dispatch ping failed (will retry next run)"
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
