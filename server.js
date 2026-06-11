@@ -247,6 +247,9 @@ const SCHEMA = `
   );
   -- For Realtor contacts: 'established', 'developing', 'dormant', 'past', or 'unknown'.
   ALTER TABLE contacts ADD COLUMN IF NOT EXISTS relationship TEXT;
+  -- Next 14-day touch-base date for an established realtor (drives a call-queue
+  -- entry + a task when it comes due).
+  ALTER TABLE contacts ADD COLUMN IF NOT EXISTS next_touch_at DATE;
 
   CREATE TABLE IF NOT EXISTS tasks (
     id         SERIAL PRIMARY KEY,
@@ -950,8 +953,32 @@ app.post('/api/call-log', safe(async (req, res) => {
 // ----- Call queue -----
 const CALL_PRIORITIES = ['High', 'Medium', 'Low'];
 
+// Every 14 days, an established realtor should surface as a call to make today
+// and a task to touch base. This materializes any that are due for the user.
+// Race-safe: a single claim-and-advance UPDATE means concurrent calls (the call
+// queue and tasks endpoints both run it) can't create duplicates.
+const TOUCHBASE_REASON = 'Touch base (every 14 days)';
+async function ensureRealtorTouchbases(userId) {
+  const today = serverToday();
+  const established = `tag = 'Realtor' AND lower(btrim(coalesce(relationship,''))) = 'established'`;
+  // Atomically claim every established realtor that's due — never touched
+  // (NULL) counts as due, so a newly-established realtor surfaces right away —
+  // and advance each by 14 days in the same statement (race-safe, no dupes).
+  const due = await q(`UPDATE contacts SET next_touch_at = $2::date + 14
+     WHERE user_id = $1 AND ${established} AND (next_touch_at IS NULL OR next_touch_at <= $2::date)
+     RETURNING name, phone`, [userId, today]);
+  for (const r of due) {
+    const name = r.name || 'Realtor';
+    await q(`INSERT INTO call_queue (user_id, name, phone, priority, call_time, call_date, reason)
+       VALUES ($1, $2, $3, 'Medium', '', $4, $5)`, [userId, name, r.phone || '', today, TOUCHBASE_REASON]);
+    await q(`INSERT INTO tasks (user_id, title, due_date, priority, status)
+       VALUES ($1, $2, $3, 'Medium', 'todo')`, [userId, `Touch base with ${name} (realtor)`, today]);
+  }
+}
+
 app.get('/api/call-queue', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  try { await ensureRealtorTouchbases(req.user.id); } catch (e) { console.error('touchbase (queue):', e); }
   const rows = await q(`
     SELECT id, name, phone, priority, call_time, call_date, reason
     FROM call_queue WHERE user_id = $1 ORDER BY id DESC
@@ -2566,6 +2593,7 @@ const TASK_PRIORITIES = ['High', 'Medium', 'Low'];
 
 app.get('/api/tasks', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  try { await ensureRealtorTouchbases(req.user.id); } catch (e) { console.error('touchbase (tasks):', e); }
   const rows = await q(`
     SELECT t.id, t.title, t.due_date, t.priority, t.status, ab.name AS assigned_by_name
     FROM tasks t LEFT JOIN users ab ON ab.id = t.assigned_by
