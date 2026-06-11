@@ -196,7 +196,7 @@
     }
 
     table.innerHTML = `
-      <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Buying Timeline</th><th>Lead Score</th><th>Owner</th></tr></thead>
+      <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Buying Timeline</th><th>Lead Score</th><th>Last Contacted</th><th>Owner</th></tr></thead>
       <tbody>
         ${pageRows.map(l => `
           <tr>
@@ -205,6 +205,7 @@
             <td>${esc(l.phone)}</td>
             <td><span class="pill ${timelinePill(l.timeline)}">${esc(l.timeline)}</span></td>
             <td>${LF.scoreStarsHTML(l, 13)}</td>
+            <td class="text-muted">${esc(l.last) || '—'}</td>
             <td>
               <div class="flex items-center gap-2">
                 <div class="avatar avatar-sm">${initials(l.owner)}</div>

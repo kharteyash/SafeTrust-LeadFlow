@@ -110,12 +110,12 @@ LF.renderLayout = async function ({ active }) {
     <div class="flex" style="height:100vh;overflow:hidden;">
       <!-- Sidebar (fixed to viewport height) -->
       <aside id="lf-sidebar" class="sidebar flex-shrink-0 flex flex-col ${collapsed ? 'collapsed' : ''}" style="height:100vh;">
-        <div class="px-5 pt-5 pb-3 flex items-center gap-3 flex-shrink-0">
+        <a href="index.html" title="Go to Dashboard" class="px-5 pt-5 pb-3 flex items-center gap-3 flex-shrink-0" style="cursor:pointer;">
           <div class="brand-logo">
             <i data-lucide="zap" style="color:white;width:18px;height:18px;"></i>
           </div>
           <span class="brand-text text-white text-[17px] font-bold tracking-tight">LeadFlow</span>
-        </div>
+        </a>
         <nav id="lf-nav" class="px-3 mt-2 flex-1 flex flex-col gap-1 overflow-y-auto min-h-0">
           ${nav}
         </nav>
