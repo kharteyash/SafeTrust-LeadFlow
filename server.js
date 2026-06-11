@@ -229,6 +229,9 @@ const SCHEMA = `
   ALTER TABLE leads ADD COLUMN IF NOT EXISTS last_nudge_at DATE;
   -- Set once a hot (5-star, uncalled) lead has been auto-added to the call queue.
   ALTER TABLE leads ADD COLUMN IF NOT EXISTS hot_queued_at DATE;
+  -- Next timeline-cadence call date, and last auto-nurture-email date.
+  ALTER TABLE leads ADD COLUMN IF NOT EXISTS next_call_at DATE;
+  ALTER TABLE leads ADD COLUMN IF NOT EXISTS last_nurture_at DATE;
 
   -- Lead assignments from a team leader to members (one or all), with accept/reject.
   CREATE TABLE IF NOT EXISTS lead_assignments (
@@ -1036,10 +1039,31 @@ async function ensureHotLeadQueue(userId) {
   }
 }
 
+// Surface every active lead in the call queue on a cadence set by its buying
+// timeline (sooner buyers = more often). Skips a lead that already has a pending
+// call queued (so it never doubles up with the hot-lead queue or a prior cycle).
+const LEAD_CALL_CADENCES = { 'Buying Immediately': 2, '1-3 Months': 7, '3-6 Months': 14, '6+ Months': 30 };
+async function ensureLeadCallCadence(userId) {
+  const today = serverToday();
+  for (const [timeline, days] of Object.entries(LEAD_CALL_CADENCES)) {
+    const due = await q(`UPDATE leads SET next_call_at = $2::date + ${days}
+       WHERE user_id = $1 AND timeline = $3 AND (next_call_at IS NULL OR next_call_at <= $2::date)
+       RETURNING name, phone`, [userId, today, timeline]);
+    for (const l of due) {
+      const name = l.name || 'Lead';
+      const pending = await one(`SELECT id FROM call_queue WHERE user_id = $1 AND lower(name) = lower($2) AND call_date <= $3 LIMIT 1`, [userId, name, today]);
+      if (pending) continue;
+      await q(`INSERT INTO call_queue (user_id, name, phone, priority, call_time, call_date, reason)
+         VALUES ($1, $2, $3, 'Medium', '', $4, $5)`, [userId, name, l.phone || '', today, `Follow-up call (${timeline})`]);
+    }
+  }
+}
+
 app.get('/api/call-queue', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
   try { await ensureRealtorTouchbases(req.user.id); } catch (e) { console.error('touchbase (queue):', e); }
   try { await ensureHotLeadQueue(req.user.id); } catch (e) { console.error('hot-lead queue:', e); }
+  try { await ensureLeadCallCadence(req.user.id); } catch (e) { console.error('lead cadence:', e); }
   const rows = await q(`
     SELECT id, name, phone, priority, call_time, call_date, reason
     FROM call_queue WHERE user_id = $1 ORDER BY id DESC
@@ -1876,8 +1900,43 @@ function leadRowToJson(r) {
   };
 }
 
+// Auto-nurture: a lead with no contact (logged call) in 15 days gets a friendly
+// "checking in" email scheduled to send. Re-nurtures at most every 15 days.
+// Only for owners who've connected Google (else nothing is scheduled), mirroring
+// the birthday/anniversary auto-emails. Race-safe claim on last_nurture_at.
+async function ensureNurtureMessages(userId) {
+  const conn = await one('SELECT 1 AS x FROM google_accounts WHERE user_id = $1', [userId]);
+  if (!conn) return; // no connected email → don't schedule anything
+  const today = serverToday();
+  const claimed = await q(`UPDATE leads SET last_nurture_at = $2::date
+     WHERE user_id = $1 AND email IS NOT NULL AND btrim(email) <> ''
+       AND created_at <= now() - interval '15 days'
+       AND (last_nurture_at IS NULL OR last_nurture_at <= $2::date - 15)
+       AND NOT EXISTS (
+         SELECT 1 FROM call_log cl WHERE cl.user_id = $1 AND lower(cl.name) = lower(leads.name)
+           AND cl.logged_at ~ '^\\d{4}-\\d{2}-\\d{2}T' AND cl.logged_at::timestamptz > now() - interval '15 days')
+     RETURNING id, name, email`, [userId, today]);
+  if (!claimed.length) return;
+  const u = await one('SELECT name FROM users WHERE id = $1', [userId]);
+  const senderName = (u && u.name) || 'Your loan officer';
+  for (const l of claimed) {
+    const first = String(l.name || '').trim().split(/\s+/)[0] || 'there';
+    const subject = 'Just checking in';
+    const body = `Hi ${first},\n\nIt's been a little while since we last connected, so I wanted to check in. ` +
+      `Are you still exploring your options? If anything has changed or you have any questions, I'm here to help — just reply to this email.\n\n` +
+      `Best,\n${senderName}`;
+    await pool.query(
+      `INSERT INTO scheduled_messages (user_id, recipient, channel, type, send_date, send_time, send_at, status, body, auto_kind, auto_key)
+       VALUES ($1, $2, 'Email', $3, $4, '09:00', now(), 'pending', $5, 'nurture', $6)
+       ON CONFLICT (auto_key) DO NOTHING`,
+      [userId, l.email, subject, today, body, `${l.id}:nurture:${today}`]
+    );
+  }
+}
+
 app.get('/api/leads', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  try { await ensureNurtureMessages(req.user.id); } catch (e) { console.error('nurture:', e); }
   // The admin (superuser) sees every lead across all users and team leaders;
   // everyone else sees only their own. The owning user's name is joined in so
   // the admin view can tag each lead with a "lead owner" pill. `mine` marks the
