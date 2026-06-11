@@ -227,6 +227,8 @@ const SCHEMA = `
   ALTER TABLE leads ADD COLUMN IF NOT EXISTS assigned_by INTEGER REFERENCES users(id) ON DELETE SET NULL;
   -- Last time a "reach out — no contact yet" nudge task was auto-created for this lead.
   ALTER TABLE leads ADD COLUMN IF NOT EXISTS last_nudge_at DATE;
+  -- Set once a hot (5-star, uncalled) lead has been auto-added to the call queue.
+  ALTER TABLE leads ADD COLUMN IF NOT EXISTS hot_queued_at DATE;
 
   -- Lead assignments from a team leader to members (one or all), with accept/reject.
   CREATE TABLE IF NOT EXISTS lead_assignments (
@@ -962,15 +964,27 @@ app.post('/api/call-log', safe(async (req, res) => {
     VALUES ($1, $2, $3, 'outbound', $4, $5, $6, $7, $8, $9) RETURNING id
   `, [req.user.id, name.trim(), (phone || '').trim(), dur, outcome, note, agent, isRealtor, loggedAt]);
 
-  // Automation: a missed/voicemail/no-answer call schedules a follow-up task in 2 days.
-  if (noTalk && !isRealtor) {
+  // Automations for a missed / voicemail / no-answer call:
+  if (noTalk) {
+    // #5: re-add the call to the queue in 3 days (deduped on name+date+reason).
     try {
-      const lead = await one(`SELECT id FROM leads WHERE user_id = $1 AND lower(name) = lower($2) LIMIT 1`, [req.user.id, name.trim()]);
-      await createTaskOnce(req.user.id, {
-        title: `Follow up with ${name.trim()}`, due: addDaysStr(serverToday(), 2),
-        priority: 'Medium', leadId: lead ? lead.id : null
-      });
-    } catch (e) { console.error('follow-up task:', e); }
+      const retryDate = addDaysStr(serverToday(), 3);
+      const RETRY_REASON = 'Retry — last call missed';
+      const exists = await one(`SELECT id FROM call_queue WHERE user_id = $1 AND lower(name) = lower($2) AND call_date = $3 AND reason = $4`,
+        [req.user.id, name.trim(), retryDate, RETRY_REASON]);
+      if (!exists) await q(`INSERT INTO call_queue (user_id, name, phone, priority, call_time, call_date, reason)
+         VALUES ($1, $2, $3, 'Medium', '', $4, $5)`, [req.user.id, name.trim(), (phone || '').trim(), retryDate, RETRY_REASON]);
+    } catch (e) { console.error('auto-requeue call:', e); }
+    // #2: a follow-up task in 2 days (leads only — realtors get touch-base tasks).
+    if (!isRealtor) {
+      try {
+        const lead = await one(`SELECT id FROM leads WHERE user_id = $1 AND lower(name) = lower($2) LIMIT 1`, [req.user.id, name.trim()]);
+        await createTaskOnce(req.user.id, {
+          title: `Follow up with ${name.trim()}`, due: addDaysStr(serverToday(), 2),
+          priority: 'Medium', leadId: lead ? lead.id : null
+        });
+      } catch (e) { console.error('follow-up task:', e); }
+    }
   }
 
   res.json({
@@ -1007,9 +1021,25 @@ async function ensureRealtorTouchbases(userId) {
   }
 }
 
+// Hot (5-star) leads with no call logged yet are auto-added to today's call
+// queue, once each (hot_queued_at marks it, so deleting the entry won't re-add,
+// and logging a call removes them from the pool). Race-safe atomic claim.
+async function ensureHotLeadQueue(userId) {
+  const today = serverToday();
+  const claimed = await q(`UPDATE leads SET hot_queued_at = $2::date
+     WHERE user_id = $1 AND score >= 81 AND hot_queued_at IS NULL
+       AND NOT EXISTS (SELECT 1 FROM call_log cl WHERE cl.user_id = $1 AND lower(cl.name) = lower(leads.name))
+     RETURNING name, phone`, [userId, today]);
+  for (const l of claimed) {
+    await q(`INSERT INTO call_queue (user_id, name, phone, priority, call_time, call_date, reason)
+       VALUES ($1, $2, $3, 'High', '', $4, $5)`, [userId, l.name || 'Lead', l.phone || '', today, 'Hot lead (5★) — no call yet']);
+  }
+}
+
 app.get('/api/call-queue', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
   try { await ensureRealtorTouchbases(req.user.id); } catch (e) { console.error('touchbase (queue):', e); }
+  try { await ensureHotLeadQueue(req.user.id); } catch (e) { console.error('hot-lead queue:', e); }
   const rows = await q(`
     SELECT id, name, phone, priority, call_time, call_date, reason
     FROM call_queue WHERE user_id = $1 ORDER BY id DESC
