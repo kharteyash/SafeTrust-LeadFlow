@@ -241,7 +241,8 @@
       sel.value = 'unknown';
     } else {
       if (unknownOpt) unknownOpt.remove();
-      sel.value = (rel === 'developing') ? 'developing' : 'established';
+      // Use the stored relationship if it's one of the real options, else default.
+      sel.value = ['established', 'developing', 'dormant', 'past'].includes(rel) ? rel : 'established';
     }
   }
   function openModal(contact) {

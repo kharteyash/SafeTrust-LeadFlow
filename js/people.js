@@ -12,7 +12,9 @@ LF.People = (function () {
   function closedEmail(data) { const k = Object.keys(data || {}); const c = detectCol(k, [/e-?mail/i]); return c ? data[c] : ''; }
   function closedPhone(data) { const k = Object.keys(data || {}); const c = detectCol(k, [/phone|mobile|\bcell\b|\btel\b/i]); return c ? data[c] : ''; }
 
-  function relLabel(r) { return r === 'established' ? 'Established' : r === 'developing' ? 'Developing' : r === 'unknown' ? 'Unknown' : ''; }
+  function relLabel(r) {
+    return { established: 'Established', developing: 'Developing', dormant: 'Dormant', past: 'Past Connection', unknown: 'Unknown' }[r] || '';
+  }
 
   // ----- Normalizers → { kind, group, id, name, email, phone, company, type, fields[], raw } -----
   function fromContact(c) {

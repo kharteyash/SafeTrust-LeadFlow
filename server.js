@@ -245,7 +245,7 @@ const SCHEMA = `
     tag        TEXT,
     created_at TIMESTAMPTZ DEFAULT now()
   );
-  -- For Realtor contacts: 'established', 'developing', or 'unknown'.
+  -- For Realtor contacts: 'established', 'developing', 'dormant', 'past', or 'unknown'.
   ALTER TABLE contacts ADD COLUMN IF NOT EXISTS relationship TEXT;
 
   CREATE TABLE IF NOT EXISTS tasks (
@@ -2415,7 +2415,7 @@ const CONTACT_TAGS = ['Buyer', 'Seller', 'Investor', 'Other'];
 function normalizeRelationship(v, tag) {
   if (tag !== 'Realtor') return '';
   const r = String(v || '').trim().toLowerCase();
-  return ['established', 'developing', 'unknown'].includes(r) ? r : 'unknown';
+  return ['established', 'developing', 'dormant', 'past', 'unknown'].includes(r) ? r : 'unknown';
 }
 
 app.get('/api/contacts', safe(async (req, res) => {
