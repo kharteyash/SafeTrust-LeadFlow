@@ -71,6 +71,7 @@ LF.renderLayout = async function ({ active }) {
     leaderName: user.leaderName || '',
     photo: user.photo || '',
     mustChangePassword: !!user.mustChangePassword,
+    digestEnabled: user.digestEnabled !== false,
     initials: getInitials(user.name)
   };
 

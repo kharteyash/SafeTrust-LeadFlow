@@ -47,6 +47,17 @@
               </div>
             </div>
             <div>
+              <label class="text-[12px] font-semibold text-muted">Repeat</label>
+              <select name="recurDays" id="campaign-recur" class="input mt-1" style="cursor:pointer;">
+                <option value="0">One-time (send manually)</option>
+                <option value="7">Weekly</option>
+                <option value="14">Every 2 weeks</option>
+                <option value="30">Monthly</option>
+                <option value="90">Quarterly</option>
+              </select>
+              <div class="text-[11.5px] text-muted mt-1">Recurring campaigns auto-send to the audience on this cadence (needs Google connected).</div>
+            </div>
+            <div>
               <label class="text-[12px] font-semibold text-muted">Subject</label>
               <input name="subject" maxlength="160" class="input mt-1" placeholder="e.g. A quick update on rates, {{first_name}}" />
             </div>

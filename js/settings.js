@@ -994,14 +994,39 @@
   // ----- Section dispatcher -----
   // ----- Automated emails (birthday / loan anniversary templates) -----
   function renderAutoEmails() {
+    const digestOn = !(D.user && D.user.digestEnabled === false);
     return `
       <div class="max-w-[760px]">
         <h3 class="text-[15px] font-semibold mb-1">Automated emails</h3>
         <p class="text-[12.5px] text-muted mb-4">Birthday and loan-anniversary emails go out automatically at 9am to your closed clients, sent from your connected Google account. Personalize with <b>{{first_name}}</b>, <b>{{name}}</b>, or <b>{{state}}</b>.</p>
+
+        <div class="rounded-xl p-4 mb-5 flex items-center justify-between gap-4" style="border:1px solid var(--border);">
+          <div>
+            <div class="text-[13.5px] font-semibold">Daily digest email</div>
+            <div class="text-[12px] text-muted mt-0.5">Each morning, get an email summary of today's calls, due tasks, and hot leads (needs Google connected).</div>
+          </div>
+          <div class="lf-switch ${digestOn ? 'on' : ''}" id="digest-switch" role="switch" aria-checked="${digestOn}"></div>
+        </div>
+
         <div id="auto-email-wrap" class="text-[13px] text-muted">Loading…</div>
       </div>`;
   }
   async function bindAutoEmails() {
+    // Daily digest toggle.
+    const digestSw = document.getElementById('digest-switch');
+    if (digestSw) digestSw.addEventListener('click', async () => {
+      const enabled = !digestSw.classList.contains('on');
+      digestSw.classList.toggle('on', enabled);
+      digestSw.setAttribute('aria-checked', String(enabled));
+      if (D.user) D.user.digestEnabled = enabled;
+      try {
+        await fetch('/api/digest/toggle', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+          body: JSON.stringify({ enabled })
+        });
+      } catch (e) {}
+    });
+
     const wrap = document.getElementById('auto-email-wrap');
     let data = null;
     try { const r = await fetch('/api/auto-email-settings', { credentials: 'same-origin' }); data = r.ok ? await r.json() : null; }

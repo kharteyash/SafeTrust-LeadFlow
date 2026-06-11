@@ -50,9 +50,11 @@
         <button data-edit="${c.id}" class="btn-icon" title="Edit campaign" style="width:30px;height:30px;border:none;">
           <i data-lucide="pencil" style="width:14px;height:14px;color:var(--text-muted);pointer-events:none;"></i>
         </button>`;
+      const recurLabel = (d) => d === 7 ? 'Weekly' : d === 14 ? 'Every 2 weeks' : d === 30 ? 'Monthly' : d === 90 ? 'Quarterly' : d ? `Every ${d}d` : '';
+      const recurBadge = c.recurDays ? ` <span class="pill pill-blue" style="font-size:10px;" title="${c.nextRun ? 'Next send ' + c.nextRun : ''}">🔁 ${recurLabel(c.recurDays)}</span>` : '';
       return `
         <tr>
-          <td><span class="font-semibold" data-detail="${c.id}" style="cursor:pointer;color:var(--accent);">${esc(c.name)}</span></td>
+          <td><span class="font-semibold" data-detail="${c.id}" style="cursor:pointer;color:var(--accent);">${esc(c.name)}</span>${recurBadge}</td>
           <td class="text-muted">${esc(c.audienceLabel || '—')}</td>
           <td class="text-muted">${LF.fmtNum(c.recipients)}</td>
           <td class="text-muted">${LF.fmtNum(c.sent)}${failedBadge}</td>
@@ -121,6 +123,7 @@
       form.elements['subject'].value = campaign.subject || '';
       form.elements['body'].value = campaign.body || '';
       form.elements['note'].value = campaign.note || '';
+      if (form.elements['recurDays']) form.elements['recurDays'].value = String(campaign.recurDays || 0);
     } else {
       // New campaigns start with a personalized greeting, ready to edit.
       form.elements['body'].value = 'Hi {{first_name}},\n\n';
@@ -264,7 +267,7 @@
       }
       const btn = document.getElementById('campaign-submit');
       btn.disabled = true; btn.style.opacity = '0.7';
-      const payload = { name: data.name, audience: data.audience, subject: data.subject, body: data.body, note: data.note || '' };
+      const payload = { name: data.name, audience: data.audience, subject: data.subject, body: data.body, note: data.note || '', recurDays: Number(data.recurDays) || 0 };
       try {
         const res = await fetch(editingId ? '/api/campaigns/' + editingId : '/api/campaigns', {
           method: editingId ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',

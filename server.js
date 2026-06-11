@@ -96,6 +96,9 @@ const SCHEMA = `
   -- AND authenticates the user, so each person connects their own account.
   ALTER TABLE users ADD COLUMN IF NOT EXISTS webhook_token TEXT;
   CREATE UNIQUE INDEX IF NOT EXISTS users_webhook_token_idx ON users (webhook_token);
+  -- Daily digest email: on by default; last_digest_at gates one send per day.
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS digest_enabled BOOLEAN DEFAULT TRUE;
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS last_digest_at DATE;
 
   -- Team join invitations (a leader invites a user; the user accepts/rejects).
   CREATE TABLE IF NOT EXISTS team_invites (
@@ -318,6 +321,10 @@ const SCHEMA = `
   ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS failed     INTEGER DEFAULT 0;
   ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS sent_at    TIMESTAMPTZ;
   ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS note       TEXT;
+  -- Triggered (recurring) campaigns: recur_days > 0 means auto-send to the
+  -- audience every N days; next_run_at is when the next auto-send is due.
+  ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS recur_days INTEGER;
+  ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS next_run_at DATE;
 `;
 
 // Periodically clear expired sessions.
@@ -337,7 +344,7 @@ async function loadUserFromSession(sid) {
   if (!sid) return null;
   const row = await one(`
     SELECT u.id, u.email, u.name, u.phone, u.title, u.bio, u.role, u.leader_id, u.photo,
-           u.must_change_password, l.name AS leader_name
+           u.must_change_password, u.digest_enabled, l.name AS leader_name
     FROM sessions s JOIN users u ON u.id = s.user_id
     LEFT JOIN users l ON l.id = u.leader_id
     WHERE s.id = $1 AND s.expires_at > now()
@@ -347,7 +354,8 @@ async function loadUserFromSession(sid) {
     id: row.id, email: row.email, name: row.name,
     phone: row.phone || '', title: row.title || '', bio: row.bio || '',
     role: row.role || 'user', leaderId: row.leader_id || null, leaderName: row.leader_name || '',
-    photo: row.photo || '', mustChangePassword: !!row.must_change_password
+    photo: row.photo || '', mustChangePassword: !!row.must_change_password,
+    digestEnabled: row.digest_enabled !== false
   };
 }
 
@@ -1220,15 +1228,20 @@ function campaignToJson(r) {
     audience: r.audience || 'all', audienceLabel: audienceLabel(r.audience || 'all'),
     recipients: r.recipients || 0, sent: r.sent || 0, failed: r.failed || 0,
     opens: r.opens || 0, clicks: r.clicks || 0, replies: r.replies || 0,
+    recurDays: r.recur_days || 0,
+    nextRun: r.next_run_at ? String(r.next_run_at).slice(0, 10) : '',
     started: fmtShortDate(r.created_at)
   };
 }
+// Accept a recurrence: 0/none = one-time, else 1–365 days.
+function normalizeRecur(v) { const n = Number(v); return Number.isInteger(n) && n > 0 && n <= 365 ? n : null; }
+const CAMPAIGN_COLS = 'id, name, channel, status, subject, body, note, audience, recipients, sent, failed, opens, clicks, replies, recur_days, next_run_at, created_at';
 
 app.get('/api/campaigns', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
   // SMS campaigns were removed — hide any legacy ones.
   const rows = await q(`
-    SELECT id, name, channel, status, subject, body, note, audience, recipients, sent, failed, opens, clicks, replies, created_at
+    SELECT ${CAMPAIGN_COLS}
     FROM campaigns WHERE user_id = $1 AND channel IS DISTINCT FROM 'SMS' ORDER BY id DESC
   `, [req.user.id]);
   res.json(rows.map(campaignToJson));
@@ -1262,12 +1275,14 @@ app.post('/api/campaigns', safe(async (req, res) => {
   const note = String(b.note || '').trim();
   const audience = audienceByKey(b.audience) ? b.audience : 'all';
   if (!name) return res.status(400).json({ error: 'Campaign name is required.' });
+  const recurDays = normalizeRecur(b.recurDays);
+  const nextRun = recurDays ? addDaysStr(serverToday(), recurDays) : null;
 
   const row = await one(`
-    INSERT INTO campaigns (user_id, name, channel, status, subject, body, note, audience)
-    VALUES ($1, $2, 'Email', 'Draft', $3, $4, $5, $6)
-    RETURNING id, name, channel, status, subject, body, note, audience, recipients, sent, failed, opens, clicks, replies, created_at
-  `, [req.user.id, name, subject, body, note, audience]);
+    INSERT INTO campaigns (user_id, name, channel, status, subject, body, note, audience, recur_days, next_run_at)
+    VALUES ($1, $2, 'Email', 'Draft', $3, $4, $5, $6, $7, $8)
+    RETURNING ${CAMPAIGN_COLS}
+  `, [req.user.id, name, subject, body, note, audience, recurDays, nextRun]);
   res.json(campaignToJson(row));
 }));
 
@@ -1286,12 +1301,19 @@ app.patch('/api/campaigns/:id', safe(async (req, res) => {
   const note     = b.note     != null ? String(b.note).trim()    : (cur.note || '');
   const audience = audienceByKey(b.audience) ? b.audience : (cur.audience || 'all');
   if (!name) return res.status(400).json({ error: 'Campaign name is required.' });
+  // Recurrence: if provided, recompute next_run_at; keep the existing schedule
+  // when the cadence is unchanged, clear it when turned off.
+  const recurDays = b.recurDays !== undefined ? normalizeRecur(b.recurDays) : (cur.recur_days || null);
+  let nextRun = cur.next_run_at;
+  if (b.recurDays !== undefined) {
+    nextRun = recurDays ? (cur.recur_days === recurDays && cur.next_run_at ? cur.next_run_at : addDaysStr(serverToday(), recurDays)) : null;
+  }
 
   const row = await one(`
-    UPDATE campaigns SET name = $1, subject = $2, body = $3, note = $4, audience = $5
+    UPDATE campaigns SET name = $1, subject = $2, body = $3, note = $4, audience = $5, recur_days = $8, next_run_at = $9
     WHERE id = $6 AND user_id = $7
-    RETURNING id, name, channel, status, subject, body, note, audience, recipients, sent, failed, opens, clicks, replies, created_at
-  `, [name, subject, body, note, audience, id, req.user.id]);
+    RETURNING ${CAMPAIGN_COLS}
+  `, [name, subject, body, note, audience, id, req.user.id, recurDays, nextRun]);
   res.json(campaignToJson(row));
 }));
 
@@ -1309,6 +1331,36 @@ async function runCampaignSend(id, userId, recipients, subject, body) {
     }
   }
   try { await q(`UPDATE campaigns SET sent = $2, failed = $3, status = 'Completed' WHERE id = $1`, [id, sent, failed]); } catch (e) {}
+}
+
+// #14 Triggered campaigns: auto-send recurring campaigns to their audience when
+// due, then advance next_run_at. Run from the cron. Status stays 'Recurring' so
+// they remain in the Active tab. Only for owners who can send (Google connected).
+async function runTriggeredCampaigns() {
+  const today = serverToday();
+  const camps = await q(`SELECT * FROM campaigns
+     WHERE recur_days IS NOT NULL AND recur_days > 0
+       AND next_run_at IS NOT NULL AND next_run_at <= $1::date
+       AND channel = 'Email'
+       AND user_id IN (SELECT user_id FROM google_accounts)`, [today]);
+  for (const c of camps) {
+    try {
+      // Claim atomically (advance next_run_at) so overlapping crons can't double-send.
+      const claimed = await q(`UPDATE campaigns SET next_run_at = $2::date + recur_days, status = 'Recurring', sent_at = now()
+         WHERE id = $1 AND next_run_at <= $2::date RETURNING id`, [c.id, today]);
+      if (!claimed.length) continue;
+      if (!String(c.subject || '').trim() || !String(c.body || '').trim()) continue; // skip empties
+      const u = await one('SELECT id, role FROM users WHERE id = $1', [c.user_id]);
+      if (!u) continue;
+      const recipients = await segmentLeads(u, c.audience || 'all');
+      let sent = 0, failed = 0;
+      for (const lead of recipients) {
+        try { await sendEmailAsUser(c.user_id, { to: lead.email, subject: personalize(c.subject, lead), text: personalize(c.body, lead) }); sent++; }
+        catch (e) { failed++; }
+      }
+      await q('UPDATE campaigns SET sent = $2, failed = $3, recipients = $4 WHERE id = $1', [c.id, sent, failed, recipients.length]);
+    } catch (e) { console.error('triggered campaign', c.id, e); }
+  }
 }
 
 app.post('/api/campaigns/:id/send', safe(async (req, res) => {
@@ -1669,6 +1721,59 @@ async function sendEmailAsUser(userId, opts) {
   return sendEmail(opts);
 }
 
+// ----- #13 Daily digest email -----
+// The user's local date + hour for a timezone (for the morning-only send window).
+function nowInTz(tz) {
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: tz || 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hour12: false
+    }).formatToParts(new Date());
+    const get = (t) => (parts.find(p => p.type === t) || {}).value;
+    return { localDate: `${get('year')}-${get('month')}-${get('day')}`, hour: parseInt(get('hour'), 10) || 0 };
+  } catch (e) { return { localDate: serverToday(), hour: new Date().getHours() }; }
+}
+function digestBody(name, calls, tasks, hot, dateStr) {
+  const first = String(name || '').trim().split(/\s+/)[0] || 'there';
+  const lines = [`Good morning, ${first}!`, '', `Here's your LeadFlow day at a glance (${dateStr}):`, ''];
+  lines.push(`📞 Calls to make today: ${calls.length}`);
+  calls.slice(0, 10).forEach(c => lines.push(`   • ${c.name}${c.reason ? ` — ${c.reason}` : ''}`));
+  lines.push('', `✅ Tasks due: ${tasks.length}`);
+  tasks.slice(0, 10).forEach(t => lines.push(`   • ${t.title}${t.due_date ? ` (due ${t.due_date})` : ''}`));
+  lines.push('', `🔥 Hot leads (5★): ${hot.length}`);
+  hot.slice(0, 10).forEach(h => lines.push(`   • ${h.name}`));
+  lines.push('', 'Have a great day!');
+  return lines.join('\n');
+}
+async function ensureDailyDigests() {
+  const users = await q(`SELECT u.id, u.name, u.email FROM users u
+     JOIN google_accounts g ON g.user_id = u.id
+     WHERE coalesce(u.digest_enabled, true) = true`);
+  for (const u of users) {
+    try {
+      const tz = await gcalTimezone(u.id);
+      const { localDate, hour } = nowInTz(tz);
+      if (hour < 6 || hour > 11) continue;               // morning window only
+      const cur = await one('SELECT last_digest_at FROM users WHERE id = $1', [u.id]);
+      if (cur && cur.last_digest_at && String(cur.last_digest_at).slice(0, 10) >= localDate) continue;
+      const calls = await q(`SELECT name, reason FROM call_queue WHERE user_id = $1 AND (call_date IS NULL OR call_date <= $2) ORDER BY id`, [u.id, localDate]);
+      const tasks = await q(`SELECT title, due_date FROM tasks WHERE user_id = $1 AND status <> 'done' AND due_date IS NOT NULL AND due_date <= $2 ORDER BY due_date`, [u.id, localDate]);
+      const hot = await q(`SELECT name FROM leads WHERE user_id = $1 AND score >= 81 ORDER BY score DESC LIMIT 10`, [u.id]);
+      if (!calls.length && !tasks.length && !hot.length) continue;  // nothing to report yet
+      const claimed = await q(`UPDATE users SET last_digest_at = $2 WHERE id = $1 AND (last_digest_at IS NULL OR last_digest_at < $2) RETURNING id`, [u.id, localDate]);
+      if (!claimed.length) continue;                     // another worker already sent it
+      await sendEmailAsUser(u.id, { to: u.email, subject: `Your LeadFlow daily digest — ${localDate}`, text: digestBody(u.name, calls, tasks, hot, localDate) });
+    } catch (e) { console.error('daily digest:', e); }
+  }
+}
+
+// Toggle the current user's daily digest email on/off.
+app.post('/api/digest/toggle', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  const enabled = (req.body || {}).enabled !== false;
+  await q('UPDATE users SET digest_enabled = $1 WHERE id = $2', [enabled, req.user.id]);
+  res.json({ ok: true, enabled });
+}));
+
 // Cron-triggered dispatcher: sends due pending emails. Protected by CRON_SECRET
 // (passed as ?key=... or "Authorization: Bearer ...") since there's no user session.
 // Atomically claims rows as 'sending' so overlapping runs can't double-send.
@@ -1681,6 +1786,9 @@ async function dispatchScheduled(req, res) {
 
   // Materialize any newly-due birthday / anniversary emails before sending.
   try { await ensureAnniversaryMessages(); } catch (e) { console.error('auto-email gen:', e); }
+  // #13 daily digests + #14 triggered campaigns.
+  try { await ensureDailyDigests(); } catch (e) { console.error('daily digests:', e); }
+  try { await runTriggeredCampaigns(); } catch (e) { console.error('triggered campaigns:', e); }
 
   // Only send for owners who have connected their own email; others stay pending
   // (so nothing goes out until they connect on the Messages page).
