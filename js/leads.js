@@ -4,6 +4,7 @@
 
   const TABS = [
     { id: 'all',     label: 'All Leads',          match: () => true },
+    { id: 'hot',     label: 'Hot Leads',          match: l => l.stars === 5 },
     { id: 'mine',    label: 'My Leads',           match: l => l.mine, adminOnly: true },
     { id: 'buying',  label: 'Buying Immediately', match: l => l.timeline === 'Buying Immediately' },
     { id: '1-3',     label: '1-3 Months',         match: l => l.timeline === '1-3 Months' },
@@ -53,7 +54,8 @@
     const all = leads;
     const cards = [
       { label: 'Total Leads',        value: all.length, icon: 'users',        tint: '#EFEAFF', color: '#2255a3', tab: 'all' },
-      { label: 'Buying Immediately', value: all.filter(l => l.timeline === 'Buying Immediately').length, icon: 'flame',         tint: '#E6F8EC', color: '#138A4B', tab: 'buying' },
+      { label: 'Hot Leads',          value: all.filter(l => l.stars === 5).length, icon: 'flame',  tint: '#FEECEC', color: '#D63333', tab: 'hot' },
+      { label: 'Buying Immediately', value: all.filter(l => l.timeline === 'Buying Immediately').length, icon: 'thumbs-up',     tint: '#E6F8EC', color: '#138A4B', tab: 'buying' },
       { label: '1-3 Months',         value: all.filter(l => l.timeline === '1-3 Months').length,         icon: 'clock',         tint: '#FFF4D6', color: '#B07A00', tab: '1-3' },
       { label: '3-6 Months',         value: all.filter(l => l.timeline === '3-6 Months').length,         icon: 'calendar-clock', tint: '#FEECEC', color: '#D63333', tab: '3-6' },
       { label: '6+ Months',          value: all.filter(l => l.timeline === '6+ Months').length,          icon: 'calendar-days',  tint: '#E7EEFF', color: '#2B57D9', tab: '6plus' },
