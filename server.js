@@ -1540,6 +1540,75 @@ async function ensureAnniversaryMessages(userId) {
   }
 }
 
+// #1 Post-close nurture: a short sequence of warm check-ins after a lead closes,
+// at +7 / +30 / +90 / +180 days. After that, the yearly birthday/anniversary
+// emails take over. Each lands as a pending email you can edit or dismiss.
+const POST_CLOSE_STEPS = [
+  { day: 7, subject: 'Thank you — how is everything going?',
+    body: (f) => `Hi ${f},\n\nCongratulations again, and thank you for trusting me with your home financing! ` +
+      `Now that everything has closed, I wanted to check in and make sure the transition is going smoothly.\n\n` +
+      `If anything comes up or you have any questions at all, I'm just an email away.\n\nWarm regards,` },
+  { day: 30, subject: 'Settling in?',
+    body: (f) => `Hi ${f},\n\nI hope you're settling in well! It's been about a month, so I wanted to make sure everything is going great.\n\n` +
+      `If you ever need anything — or know someone who could use help with their home financing — I'm always happy to help. ` +
+      `Referrals from past clients like you truly mean the world to me.\n\nWarm regards,` },
+  { day: 90, subject: 'Just checking in',
+    body: (f) => `Hi ${f},\n\nIt's been a few months since you closed, and I wanted to check in and see how you're doing.\n\n` +
+      `Rates and programs change over time, so if you ever have questions about your mortgage — or want to help a friend or family member — I'm here for you.\n\nWarm regards,` },
+  { day: 180, subject: 'Six months in — how are things?',
+    body: (f) => `Hi ${f},\n\nIt's hard to believe it's already been six months! I hope you're loving your home.\n\n` +
+      `As always, I'm here if you have any questions about your mortgage or know someone I can help. ` +
+      `Thank you again for the opportunity to work with you.\n\nWarm regards,` }
+];
+
+async function ensurePostCloseMessages(userId) {
+  const now = new Date();
+  const horizon = new Date(now.getTime() + AUTO_WINDOW_DAYS * 86400000);
+  const stale = new Date(now.getTime() - 14 * 86400000);   // don't back-blast old clients
+  const closed = userId
+    ? await q('SELECT cl.id, cl.user_id, cl.data, u.name AS owner_name FROM closed_leads cl JOIN users u ON u.id = cl.user_id WHERE cl.user_id = $1', [userId])
+    : await q('SELECT cl.id, cl.user_id, cl.data, u.name AS owner_name FROM closed_leads cl JOIN users u ON u.id = cl.user_id');
+
+  const connRows = await q('SELECT user_id FROM google_accounts');
+  const connected = new Set(connRows.map(r => r.user_id));
+  const settingsCache = new Map();
+  async function settingsFor(uid) {
+    if (!settingsCache.has(uid)) settingsCache.set(uid, await autoSettingsFor(uid));
+    return settingsCache.get(uid);
+  }
+
+  for (const row of closed) {
+    if (!connected.has(row.user_id)) continue;
+    const data = row.data || {};
+    const email = findClosedField(data, /e-?mail/i);
+    if (!email || !/@/.test(email)) continue;
+    const m = /(\d{4})-(\d{2})-(\d{2})/.exec(findClosedField(data, /closed ?date|close ?date|^closed$/i));
+    if (!m) continue;                                       // need a parseable close date
+    const base = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    const name = findClosedField(data, /^name$|full ?name|client|borrower/i);
+    const first = String(name || '').trim().split(/\s+/)[0] || 'there';
+    const sig = (row.owner_name || '').trim();
+    let settings = null;
+
+    for (const st of POST_CLOSE_STEPS) {
+      const d = new Date(base.getTime() + st.day * 86400000);
+      if (!settings) settings = await settingsFor(row.user_id);
+      const sendAt = zonedTimeToUtc(d.getFullYear(), d.getMonth(), d.getDate(), 9, settings.tz);
+      if (sendAt > horizon || sendAt < stale) continue;     // not due yet, or too late
+      const autoKey = `${row.id}:postclose${st.day}`;
+      if (await one('SELECT 1 AS x FROM dismissed_auto WHERE auto_key = $1', [autoKey])) continue;
+      const sendDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      const body = st.body(first) + (sig ? '\n' + sig : '');
+      await pool.query(
+        `INSERT INTO scheduled_messages (user_id, recipient, channel, type, send_date, send_time, send_at, status, body, auto_kind, auto_key)
+         VALUES ($1, $2, 'Email', $3, $4, '09:00', $5, 'pending', $6, 'postclose', $7)
+         ON CONFLICT (auto_key) DO NOTHING`,
+        [row.user_id, email, st.subject, sendDate, sendAt.toISOString(), body, autoKey]
+      );
+    }
+  }
+}
+
 // ----- Automated-email settings (templates, signature, timezone) -----
 app.get('/api/auto-email-settings', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
@@ -1571,6 +1640,7 @@ app.put('/api/auto-email-settings', safe(async (req, res) => {
 app.get('/api/scheduled', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
   try { await ensureAnniversaryMessages(req.user.id); } catch (e) { console.error('auto-email gen:', e); }
+  try { await ensurePostCloseMessages(req.user.id); } catch (e) { console.error('post-close gen:', e); }
   // Auto emails only appear while pending and within the 7-day window; manual
   // messages and any already-sent/failed history always show.
   const rows = await q(`
@@ -1735,6 +1805,16 @@ async function dispatchScheduled(req, res) {
 
   // Materialize any newly-due birthday / anniversary emails before sending.
   try { await ensureAnniversaryMessages(); } catch (e) { console.error('auto-email gen:', e); }
+  // #1 post-close nurture (+7/+30/+90/+180 day check-ins for closed clients).
+  try { await ensurePostCloseMessages(); } catch (e) { console.error('post-close gen:', e); }
+  // #2 new-lead drip + 15-day nurture: per connected user (these query live leads).
+  try {
+    const conn = await q('SELECT user_id FROM google_accounts');
+    for (const r of conn) {
+      try { await ensureLeadDripMessages(r.user_id); } catch (e) { console.error('drip gen:', e); }
+      try { await ensureNurtureMessages(r.user_id); } catch (e) { console.error('nurture gen:', e); }
+    }
+  } catch (e) { console.error('per-user auto gen:', e); }
   // #14 triggered (recurring) campaigns.
   try { await runTriggeredCampaigns(); } catch (e) { console.error('triggered campaigns:', e); }
 
@@ -1990,9 +2070,63 @@ async function ensureNurtureMessages(userId) {
   }
 }
 
+// #2 New-lead drip: a short onboarding email sequence for fresh leads — Day 0
+// intro, Day 3 follow-up, Day 7 "here's how I can help". Each step is scheduled
+// lazily (only as it comes due) and the whole drip stops the moment a call is
+// logged, since a real conversation supersedes a canned sequence.
+const LEAD_DRIP_STEPS = [
+  { step: 1, day: 0, subject: 'Thanks for reaching out',
+    body: (f, s) => `Hi ${f},\n\nThanks for reaching out — I'd love to help you with your home financing. ` +
+      `I'm reviewing your information now and will follow up shortly with next steps.\n\n` +
+      `In the meantime, if you have any questions at all, just reply to this email and I'll get right back to you.\n\nBest,\n${s}` },
+  { step: 2, day: 3, subject: 'Following up on your home financing',
+    body: (f, s) => `Hi ${f},\n\nI wanted to follow up and make sure you have everything you need to get started. ` +
+      `Whether you're just exploring your options or ready to move forward, I'm happy to walk you through the process and answer any questions.\n\n` +
+      `Is there a good time this week for a quick call?\n\nBest,\n${s}` },
+  { step: 3, day: 7, subject: "Here's how I can help",
+    body: (f, s) => `Hi ${f},\n\nI know financing a home can feel like a lot, so I wanted to check in. ` +
+      `I can help you understand your options, get pre-approved, and find the right loan for your goals — with no obligation.\n\n` +
+      `Whenever you're ready, I'm here. Just reply and let me know how I can help.\n\nBest,\n${s}` }
+];
+
+async function ensureLeadDripMessages(userId) {
+  const conn = await one('SELECT 1 AS x FROM google_accounts WHERE user_id = $1', [userId]);
+  if (!conn) return;                                        // no connected email → nothing
+  const u = await one('SELECT name FROM users WHERE id = $1', [userId]);
+  const senderName = (u && u.name) || 'Your loan officer';
+  // Fresh leads (created within 8 days) with an email and no logged call yet.
+  const leads = await q(`
+    SELECT id, name, email, created_at
+    FROM leads
+    WHERE user_id = $1 AND email IS NOT NULL AND btrim(email) <> ''
+      AND created_at > now() - interval '8 days'
+      AND NOT EXISTS (
+        SELECT 1 FROM call_log cl WHERE cl.user_id = $1 AND lower(cl.name) = lower(leads.name))`, [userId]);
+  if (!leads.length) return;
+  const now = Date.now();
+  for (const l of leads) {
+    const created = new Date(l.created_at).getTime();
+    const first = String(l.name || '').trim().split(/\s+/)[0] || 'there';
+    for (const st of LEAD_DRIP_STEPS) {
+      const sendAt = created + st.day * 86400000;
+      // Only schedule near-due steps: from 2 days overdue up to 1 day ahead. This
+      // keeps the drip lazy so an engaged lead never piles up future canned emails.
+      if (sendAt > now + 86400000 || sendAt < now - 2 * 86400000) continue;
+      const iso = new Date(sendAt).toISOString();
+      await pool.query(
+        `INSERT INTO scheduled_messages (user_id, recipient, channel, type, send_date, send_time, send_at, status, body, auto_kind, auto_key)
+         VALUES ($1, $2, 'Email', $3, $4, '09:00', $5, 'pending', $6, 'drip', $7)
+         ON CONFLICT (auto_key) DO NOTHING`,
+        [userId, l.email, st.subject, iso.slice(0, 10), iso, st.body(first, senderName), `${l.id}:drip${st.step}`]
+      );
+    }
+  }
+}
+
 app.get('/api/leads', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
   try { await ensureNurtureMessages(req.user.id); } catch (e) { console.error('nurture:', e); }
+  try { await ensureLeadDripMessages(req.user.id); } catch (e) { console.error('lead drip:', e); }
   // The admin (superuser) sees every lead across all users and team leaders;
   // everyone else sees only their own. The owning user's name is joined in so
   // the admin view can tag each lead with a "lead owner" pill. `mine` marks the

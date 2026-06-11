@@ -68,6 +68,9 @@
   function autoPill(kind) {
     if (kind === 'birthday') return '<span class="pill pill-purple" style="font-size:11px;" title="Automatically scheduled birthday email">🎂 Auto · Birthday</span>';
     if (kind === 'loan_anniversary') return '<span class="pill pill-blue" style="font-size:11px;" title="Automatically scheduled loan-anniversary email">🏠 Auto · Loan anniversary</span>';
+    if (kind === 'drip') return '<span class="pill pill-green" style="font-size:11px;" title="Automatically scheduled new-lead follow-up">🌱 Auto · New-lead drip</span>';
+    if (kind === 'postclose') return '<span class="pill pill-blue" style="font-size:11px;" title="Automatically scheduled post-close check-in">🤝 Auto · Post-close</span>';
+    if (kind === 'nurture') return '<span class="pill pill-yellow" style="font-size:11px;" title="Automatically scheduled nurture check-in">💬 Auto · Nurture</span>';
     return '';
   }
 
