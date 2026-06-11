@@ -185,6 +185,9 @@ const SCHEMA = `
     signature        TEXT,
     tz               TEXT
   );
+  -- Editable templates for the drip / nurture / post-close sequences, keyed by
+  -- step id (drip1, nurture, pc7, ...). Birthday/anniversary keep their own cols.
+  ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS extra_templates JSONB;
   -- One-row-per-flag marker table for one-time data migrations.
   CREATE TABLE IF NOT EXISTS app_flags (
     flag       TEXT PRIMARY KEY,
@@ -1452,6 +1455,40 @@ const DEFAULT_AUTO = {
   anniv_body: "Hi {{first_name}},\n\nI hope you're doing well and enjoying your home.\n\nAs part of my annual mortgage review program, I like to check in with past clients to see if there have been any changes in their goals or financial situation. Mortgage options and market conditions can change over time, and it's always worth making sure your current mortgage is still the best fit for your needs.\n\nIf you'd like a quick, no-obligation review, I'd be happy to take a look and answer any questions you may have. Whether you're considering refinancing, accessing equity, planning renovations, or simply want to understand your options, I'm here to help.\n\nThank you again for trusting me with your home financing. I truly appreciate the opportunity to work with you and look forward to staying in touch for years to come.\n\nWarm regards,",
   signature: ''
 };
+// Editable templates for the drip / nurture / post-close sequences. A single
+// registry drives the generators, the settings API, and the settings UI so a new
+// step only has to be added once. Bodies end on a sign-off line; the user's
+// signature (or their name) is appended automatically, like birthday/anniversary.
+const AUTO_EXTRA_DEFS = [
+  { key: 'drip1',  group: 'New-lead drip',  label: 'Day 0 — Intro',
+    subject: 'Thanks for reaching out',
+    body: "Hi {{first_name}},\n\nThanks for reaching out — I'd love to help you with your home financing. I'm reviewing your information now and will follow up shortly with next steps.\n\nIn the meantime, if you have any questions at all, just reply to this email and I'll get right back to you.\n\nBest," },
+  { key: 'drip2',  group: 'New-lead drip',  label: 'Day 3 — Follow-up',
+    subject: 'Following up on your home financing',
+    body: "Hi {{first_name}},\n\nI wanted to follow up and make sure you have everything you need to get started. Whether you're just exploring your options or ready to move forward, I'm happy to walk you through the process and answer any questions.\n\nIs there a good time this week for a quick call?\n\nBest," },
+  { key: 'drip3',  group: 'New-lead drip',  label: 'Day 7 — How I can help',
+    subject: "Here's how I can help",
+    body: "Hi {{first_name}},\n\nI know financing a home can feel like a lot, so I wanted to check in. I can help you understand your options, get pre-approved, and find the right loan for your goals — with no obligation.\n\nWhenever you're ready, I'm here. Just reply and let me know how I can help.\n\nBest," },
+  { key: 'nurture', group: '15-day nurture', label: 'Check-in (repeats every 15 days)',
+    subject: 'Just checking in',
+    body: "Hi {{first_name}},\n\nIt's been a little while since we last connected, so I wanted to check in. Are you still exploring your options? If anything has changed or you have any questions, I'm here to help — just reply to this email.\n\nBest," },
+  { key: 'pc7',    group: 'Post-close nurture', label: '+7 days — Thank you',
+    subject: 'Thank you — how is everything going?',
+    body: "Hi {{first_name}},\n\nCongratulations again, and thank you for trusting me with your home financing! Now that everything has closed, I wanted to check in and make sure the transition is going smoothly.\n\nIf anything comes up or you have any questions at all, I'm just an email away.\n\nWarm regards," },
+  { key: 'pc30',   group: 'Post-close nurture', label: '+30 days — Settling in',
+    subject: 'Settling in?',
+    body: "Hi {{first_name}},\n\nI hope you're settling in well! It's been about a month, so I wanted to make sure everything is going great.\n\nIf you ever need anything — or know someone who could use help with their home financing — I'm always happy to help. Referrals from past clients like you truly mean the world to me.\n\nWarm regards," },
+  { key: 'pc90',   group: 'Post-close nurture', label: '+90 days — Checking in',
+    subject: 'Just checking in',
+    body: "Hi {{first_name}},\n\nIt's been a few months since you closed, and I wanted to check in and see how you're doing.\n\nRates and programs change over time, so if you ever have questions about your mortgage — or want to help a friend or family member — I'm here for you.\n\nWarm regards," },
+  { key: 'pc180',  group: 'Post-close nurture', label: '+180 days — Six months',
+    subject: 'Six months in — how are things?',
+    body: "Hi {{first_name}},\n\nIt's hard to believe it's already been six months! I hope you're loving your home.\n\nAs always, I'm here if you have any questions about your mortgage or know someone I can help. Thank you again for the opportunity to work with you.\n\nWarm regards," }
+];
+const DEFAULT_AUTO_EXTRA = Object.fromEntries(
+  AUTO_EXTRA_DEFS.map(d => [d.key, { subject: d.subject, body: d.body }])
+);
+
 function autoDefaultTz() { return envClean('AUTO_EMAIL_TZ') || 'America/New_York'; }
 
 // A user's effective auto-email settings, with defaults filled in for blanks.
@@ -1464,8 +1501,32 @@ async function autoSettingsFor(userId) {
     birthday_body: pick(r && r.birthday_body, DEFAULT_AUTO.birthday_body),
     anniv_subject: pick(r && r.anniv_subject, DEFAULT_AUTO.anniv_subject),
     anniv_body: pick(r && r.anniv_body, DEFAULT_AUTO.anniv_body),
-    signature: (r && r.signature) || DEFAULT_AUTO.signature
+    signature: (r && r.signature) || DEFAULT_AUTO.signature,
+    extra: mergeExtraTemplates(r && r.extra_templates)
   };
+}
+// Merge a user's saved overrides over the built-in defaults, per step. A blank
+// field falls back to the default so a step always has a subject and body.
+function mergeExtraTemplates(saved) {
+  const s = saved && typeof saved === 'object' ? saved : {};
+  const out = {};
+  for (const d of AUTO_EXTRA_DEFS) {
+    const ov = s[d.key] || {};
+    out[d.key] = {
+      subject: (ov.subject != null && String(ov.subject).trim()) ? String(ov.subject) : d.subject,
+      body:    (ov.body    != null && String(ov.body).trim())    ? String(ov.body)    : d.body
+    };
+  }
+  return out;
+}
+// Build a personalized email from one of the editable extra templates, appending
+// the user's signature (or their name) just like buildAutoEmail does.
+function buildExtraEmail(key, settings, recipient, senderName) {
+  const tpl = (settings.extra && settings.extra[key]) || DEFAULT_AUTO_EXTRA[key] || { subject: '', body: '' };
+  let body = personalize(tpl.body, recipient);
+  const sig = (settings.signature && settings.signature.trim()) || (senderName || '').trim();
+  if (sig) body += '\n' + sig;
+  return { subject: personalize(tpl.subject, recipient), body };
 }
 // Build a personalized auto email from a user's templates. The body's sign-off is
 // completed with the user's custom signature, or — if they haven't set one — their
@@ -1543,23 +1604,8 @@ async function ensureAnniversaryMessages(userId) {
 // #1 Post-close nurture: a short sequence of warm check-ins after a lead closes,
 // at +7 / +30 / +90 / +180 days. After that, the yearly birthday/anniversary
 // emails take over. Each lands as a pending email you can edit or dismiss.
-const POST_CLOSE_STEPS = [
-  { day: 7, subject: 'Thank you — how is everything going?',
-    body: (f) => `Hi ${f},\n\nCongratulations again, and thank you for trusting me with your home financing! ` +
-      `Now that everything has closed, I wanted to check in and make sure the transition is going smoothly.\n\n` +
-      `If anything comes up or you have any questions at all, I'm just an email away.\n\nWarm regards,` },
-  { day: 30, subject: 'Settling in?',
-    body: (f) => `Hi ${f},\n\nI hope you're settling in well! It's been about a month, so I wanted to make sure everything is going great.\n\n` +
-      `If you ever need anything — or know someone who could use help with their home financing — I'm always happy to help. ` +
-      `Referrals from past clients like you truly mean the world to me.\n\nWarm regards,` },
-  { day: 90, subject: 'Just checking in',
-    body: (f) => `Hi ${f},\n\nIt's been a few months since you closed, and I wanted to check in and see how you're doing.\n\n` +
-      `Rates and programs change over time, so if you ever have questions about your mortgage — or want to help a friend or family member — I'm here for you.\n\nWarm regards,` },
-  { day: 180, subject: 'Six months in — how are things?',
-    body: (f) => `Hi ${f},\n\nIt's hard to believe it's already been six months! I hope you're loving your home.\n\n` +
-      `As always, I'm here if you have any questions about your mortgage or know someone I can help. ` +
-      `Thank you again for the opportunity to work with you.\n\nWarm regards,` }
-];
+// Wording lives in the editable AUTO_EXTRA templates (Settings → Automated Emails).
+const POST_CLOSE_SCHEDULE = [{ key: 'pc7', day: 7 }, { key: 'pc30', day: 30 }, { key: 'pc90', day: 90 }, { key: 'pc180', day: 180 }];
 
 async function ensurePostCloseMessages(userId) {
   const now = new Date();
@@ -1586,11 +1632,9 @@ async function ensurePostCloseMessages(userId) {
     if (!m) continue;                                       // need a parseable close date
     const base = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
     const name = findClosedField(data, /^name$|full ?name|client|borrower/i);
-    const first = String(name || '').trim().split(/\s+/)[0] || 'there';
-    const sig = (row.owner_name || '').trim();
     let settings = null;
 
-    for (const st of POST_CLOSE_STEPS) {
+    for (const st of POST_CLOSE_SCHEDULE) {
       const d = new Date(base.getTime() + st.day * 86400000);
       if (!settings) settings = await settingsFor(row.user_id);
       const sendAt = zonedTimeToUtc(d.getFullYear(), d.getMonth(), d.getDate(), 9, settings.tz);
@@ -1598,12 +1642,12 @@ async function ensurePostCloseMessages(userId) {
       const autoKey = `${row.id}:postclose${st.day}`;
       if (await one('SELECT 1 AS x FROM dismissed_auto WHERE auto_key = $1', [autoKey])) continue;
       const sendDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-      const body = st.body(first) + (sig ? '\n' + sig : '');
+      const { subject, body } = buildExtraEmail(st.key, settings, { name, email }, row.owner_name);
       await pool.query(
         `INSERT INTO scheduled_messages (user_id, recipient, channel, type, send_date, send_time, send_at, status, body, auto_kind, auto_key)
          VALUES ($1, $2, 'Email', $3, $4, '09:00', $5, 'pending', $6, 'postclose', $7)
          ON CONFLICT (auto_key) DO NOTHING`,
-        [row.user_id, email, st.subject, sendDate, sendAt.toISOString(), body, autoKey]
+        [row.user_id, email, subject, sendDate, sendAt.toISOString(), body, autoKey]
       );
     }
   }
@@ -1615,6 +1659,8 @@ app.get('/api/auto-email-settings', safe(async (req, res) => {
   res.json({
     settings: await autoSettingsFor(req.user.id),
     defaults: DEFAULT_AUTO,
+    extraDefs: AUTO_EXTRA_DEFS.map(d => ({ key: d.key, group: d.group, label: d.label })),
+    extraDefaults: DEFAULT_AUTO_EXTRA,
     timezones: SUPPORTED_TIMEZONES
   });
 }));
@@ -1623,15 +1669,23 @@ app.put('/api/auto-email-settings', safe(async (req, res) => {
   const b = req.body || {};
   const clean = (v, max) => String(v == null ? '' : v).slice(0, max).trim() || null;
   const tz = SUPPORTED_TIMEZONES.includes(b.tz) ? b.tz : autoDefaultTz();
+  // Sanitize the editable drip/nurture/post-close templates: only known step keys,
+  // each with a trimmed subject + body. Blank fields fall back to defaults on read.
+  const extra = {};
+  const inExtra = (b.extra && typeof b.extra === 'object') ? b.extra : {};
+  for (const d of AUTO_EXTRA_DEFS) {
+    const ov = inExtra[d.key] || {};
+    extra[d.key] = { subject: clean(ov.subject, 200) || '', body: clean(ov.body, 4000) || '' };
+  }
   await pool.query(
-    `INSERT INTO user_settings (user_id, birthday_subject, birthday_body, anniv_subject, anniv_body, signature, tz)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
+    `INSERT INTO user_settings (user_id, birthday_subject, birthday_body, anniv_subject, anniv_body, signature, tz, extra_templates)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      ON CONFLICT (user_id) DO UPDATE SET
        birthday_subject = EXCLUDED.birthday_subject, birthday_body = EXCLUDED.birthday_body,
        anniv_subject = EXCLUDED.anniv_subject, anniv_body = EXCLUDED.anniv_body,
-       signature = EXCLUDED.signature, tz = EXCLUDED.tz`,
+       signature = EXCLUDED.signature, tz = EXCLUDED.tz, extra_templates = EXCLUDED.extra_templates`,
     [req.user.id, clean(b.birthday_subject, 200), clean(b.birthday_body, 4000),
-     clean(b.anniv_subject, 200), clean(b.anniv_body, 4000), clean(b.signature, 600), tz]
+     clean(b.anniv_subject, 200), clean(b.anniv_body, 4000), clean(b.signature, 600), tz, JSON.stringify(extra)]
   );
   res.json({ ok: true, settings: await autoSettingsFor(req.user.id) });
 }));
@@ -2055,12 +2109,9 @@ async function ensureNurtureMessages(userId) {
   if (!claimed.length) return;
   const u = await one('SELECT name FROM users WHERE id = $1', [userId]);
   const senderName = (u && u.name) || 'Your loan officer';
+  const settings = await autoSettingsFor(userId);
   for (const l of claimed) {
-    const first = String(l.name || '').trim().split(/\s+/)[0] || 'there';
-    const subject = 'Just checking in';
-    const body = `Hi ${first},\n\nIt's been a little while since we last connected, so I wanted to check in. ` +
-      `Are you still exploring your options? If anything has changed or you have any questions, I'm here to help — just reply to this email.\n\n` +
-      `Best,\n${senderName}`;
+    const { subject, body } = buildExtraEmail('nurture', settings, { name: l.name, email: l.email }, senderName);
     await pool.query(
       `INSERT INTO scheduled_messages (user_id, recipient, channel, type, send_date, send_time, send_at, status, body, auto_kind, auto_key)
        VALUES ($1, $2, 'Email', $3, $4, '09:00', now(), 'pending', $5, 'nurture', $6)
@@ -2073,21 +2124,9 @@ async function ensureNurtureMessages(userId) {
 // #2 New-lead drip: a short onboarding email sequence for fresh leads — Day 0
 // intro, Day 3 follow-up, Day 7 "here's how I can help". Each step is scheduled
 // lazily (only as it comes due) and the whole drip stops the moment a call is
-// logged, since a real conversation supersedes a canned sequence.
-const LEAD_DRIP_STEPS = [
-  { step: 1, day: 0, subject: 'Thanks for reaching out',
-    body: (f, s) => `Hi ${f},\n\nThanks for reaching out — I'd love to help you with your home financing. ` +
-      `I'm reviewing your information now and will follow up shortly with next steps.\n\n` +
-      `In the meantime, if you have any questions at all, just reply to this email and I'll get right back to you.\n\nBest,\n${s}` },
-  { step: 2, day: 3, subject: 'Following up on your home financing',
-    body: (f, s) => `Hi ${f},\n\nI wanted to follow up and make sure you have everything you need to get started. ` +
-      `Whether you're just exploring your options or ready to move forward, I'm happy to walk you through the process and answer any questions.\n\n` +
-      `Is there a good time this week for a quick call?\n\nBest,\n${s}` },
-  { step: 3, day: 7, subject: "Here's how I can help",
-    body: (f, s) => `Hi ${f},\n\nI know financing a home can feel like a lot, so I wanted to check in. ` +
-      `I can help you understand your options, get pre-approved, and find the right loan for your goals — with no obligation.\n\n` +
-      `Whenever you're ready, I'm here. Just reply and let me know how I can help.\n\nBest,\n${s}` }
-];
+// logged, since a real conversation supersedes a canned sequence. Wording lives
+// in the editable AUTO_EXTRA templates (Settings → Automated Emails).
+const LEAD_DRIP_SCHEDULE = [{ key: 'drip1', day: 0 }, { key: 'drip2', day: 3 }, { key: 'drip3', day: 7 }];
 
 async function ensureLeadDripMessages(userId) {
   const conn = await one('SELECT 1 AS x FROM google_accounts WHERE user_id = $1', [userId]);
@@ -2103,21 +2142,22 @@ async function ensureLeadDripMessages(userId) {
       AND NOT EXISTS (
         SELECT 1 FROM call_log cl WHERE cl.user_id = $1 AND lower(cl.name) = lower(leads.name))`, [userId]);
   if (!leads.length) return;
+  const settings = await autoSettingsFor(userId);
   const now = Date.now();
   for (const l of leads) {
     const created = new Date(l.created_at).getTime();
-    const first = String(l.name || '').trim().split(/\s+/)[0] || 'there';
-    for (const st of LEAD_DRIP_STEPS) {
+    for (const st of LEAD_DRIP_SCHEDULE) {
       const sendAt = created + st.day * 86400000;
       // Only schedule near-due steps: from 2 days overdue up to 1 day ahead. This
       // keeps the drip lazy so an engaged lead never piles up future canned emails.
       if (sendAt > now + 86400000 || sendAt < now - 2 * 86400000) continue;
       const iso = new Date(sendAt).toISOString();
+      const { subject, body } = buildExtraEmail(st.key, settings, { name: l.name, email: l.email }, senderName);
       await pool.query(
         `INSERT INTO scheduled_messages (user_id, recipient, channel, type, send_date, send_time, send_at, status, body, auto_kind, auto_key)
          VALUES ($1, $2, 'Email', $3, $4, '09:00', $5, 'pending', $6, 'drip', $7)
          ON CONFLICT (auto_key) DO NOTHING`,
-        [userId, l.email, st.subject, iso.slice(0, 10), iso, st.body(first, senderName), `${l.id}:drip${st.step}`]
+        [userId, l.email, subject, iso.slice(0, 10), iso, body, `${l.id}:${st.key}`]
       );
     }
   }

@@ -60,8 +60,8 @@
       a: "On the Campaigns page, create an email campaign, choose an Audience (a lead segment like Buying Immediately, Pre-approved, Refinance, Realtors, or Previously Closed clients), write a subject and message, then Send. Each email is personalized and sent from your connected Gmail. Use {{first_name}}, {{name}}, or {{state}} to personalize." },
     { q: 'Can I email a lead’s realtor in a campaign?',
       a: "Yes — choose the “Realtors (from leads)” audience. It sends to the realtor email addresses saved on your leads, de-duplicated so each realtor is emailed once." },
-    { q: 'What are the automatic birthday and anniversary emails?',
-      a: "For each Previously Closed client with a birthday or loan anniversary on file, LeadFlow automatically schedules a friendly email for 9am on that date. It shows in Messages → Scheduled within 7 days of the date, tagged “Auto.” Customize the wording, signature, and timezone in Settings → Automated Emails." },
+    { q: 'What automatic emails does LeadFlow send?',
+      a: "Five sequences, all sent from your connected Google account and all editable in Settings → Automated Emails:\n\n• New-lead drip — Day 0 / 3 / 7 emails to a fresh lead, stopping the moment you log a call.\n• 15-day nurture — a check-in to any lead you haven't contacted in 15 days, repeating every 15 days.\n• Post-close — check-ins to a closed client at +7 / +30 / +90 / +180 days.\n• Birthday and loan anniversary — yearly emails to closed clients on those dates.\n\nEvery one first appears in Messages → Scheduled (tagged “Auto”) so you can edit or dismiss it before it sends. Personalize the wording, signature, and send timezone in Settings → Automated Emails." },
     { q: 'How do I sync with Google Calendar?',
       a: "On the Calendar page, click Connect/Reconnect Google. Events you create in LeadFlow are added to your Google Calendar, and your Google events appear in LeadFlow (badged “Google”). Your admin must enable the Google Calendar API and add the calendar permission for this to work." },
     { q: 'How does the call queue work?',
@@ -1048,7 +1048,7 @@
     return `
       <div class="max-w-[760px]">
         <h3 class="text-[15px] font-semibold mb-1">Automated emails</h3>
-        <p class="text-[12.5px] text-muted mb-4">Birthday and loan-anniversary emails go out automatically at 9am to your closed clients, sent from your connected Google account. Personalize with <b>{{first_name}}</b>, <b>{{name}}</b>, or <b>{{state}}</b>.</p>
+        <p class="text-[12.5px] text-muted mb-4">These emails go out automatically from your connected Google account — the new-lead drip and nurture to active leads, and the post-close, birthday, and anniversary emails to closed clients. Each one lands in Messages as a pending email you can edit or dismiss before it sends. Personalize with <b>{{first_name}}</b>, <b>{{name}}</b>, or <b>{{state}}</b>.</p>
         <div id="auto-email-wrap" class="text-[13px] text-muted">Loading…</div>
       </div>`;
   }
@@ -1059,7 +1059,29 @@
     catch (e) {}
     if (!data) { wrap.innerHTML = '<span style="color:#D63333;">Could not load settings.</span>'; return; }
     const s = data.settings;
+    const extraDefs = data.extraDefs || [];
     const tzOpts = data.timezones.map(tz => `<option value="${escapeAttr(tz)}" ${tz === s.tz ? 'selected' : ''}>${escapeHTML(tz.replace(/_/g, ' '))}</option>`).join('');
+
+    // Group the editable drip / nurture / post-close steps into one card each.
+    const groupIcon = { 'New-lead drip': '🌱', '15-day nurture': '💬', 'Post-close nurture': '🤝' };
+    const byGroup = [];
+    extraDefs.forEach(d => {
+      let g = byGroup.find(x => x.name === d.group);
+      if (!g) { g = { name: d.group, items: [] }; byGroup.push(g); }
+      g.items.push(d);
+    });
+    const extraHTML = byGroup.map(g => `
+        <div class="rounded-xl p-4" style="border:1px solid var(--border);">
+          <div class="text-[13px] font-semibold mb-3">${groupIcon[g.name] || '✉️'} ${escapeHTML(g.name)}</div>
+          ${g.items.map((d, i) => `
+            <div class="${i < g.items.length - 1 ? 'mb-4 pb-4' : ''}" ${i < g.items.length - 1 ? 'style="border-bottom:1px dashed var(--border);"' : ''}>
+              <div class="text-[12px] font-semibold mb-2">${escapeHTML(d.label)}</div>
+              <label class="text-[12px] font-semibold text-muted">Subject</label>
+              <input id="ae-x-${d.key}-subj" class="input mt-1 mb-2" maxlength="200" />
+              <label class="text-[12px] font-semibold text-muted">Message</label>
+              <textarea id="ae-x-${d.key}-body" rows="5" class="input mt-1" maxlength="4000"></textarea>
+            </div>`).join('')}
+        </div>`).join('');
 
     wrap.innerHTML = `
       <div class="flex flex-col gap-4">
@@ -1067,6 +1089,7 @@
           <label class="text-[12px] font-semibold text-muted">Send timezone (for the 9am send)</label>
           <select id="ae-tz" class="input mt-1" style="cursor:pointer;max-width:300px;">${tzOpts}</select>
         </div>
+        ${extraHTML}
         <div class="rounded-xl p-4" style="border:1px solid var(--border);">
           <div class="text-[13px] font-semibold mb-2">🎂 Birthday email</div>
           <label class="text-[12px] font-semibold text-muted">Subject</label>
@@ -1093,16 +1116,23 @@
         </div>
       </div>`;
 
-    const setVals = (v) => {
+    const setVals = (v, ex) => {
       document.getElementById('ae-bday-subj').value  = v.birthday_subject || '';
       document.getElementById('ae-bday-body').value  = v.birthday_body || '';
       document.getElementById('ae-anniv-subj').value = v.anniv_subject || '';
       document.getElementById('ae-anniv-body').value = v.anniv_body || '';
       document.getElementById('ae-sig').value        = v.signature || '';
+      extraDefs.forEach(d => {
+        const t = (ex && ex[d.key]) || {};
+        const sub = document.getElementById('ae-x-' + d.key + '-subj');
+        const bod = document.getElementById('ae-x-' + d.key + '-body');
+        if (sub) sub.value = t.subject || '';
+        if (bod) bod.value = t.body || '';
+      });
     };
-    setVals(s);
+    setVals(s, s.extra);
 
-    document.getElementById('ae-reset').addEventListener('click', () => { setVals(data.defaults); });
+    document.getElementById('ae-reset').addEventListener('click', () => { setVals(data.defaults, data.extraDefaults); });
 
     document.getElementById('ae-save').addEventListener('click', async () => {
       const btn = document.getElementById('ae-save');
@@ -1113,8 +1143,15 @@
         birthday_body:    document.getElementById('ae-bday-body').value,
         anniv_subject:    document.getElementById('ae-anniv-subj').value,
         anniv_body:       document.getElementById('ae-anniv-body').value,
-        signature:        document.getElementById('ae-sig').value
+        signature:        document.getElementById('ae-sig').value,
+        extra: {}
       };
+      extraDefs.forEach(d => {
+        payload.extra[d.key] = {
+          subject: document.getElementById('ae-x-' + d.key + '-subj').value,
+          body:    document.getElementById('ae-x-' + d.key + '-body').value
+        };
+      });
       btn.disabled = true; btn.style.opacity = '0.7';
       msg.style.color = 'var(--text-muted)'; msg.textContent = 'Saving…';
       try {
