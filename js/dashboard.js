@@ -7,8 +7,21 @@
     { label: '6+ Months',          color: '#5BA8FF' }
   ];
 
-  let leads = [], calls = [], tasks = [], contacts = [];
+  let leads = [], calls = [], tasks = [], contacts = [], closedLeads = [];
   const state = { page: 1, pageSize: 5, tab: 'all', trendDays: 7 };
+
+  // Closed-lead (CSV) column pickers — same detection the Clients page uses.
+  function closedField(data, patterns) {
+    const keys = Object.keys(data || {});
+    for (const p of patterns) { const c = keys.find(k => p.test(k)); if (c) return data[c]; }
+    return '';
+  }
+  function closedName(data) {
+    const keys = Object.keys(data || {});
+    return closedField(data, [/^primary borrower$/i, /borrower name/i, /full name/i, /^name$/i, /^customer$/i, /^client$/i]) || data[keys[0]] || '';
+  }
+  const closedEmail = (d) => closedField(d, [/e-?mail/i]);
+  const closedPhone = (d) => closedField(d, [/phone|mobile|\bcell\b|\btel\b/i]);
 
   function esc(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
   function initials(name) { return (name || '?').trim().split(/\s+/).map(s => s[0]).slice(0, 2).join('').toUpperCase() || '?'; }
@@ -25,8 +38,8 @@
   // ----- Load -----
   async function loadAll() {
     const get = async (u) => { try { const r = await fetch(u, { credentials: 'same-origin' }); return r.ok ? await r.json() : []; } catch (e) { return []; } };
-    [leads, calls, tasks, contacts] = await Promise.all([
-      get('/api/leads'), get('/api/call-log'), get('/api/tasks'), get('/api/contacts')
+    [leads, calls, tasks, contacts, closedLeads] = await Promise.all([
+      get('/api/leads'), get('/api/call-log'), get('/api/tasks'), get('/api/contacts'), get('/api/closed')
     ]);
     leads = leads.map((l, i) => Object.assign({ _uid: i + 1 }, l));
   }
@@ -167,10 +180,12 @@
   // ----- Lead table (real, with timeline tabs) -----
   const LEAD_TABS = [
     { id: 'all',    label: 'All Leads',          match: () => true },
+    { id: 'hot',    label: 'Hot Leads',          match: l => l.stars === 5 },
     { id: 'buying', label: 'Buying Immediately', match: l => l.timeline === 'Buying Immediately' },
     { id: '1-3',    label: '1-3 Months',         match: l => l.timeline === '1-3 Months' },
     { id: '3-6',    label: '3-6 Months',         match: l => l.timeline === '3-6 Months' },
-    { id: '6plus',  label: '6+ Months',          match: l => l.timeline === '6+ Months' }
+    { id: '6plus',  label: '6+ Months',          match: l => l.timeline === '6+ Months' },
+    { id: 'closed', label: 'Closed Leads',       closed: true }
   ];
   function renderLeadTabs() {
     const el = document.getElementById('dash-lead-tabs');
@@ -179,8 +194,41 @@
       state.tab = tab.dataset.tab; state.page = 1; renderLeadTabs(); renderLeadsTable();
     }));
   }
+  function renderClosedTable() {
+    const table = document.getElementById('leads-table');
+    const rows = closedLeads;
+    const totalPages = Math.max(1, Math.ceil(rows.length / state.pageSize));
+    if (state.page > totalPages) state.page = totalPages;
+    const start = (state.page - 1) * state.pageSize;
+    const pageRows = rows.slice(start, start + state.pageSize);
+    if (rows.length === 0) {
+      table.innerHTML = `<tbody><tr><td class="text-center py-10 text-muted text-[13px]">No closed leads yet — import them on the Past Clients page.</td></tr></tbody>`;
+      document.getElementById('lead-summary').textContent = 'No closed leads to show';
+      document.getElementById('pager').innerHTML = '';
+      return;
+    }
+    table.innerHTML = `
+      <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Loan Purpose</th><th>State</th></tr></thead>
+      <tbody>
+        ${pageRows.map(r => {
+          const d = r.data || {};
+          return `
+          <tr>
+            <td><a href="clients.html" class="font-semibold" style="color:var(--accent);" title="Open in Past Clients">${esc(closedName(d)) || '(no name)'}</a></td>
+            <td class="text-muted">${esc(closedEmail(d))}</td>
+            <td>${esc(closedPhone(d))}</td>
+            <td class="text-muted">${esc(closedField(d, [/loan purpose|^purpose$/i]))}</td>
+            <td class="text-muted">${esc(closedField(d, [/subject state|^state$/i]))}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>`;
+    document.getElementById('lead-summary').textContent =
+      `Showing ${start + 1} to ${Math.min(start + state.pageSize, rows.length)} of ${LF.fmtNum(rows.length)} closed leads`;
+    renderPager(totalPages);
+  }
   function renderLeadsTable() {
     const tab = LEAD_TABS.find(t => t.id === state.tab) || LEAD_TABS[0];
+    if (tab.closed) return renderClosedTable();
     const rows = leads.filter(tab.match);
     const totalPages = Math.max(1, Math.ceil(rows.length / state.pageSize));
     if (state.page > totalPages) state.page = totalPages;
@@ -196,7 +244,7 @@
     }
 
     table.innerHTML = `
-      <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Buying Timeline</th><th>Lead Score</th><th>Last Contacted</th><th>Owner</th></tr></thead>
+      <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Buying Timeline</th><th>Lead Score</th><th>Owner</th></tr></thead>
       <tbody>
         ${pageRows.map(l => `
           <tr>
@@ -205,7 +253,6 @@
             <td>${esc(l.phone)}</td>
             <td><span class="pill ${timelinePill(l.timeline)}">${esc(l.timeline)}</span></td>
             <td>${LF.scoreStarsHTML(l, 13)}</td>
-            <td class="text-muted">${esc(l.last) || '—'}</td>
             <td>
               <div class="flex items-center gap-2">
                 <div class="avatar avatar-sm">${initials(l.owner)}</div>
