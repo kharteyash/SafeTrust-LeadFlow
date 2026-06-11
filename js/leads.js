@@ -500,6 +500,7 @@
       form.elements['realtor_email'].value = lead.realtorEmail || '';
       form.elements['realtor_phone'].value = lead.realtorPhone || '';
       form.elements['preapproved'].value = lead.preapproved ? 'yes' : 'no';
+      form.elements['birthday'].value = lead.birthday || '';
     } else {
       document.getElementById('lead-modal-title').textContent = 'Add lead';
       document.getElementById('lead-submit').textContent = 'Add lead';
@@ -562,6 +563,7 @@
       }
     }
     rows.push(detailRow('State', esc(lead.state) || '—'));
+    if (lead.birthday) rows.push(detailRow('Birthday', esc(LF.fmtBirthday ? LF.fmtBirthday(lead.birthday) : lead.birthday)));
     rows.push(detailRow('Owner', esc(lead.owner) || '—'));
 
     const notesBlock = lead.notes
@@ -800,7 +802,7 @@
       const payload = {
         name: data.name, email: data.email, phone: data.phone || '',
         timeline: data.timeline, owner: data.owner || '', notes: data.notes || '',
-        state: data.state || '',
+        state: data.state || '', birthday: data.birthday || '',
         preapproved: data.preapproved === 'yes',
         leadType: data.lead_type,
         refiType: data.refi_type,
@@ -821,7 +823,7 @@
           if (!res.ok) { msg.textContent = body.error || `Request failed (HTTP ${res.status}).`; return; }
           Object.assign(lead, {
             name: body.name, email: body.email, phone: body.phone,
-            timeline: body.timeline, owner: body.owner, notes: body.notes, score: body.score, state: body.state,
+            timeline: body.timeline, owner: body.owner, notes: body.notes, score: body.score, state: body.state, birthday: body.birthday,
             preapproved: body.preapproved, leadType: body.leadType, refiType: body.refiType,
             realtorStatus: body.realtorStatus, realtorName: body.realtorName,
             realtorEmail: body.realtorEmail, realtorPhone: body.realtorPhone

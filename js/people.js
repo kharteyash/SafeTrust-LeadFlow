@@ -27,6 +27,7 @@ LF.People = (function () {
       { label: 'Type', value: c.tag || 'Other' }
     ];
     if (isRealtor) fields.push({ label: 'Relationship', value: relLabel(c.relationship) || 'Unknown' });
+    if (c.birthday) fields.push({ label: 'Birthday', value: LF.fmtBirthday ? LF.fmtBirthday(c.birthday) : c.birthday });
     return { kind: 'contact', group: isRealtor ? 'realtor' : 'contact', id: c.id, name: c.name, email: c.email || '', phone: c.phone || '', company: c.company || '', type: typeLabel, fields, raw: c };
   }
   function fromLead(l) {
@@ -36,6 +37,7 @@ LF.People = (function () {
       { label: 'Buying timeline', value: l.timeline },
       { label: 'Lead score', value: l.stars ? `${l.stars}/5` : '' },
       { label: 'State', value: l.state },
+      { label: 'Birthday', value: l.birthday ? (LF.fmtBirthday ? LF.fmtBirthday(l.birthday) : l.birthday) : '' },
       { label: 'Owner', value: l.owner },
       { label: 'Pre-approved', value: l.preapproved ? 'Yes' : 'No' },
       { label: 'Realtor', value: l.realtorName },

@@ -784,6 +784,15 @@ LF.initScoreTips = function () {
     if (el) tip.classList.add('hidden');
   });
 };
+// Format a stored YYYY-MM-DD birthday as a readable "Month D" (year hidden, since
+// only the month/day matters for the greeting). Falls back to the raw value.
+LF.fmtBirthday = (s) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s || '').trim());
+  if (!m) return String(s || '');
+  const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const mi = Number(m[2]) - 1;
+  return (months[mi] || '') + ' ' + Number(m[3]);
+};
 LF.timelinePill = (t) => {
   if (t === 'Buying Immediately') return 'pill-green';
   if (t === '1-3 Months') return 'pill-yellow';

@@ -110,7 +110,8 @@
           method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
           body: JSON.stringify({
             name: data.name, email: data.email || '', phone: data.phone || '',
-            company: data.company || '', tag: 'Realtor', relationship: data.relationship || 'established'
+            company: data.company || '', tag: 'Realtor', relationship: data.relationship || 'established',
+            birthday: data.birthday || ''
           })
         });
         const raw = await res.text(); let body = {}; try { body = raw ? JSON.parse(raw) : {}; } catch (err) {}

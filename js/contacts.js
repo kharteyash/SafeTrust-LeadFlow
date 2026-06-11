@@ -263,6 +263,7 @@
         form.elements['otherTag'].value = contact.tag === 'Other' ? '' : (contact.tag || '');
       }
       if (contact.tag === 'Realtor') setRelationshipValue(contact.relationship || 'unknown');
+      form.elements['birthday'].value = contact.birthday || '';
     } else {
       form.elements['tag'].value = 'Buyer';
       setRelationshipValue('established');
@@ -344,7 +345,7 @@
       if (tag === 'Other') { const other = (data.otherTag || '').trim(); if (other) tag = other; }
       const btn = form.querySelector('button[type="submit"]');
       btn.disabled = true; btn.style.opacity = '0.7';
-      const payload = { name: data.name, email: data.email || '', phone: data.phone || '', company: data.company || '', tag };
+      const payload = { name: data.name, email: data.email || '', phone: data.phone || '', company: data.company || '', tag, birthday: data.birthday || '' };
       if (tag === 'Realtor') payload.relationship = data.relationship || 'established';
       try {
         const res = await fetch(editingId ? '/api/contacts/' + editingId : '/api/contacts', {

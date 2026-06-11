@@ -238,6 +238,8 @@ const SCHEMA = `
   -- Next timeline-cadence call date, and last auto-nurture-email date.
   ALTER TABLE leads ADD COLUMN IF NOT EXISTS next_call_at DATE;
   ALTER TABLE leads ADD COLUMN IF NOT EXISTS last_nurture_at DATE;
+  -- Optional birthday (YYYY-MM-DD) → drives the automatic birthday email.
+  ALTER TABLE leads ADD COLUMN IF NOT EXISTS birthday TEXT;
 
   -- Lead assignments from a team leader to members (one or all), with accept/reject.
   CREATE TABLE IF NOT EXISTS lead_assignments (
@@ -277,6 +279,8 @@ const SCHEMA = `
   -- Next 14-day touch-base date for an established realtor (drives a call-queue
   -- entry + a task when it comes due).
   ALTER TABLE contacts ADD COLUMN IF NOT EXISTS next_touch_at DATE;
+  -- Optional birthday (YYYY-MM-DD) → drives the automatic birthday email.
+  ALTER TABLE contacts ADD COLUMN IF NOT EXISTS birthday TEXT;
 
   CREATE TABLE IF NOT EXISTS tasks (
     id         SERIAL PRIMARY KEY,
@@ -1653,6 +1657,61 @@ async function ensurePostCloseMessages(userId) {
   }
 }
 
+// #3 Birthday emails for everyone: leads and contacts (realtors, etc.) with a
+// birthday on file get the same automatic birthday email closed clients get
+// (closed clients are handled by ensureAnniversaryMessages). Uses the editable
+// birthday template, sent at 9am in the owner's timezone, deduped per year.
+async function ensureBirthdayMessages(userId) {
+  const now = new Date();
+  const horizon = new Date(now.getTime() + AUTO_WINDOW_DAYS * 86400000);
+  const connRows = await q('SELECT user_id FROM google_accounts');
+  const connected = new Set(connRows.map(r => r.user_id));
+
+  const scope = userId ? 'AND t.user_id = $1' : '';
+  const params = userId ? [userId] : [];
+  const rows = await q(`
+    SELECT t.kind, t.id, t.user_id, t.name, t.email, t.state, t.birthday, u.name AS owner_name
+    FROM (
+      SELECT 'lead'::text AS kind, id, user_id, name, email, coalesce(state, '') AS state, birthday FROM leads
+        WHERE birthday IS NOT NULL AND btrim(birthday) <> '' AND email IS NOT NULL AND btrim(email) <> ''
+      UNION ALL
+      SELECT 'contact'::text AS kind, id, user_id, name, email, '' AS state, birthday FROM contacts
+        WHERE birthday IS NOT NULL AND btrim(birthday) <> '' AND email IS NOT NULL AND btrim(email) <> ''
+    ) t
+    JOIN users u ON u.id = t.user_id
+    WHERE TRUE ${scope}
+  `, params);
+
+  const settingsCache = new Map();
+  async function settingsFor(uid) {
+    if (!settingsCache.has(uid)) settingsCache.set(uid, await autoSettingsFor(uid));
+    return settingsCache.get(uid);
+  }
+
+  for (const row of rows) {
+    if (!connected.has(row.user_id)) continue;
+    if (!/@/.test(row.email || '')) continue;
+    const md = parseMonthDay(row.birthday);
+    if (!md) continue;
+    const settings = await settingsFor(row.user_id);
+    let year = now.getFullYear();
+    const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    if (new Date(year, md.m, md.d) < todayMidnight) year += 1;     // next occurrence
+    const sendAt = zonedTimeToUtc(year, md.m, md.d, 9, settings.tz);
+    if (sendAt > horizon) continue;                                // not within the window yet
+    const autoKey = `${row.kind}:${row.id}:birthday:${year}`;
+    if (await one('SELECT 1 AS x FROM dismissed_auto WHERE auto_key = $1', [autoKey])) continue;
+    const { subject, body } = buildAutoEmail('birthday', settings, { name: row.name, email: row.email, state: row.state }, row.owner_name);
+    const sendDate = `${year}-${String(md.m + 1).padStart(2, '0')}-${String(md.d).padStart(2, '0')}`;
+    await pool.query(
+      `INSERT INTO scheduled_messages (user_id, recipient, channel, type, send_date, send_time, send_at, status, body, auto_kind, auto_key)
+       VALUES ($1, $2, 'Email', $3, $4, '09:00', $5, 'pending', $6, 'birthday', $7)
+       ON CONFLICT (auto_key) DO NOTHING`,
+      [row.user_id, row.email, subject, sendDate, sendAt.toISOString(), body, autoKey]
+    );
+  }
+}
+
 // ----- Automated-email settings (templates, signature, timezone) -----
 app.get('/api/auto-email-settings', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
@@ -1695,6 +1754,7 @@ app.get('/api/scheduled', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
   try { await ensureAnniversaryMessages(req.user.id); } catch (e) { console.error('auto-email gen:', e); }
   try { await ensurePostCloseMessages(req.user.id); } catch (e) { console.error('post-close gen:', e); }
+  try { await ensureBirthdayMessages(req.user.id); } catch (e) { console.error('birthday gen:', e); }
   // Auto emails only appear while pending and within the 7-day window; manual
   // messages and any already-sent/failed history always show.
   const rows = await q(`
@@ -1861,6 +1921,8 @@ async function dispatchScheduled(req, res) {
   try { await ensureAnniversaryMessages(); } catch (e) { console.error('auto-email gen:', e); }
   // #1 post-close nurture (+7/+30/+90/+180 day check-ins for closed clients).
   try { await ensurePostCloseMessages(); } catch (e) { console.error('post-close gen:', e); }
+  // #3 birthday emails for leads + contacts with a birthday on file.
+  try { await ensureBirthdayMessages(); } catch (e) { console.error('birthday gen:', e); }
   // #2 new-lead drip + 15-day nurture: per connected user (these query live leads).
   try {
     const conn = await q('SELECT user_id FROM google_accounts');
@@ -1998,6 +2060,11 @@ const US_STATES = [
   'West Virginia','Wisconsin','Wyoming'
 ];
 const normalizeState = (s) => (US_STATES.includes(s) ? s : '');
+// Accept only a clean YYYY-MM-DD birthday (from the date picker); else store ''.
+const normalizeBirthday = (v) => {
+  const s = String(v == null ? '' : v).trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : '';
+};
 const LEAD_TYPES = ['Purchase', 'Refinance'];
 const REFI_TYPES = ['Rate & Term', 'Cash Out'];
 const REALTOR_STATUSES = ['has', 'unavailable', 'none'];
@@ -2079,7 +2146,7 @@ function leadRowToJson(r) {
     timeline: r.timeline, score: r.score, stars: scoreToStars(r.score),
     scoreBreakdown: breakdown, scoreNote,
     owner: r.owner || '', notes: r.notes || '',
-    state: r.state || '',
+    state: r.state || '', birthday: r.birthday || '',
     preapproved: !!r.preapproved, leadType: r.lead_type || 'Purchase', refiType: r.refi_type || '',
     realtorStatus: r.realtor_status || 'none', realtorName: r.realtor_name || '',
     realtorEmail: r.realtor_email || '', realtorPhone: r.realtor_phone || '',
@@ -2173,7 +2240,7 @@ app.get('/api/leads', safe(async (req, res) => {
   // viewer's own leads that haven't been forwarded away (for the My Leads tab).
   const isAdmin = req.user.role === 'admin';
   const rows = await q(`
-    SELECT le.id, le.name, le.email, le.phone, le.timeline, le.score, le.owner, le.notes, le.state,
+    SELECT le.id, le.name, le.email, le.phone, le.timeline, le.score, le.owner, le.notes, le.state, le.birthday,
            le.preapproved, le.lead_type, le.refi_type, le.realtor_status, le.realtor_name, le.realtor_email, le.realtor_phone,
            le.created_at, ab.name AS assigned_by_name, ou.name AS owner_user_name,
            (le.user_id = $1 AND NOT EXISTS (
@@ -2221,12 +2288,13 @@ app.post('/api/leads', safe(async (req, res) => {
 
   const f = normalizeLeadType(req.body || {});
   const state = normalizeState((req.body || {}).state);
+  const birthday = normalizeBirthday((req.body || {}).birthday);
   const score = computeLeadScore(timeline, phone, f.leadType, f.refiType, f.preapproved, f.realtorStatus);
   const row = await one(`
-    INSERT INTO leads (user_id, name, email, phone, timeline, score, owner, notes, state,
+    INSERT INTO leads (user_id, name, email, phone, timeline, score, owner, notes, state, birthday,
                        preapproved, lead_type, refi_type, realtor_status, realtor_name, realtor_email, realtor_phone)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id
-  `, [req.user.id, name.trim(), email.trim(), (phone || '').trim(), timeline, score, (owner || '').trim(), (notes || '').trim(), state,
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING id
+  `, [req.user.id, name.trim(), email.trim(), (phone || '').trim(), timeline, score, (owner || '').trim(), (notes || '').trim(), state, birthday,
       f.preapproved, f.leadType, f.refiType, f.realtorStatus, f.realtorName, f.realtorEmail, f.realtorPhone]);
 
   // A new lead with a realtor attached → surface that realtor in Contacts.
@@ -2243,7 +2311,7 @@ app.post('/api/leads', safe(async (req, res) => {
 
   res.json(leadRowToJson({
     id: row.id, name: name.trim(), email: email.trim(), phone: (phone || '').trim(),
-    timeline, score, owner: (owner || '').trim(), notes: (notes || '').trim(), state,
+    timeline, score, owner: (owner || '').trim(), notes: (notes || '').trim(), state, birthday,
     preapproved: f.preapproved, lead_type: f.leadType, refi_type: f.refiType,
     realtor_status: f.realtorStatus, realtor_name: f.realtorName, realtor_email: f.realtorEmail, realtor_phone: f.realtorPhone
   }));
@@ -2286,7 +2354,7 @@ app.patch('/api/leads/:id', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid lead id.' });
-  const cur = await one(`SELECT name, email, phone, timeline, owner, notes, state,
+  const cur = await one(`SELECT name, email, phone, timeline, owner, notes, state, birthday,
     preapproved, lead_type, refi_type, realtor_status, realtor_name, realtor_email, realtor_phone
     FROM leads WHERE id = $1 AND user_id = $2`, [id, req.user.id]);
   if (!cur) return res.status(404).json({ error: 'Lead not found.' });
@@ -2299,6 +2367,7 @@ app.patch('/api/leads/:id', safe(async (req, res) => {
   const owner    = b.owner    != null ? String(b.owner).trim() : (cur.owner || '');
   const notes    = b.notes    != null ? String(b.notes).trim() : (cur.notes || '');
   const state    = b.state    != null ? normalizeState(b.state) : (cur.state || '');
+  const birthday = b.birthday != null ? normalizeBirthday(b.birthday) : (cur.birthday || '');
   if (!name)  return res.status(400).json({ error: 'Name is required.' });
   if (!email) return res.status(400).json({ error: 'Email is required.' });
   if (!LEAD_TIMELINES.includes(timeline)) return res.status(400).json({ error: 'Invalid buying timeline.' });
@@ -2315,13 +2384,13 @@ app.patch('/api/leads/:id', safe(async (req, res) => {
   });
   const score = computeLeadScore(timeline, phone, f.leadType, f.refiType, f.preapproved, f.realtorStatus);
   await pool.query(`UPDATE leads SET name=$1, email=$2, phone=$3, timeline=$4, owner=$5, notes=$6, score=$7, state=$8,
-      preapproved=$9, lead_type=$10, refi_type=$11, realtor_status=$12, realtor_name=$13, realtor_email=$14, realtor_phone=$15
+      preapproved=$9, lead_type=$10, refi_type=$11, realtor_status=$12, realtor_name=$13, realtor_email=$14, realtor_phone=$15, birthday=$18
       WHERE id=$16 AND user_id=$17`,
     [name, email, phone, timeline, owner, notes, score, state,
-     f.preapproved, f.leadType, f.refiType, f.realtorStatus, f.realtorName, f.realtorEmail, f.realtorPhone, id, req.user.id]);
+     f.preapproved, f.leadType, f.refiType, f.realtorStatus, f.realtorName, f.realtorEmail, f.realtorPhone, id, req.user.id, birthday]);
 
   res.json(leadRowToJson({
-    id, name, email, phone, timeline, score, owner, notes, state,
+    id, name, email, phone, timeline, score, owner, notes, state, birthday,
     preapproved: f.preapproved, lead_type: f.leadType, refi_type: f.refiType,
     realtor_status: f.realtorStatus, realtor_name: f.realtorName, realtor_email: f.realtorEmail, realtor_phone: f.realtorPhone
   }));
@@ -2803,12 +2872,12 @@ function normalizeRelationship(v, tag) {
 app.get('/api/contacts', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
   const rows = await q(`
-    SELECT id, name, email, phone, company, tag, relationship
+    SELECT id, name, email, phone, company, tag, relationship, birthday
     FROM contacts WHERE user_id = $1 ORDER BY name
   `, [req.user.id]);
   res.json(rows.map(r => ({
     id: r.id, name: r.name, email: r.email || '', phone: r.phone || '',
-    company: r.company || '', tag: r.tag || 'Other', relationship: r.relationship || ''
+    company: r.company || '', tag: r.tag || 'Other', relationship: r.relationship || '', birthday: r.birthday || ''
   })));
 }));
 
@@ -2819,16 +2888,17 @@ app.post('/api/contacts', safe(async (req, res) => {
   const rawTag = String((req.body && req.body.tag) || '').trim();
   const tag = rawTag ? rawTag.slice(0, 40) : 'Other';
   const relationship = normalizeRelationship((req.body || {}).relationship, tag);
+  const birthday = normalizeBirthday((req.body || {}).birthday);
   if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required.' });
 
   const row = await one(`
-    INSERT INTO contacts (user_id, name, email, phone, company, tag, relationship)
-    VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id
-  `, [req.user.id, name.trim(), (email || '').trim(), (phone || '').trim(), (company || '').trim(), tag, relationship]);
+    INSERT INTO contacts (user_id, name, email, phone, company, tag, relationship, birthday)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id
+  `, [req.user.id, name.trim(), (email || '').trim(), (phone || '').trim(), (company || '').trim(), tag, relationship, birthday]);
 
   res.json({
     id: row.id, name: name.trim(), email: (email || '').trim(),
-    phone: (phone || '').trim(), company: (company || '').trim(), tag, relationship
+    phone: (phone || '').trim(), company: (company || '').trim(), tag, relationship, birthday
   });
 }));
 
@@ -2836,7 +2906,7 @@ app.patch('/api/contacts/:id', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid contact id.' });
-  const cur = await one('SELECT name, email, phone, company, tag, relationship FROM contacts WHERE id = $1 AND user_id = $2', [id, req.user.id]);
+  const cur = await one('SELECT name, email, phone, company, tag, relationship, birthday FROM contacts WHERE id = $1 AND user_id = $2', [id, req.user.id]);
   if (!cur) return res.status(404).json({ error: 'Contact not found.' });
 
   const b = req.body || {};
@@ -2846,11 +2916,12 @@ app.patch('/api/contacts/:id', safe(async (req, res) => {
   const company = b.company != null ? String(b.company).trim() : (cur.company || '');
   const tag     = b.tag     != null ? (String(b.tag).trim().slice(0, 40) || 'Other') : (cur.tag || 'Other');
   const relationship = b.relationship != null ? normalizeRelationship(b.relationship, tag) : normalizeRelationship(cur.relationship, tag);
+  const birthday = b.birthday != null ? normalizeBirthday(b.birthday) : (cur.birthday || '');
   if (!name) return res.status(400).json({ error: 'Name is required.' });
 
-  await pool.query(`UPDATE contacts SET name=$1, email=$2, phone=$3, company=$4, tag=$5, relationship=$6 WHERE id=$7 AND user_id=$8`,
-    [name, email, phone, company, tag, relationship, id, req.user.id]);
-  res.json({ id, name, email, phone, company, tag, relationship });
+  await pool.query(`UPDATE contacts SET name=$1, email=$2, phone=$3, company=$4, tag=$5, relationship=$6, birthday=$9 WHERE id=$7 AND user_id=$8`,
+    [name, email, phone, company, tag, relationship, id, req.user.id, birthday]);
+  res.json({ id, name, email, phone, company, tag, relationship, birthday });
 }));
 
 app.delete('/api/contacts/:id', safe(async (req, res) => {
