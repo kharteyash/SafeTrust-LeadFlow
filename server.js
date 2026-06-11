@@ -344,7 +344,7 @@ async function loadUserFromSession(sid) {
   if (!sid) return null;
   const row = await one(`
     SELECT u.id, u.email, u.name, u.phone, u.title, u.bio, u.role, u.leader_id, u.photo,
-           u.must_change_password, u.digest_enabled, l.name AS leader_name
+           u.must_change_password, l.name AS leader_name
     FROM sessions s JOIN users u ON u.id = s.user_id
     LEFT JOIN users l ON l.id = u.leader_id
     WHERE s.id = $1 AND s.expires_at > now()
@@ -354,8 +354,7 @@ async function loadUserFromSession(sid) {
     id: row.id, email: row.email, name: row.name,
     phone: row.phone || '', title: row.title || '', bio: row.bio || '',
     role: row.role || 'user', leaderId: row.leader_id || null, leaderName: row.leader_name || '',
-    photo: row.photo || '', mustChangePassword: !!row.must_change_password,
-    digestEnabled: row.digest_enabled !== false
+    photo: row.photo || '', mustChangePassword: !!row.must_change_password
   };
 }
 
@@ -1721,58 +1720,8 @@ async function sendEmailAsUser(userId, opts) {
   return sendEmail(opts);
 }
 
-// ----- #13 Daily digest email -----
-// The user's local date + hour for a timezone (for the morning-only send window).
-function nowInTz(tz) {
-  try {
-    const parts = new Intl.DateTimeFormat('en-CA', {
-      timeZone: tz || 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hour12: false
-    }).formatToParts(new Date());
-    const get = (t) => (parts.find(p => p.type === t) || {}).value;
-    return { localDate: `${get('year')}-${get('month')}-${get('day')}`, hour: parseInt(get('hour'), 10) || 0 };
-  } catch (e) { return { localDate: serverToday(), hour: new Date().getHours() }; }
-}
-function digestBody(name, calls, tasks, hot, dateStr) {
-  const first = String(name || '').trim().split(/\s+/)[0] || 'there';
-  const lines = [`Good morning, ${first}!`, '', `Here's your LeadFlow day at a glance (${dateStr}):`, ''];
-  lines.push(`📞 Calls to make today: ${calls.length}`);
-  calls.slice(0, 10).forEach(c => lines.push(`   • ${c.name}${c.reason ? ` — ${c.reason}` : ''}`));
-  lines.push('', `✅ Tasks due: ${tasks.length}`);
-  tasks.slice(0, 10).forEach(t => lines.push(`   • ${t.title}${t.due_date ? ` (due ${t.due_date})` : ''}`));
-  lines.push('', `🔥 Hot leads (5★): ${hot.length}`);
-  hot.slice(0, 10).forEach(h => lines.push(`   • ${h.name}`));
-  lines.push('', 'Have a great day!');
-  return lines.join('\n');
-}
-async function ensureDailyDigests() {
-  const users = await q(`SELECT u.id, u.name, u.email FROM users u
-     JOIN google_accounts g ON g.user_id = u.id
-     WHERE coalesce(u.digest_enabled, true) = true`);
-  for (const u of users) {
-    try {
-      const tz = await gcalTimezone(u.id);
-      const { localDate, hour } = nowInTz(tz);
-      if (hour < 6 || hour > 11) continue;               // morning window only
-      const cur = await one('SELECT last_digest_at FROM users WHERE id = $1', [u.id]);
-      if (cur && cur.last_digest_at && String(cur.last_digest_at).slice(0, 10) >= localDate) continue;
-      const calls = await q(`SELECT name, reason FROM call_queue WHERE user_id = $1 AND (call_date IS NULL OR call_date <= $2) ORDER BY id`, [u.id, localDate]);
-      const tasks = await q(`SELECT title, due_date FROM tasks WHERE user_id = $1 AND status <> 'done' AND due_date IS NOT NULL AND due_date <= $2 ORDER BY due_date`, [u.id, localDate]);
-      const hot = await q(`SELECT name FROM leads WHERE user_id = $1 AND score >= 81 ORDER BY score DESC LIMIT 10`, [u.id]);
-      if (!calls.length && !tasks.length && !hot.length) continue;  // nothing to report yet
-      const claimed = await q(`UPDATE users SET last_digest_at = $2 WHERE id = $1 AND (last_digest_at IS NULL OR last_digest_at < $2) RETURNING id`, [u.id, localDate]);
-      if (!claimed.length) continue;                     // another worker already sent it
-      await sendEmailAsUser(u.id, { to: u.email, subject: `Your LeadFlow daily digest — ${localDate}`, text: digestBody(u.name, calls, tasks, hot, localDate) });
-    } catch (e) { console.error('daily digest:', e); }
-  }
-}
-
-// Toggle the current user's daily digest email on/off.
-app.post('/api/digest/toggle', safe(async (req, res) => {
-  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
-  const enabled = (req.body || {}).enabled !== false;
-  await q('UPDATE users SET digest_enabled = $1 WHERE id = $2', [enabled, req.user.id]);
-  res.json({ ok: true, enabled });
-}));
+// (The daily digest — today's calls, due tasks, hot leads — is shown live on the
+// dashboard, not emailed.)
 
 // Cron-triggered dispatcher: sends due pending emails. Protected by CRON_SECRET
 // (passed as ?key=... or "Authorization: Bearer ...") since there's no user session.
@@ -1786,8 +1735,7 @@ async function dispatchScheduled(req, res) {
 
   // Materialize any newly-due birthday / anniversary emails before sending.
   try { await ensureAnniversaryMessages(); } catch (e) { console.error('auto-email gen:', e); }
-  // #13 daily digests + #14 triggered campaigns.
-  try { await ensureDailyDigests(); } catch (e) { console.error('daily digests:', e); }
+  // #14 triggered (recurring) campaigns.
   try { await runTriggeredCampaigns(); } catch (e) { console.error('triggered campaigns:', e); }
 
   // Only send for owners who have connected their own email; others stay pending

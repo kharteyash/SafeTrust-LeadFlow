@@ -7,8 +7,12 @@
     { label: '6+ Months',          color: '#5BA8FF' }
   ];
 
-  let leads = [], calls = [], tasks = [], contacts = [], closedLeads = [];
+  let leads = [], calls = [], tasks = [], contacts = [], closedLeads = [], callQueue = [];
   const state = { page: 1, pageSize: 5, tab: 'all', trendDays: 7 };
+  function todayKey() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
 
   // Closed-lead (CSV) column pickers — same detection the Clients page uses.
   function closedField(data, patterns) {
@@ -38,10 +42,55 @@
   // ----- Load -----
   async function loadAll() {
     const get = async (u) => { try { const r = await fetch(u, { credentials: 'same-origin' }); return r.ok ? await r.json() : []; } catch (e) { return []; } };
-    [leads, calls, tasks, contacts, closedLeads] = await Promise.all([
-      get('/api/leads'), get('/api/call-log'), get('/api/tasks'), get('/api/contacts'), get('/api/closed')
+    [leads, calls, tasks, contacts, closedLeads, callQueue] = await Promise.all([
+      get('/api/leads'), get('/api/call-log'), get('/api/tasks'), get('/api/contacts'), get('/api/closed'), get('/api/call-queue')
     ]);
     leads = leads.map((l, i) => Object.assign({ _uid: i + 1 }, l));
+  }
+
+  // ----- Today at a glance (in-app daily digest) -----
+  function renderDigest() {
+    const host = document.getElementById('today-digest');
+    if (!host) return;
+    const today = todayKey();
+    const callsToday = callQueue.filter(c => !c.date || c.date <= today);
+    const tasksDue = tasks.filter(t => t.status !== 'done' && t.due && t.due <= today);
+    const hot = leads.filter(l => l.stars === 5);
+    const first = ((window.LF_DATA && LF_DATA.user && LF_DATA.user.name) || '').trim().split(/\s+/)[0] || 'there';
+
+    const col = (icon, color, tint, title, count, items, href, empty) => `
+      <div class="col-span-12 md:col-span-4">
+        <div class="flex items-center justify-between mb-2">
+          <div class="flex items-center gap-2">
+            <span class="stat-icon" style="background:${tint};width:30px;height:30px;border-radius:8px;">
+              <i data-lucide="${icon}" style="width:15px;height:15px;color:${color};"></i>
+            </span>
+            <h4 class="text-[13.5px] font-semibold">${title}</h4>
+            <span class="pill pill-gray" style="font-size:11px;">${count}</span>
+          </div>
+          <a href="${href}" class="text-[12px] font-semibold" style="color:#2255a3;">View</a>
+        </div>
+        ${items.length
+          ? `<div class="flex flex-col gap-1">${items.slice(0, 5).map(t => `
+              <div class="text-[12.5px] truncate" style="padding:3px 0;border-bottom:1px solid var(--border-soft);">${esc(t)}</div>`).join('')}
+              ${items.length > 5 ? `<div class="text-[11.5px] text-soft mt-1">+ ${items.length - 5} more</div>` : ''}</div>`
+          : `<div class="text-[12.5px] text-soft py-2">${empty}</div>`}
+      </div>`;
+
+    host.innerHTML = `
+      <div class="panel p-5">
+        <div class="flex items-center gap-2 mb-4">
+          <i data-lucide="sunrise" style="width:18px;height:18px;color:#B07A00;"></i>
+          <h3 class="text-[15px] font-semibold">Today at a glance</h3>
+          <span class="text-[12.5px] text-muted">— good to see you, ${esc(first)}</span>
+        </div>
+        <div class="grid grid-cols-12 gap-5">
+          ${col('phone', '#2255a3', '#E7EEFF', 'Calls to make today', callsToday.length, callsToday.map(c => `${c.name}${c.reason ? ' — ' + c.reason : ''}`), 'calls.html', 'No calls queued for today. 🎉')}
+          ${col('check-square', '#138A4B', '#E6F8EC', 'Tasks due', tasksDue.length, tasksDue.map(t => `${t.title}${t.due && t.due < today ? ' (overdue)' : ''}`), 'tasks.html', 'No tasks due. 🎉')}
+          ${col('flame', '#D63333', '#FEECEC', 'Hot leads', hot.length, hot.map(l => l.name), 'leads.html', 'No hot leads right now.')}
+        </div>
+      </div>`;
+    if (window.lucide) lucide.createIcons();
   }
 
   // ----- Stat cards -----
@@ -403,6 +452,7 @@
     renderDateRange();
 
     await loadAll();
+    renderDigest();
     renderStatCards();
     renderDonut();
     renderTrendSelect();
