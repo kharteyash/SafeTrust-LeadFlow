@@ -17,9 +17,9 @@ const NAV_ITEMS = [
   // People: leads, contacts, realtors, clients grouped together.
   { id: 'people',       label: 'People',       icon: 'users', group: true, children: [
     { id: 'leads',      label: 'Leads',        icon: 'user-plus',        href: 'leads.html' },
-    { id: 'contacts',   label: 'Contacts',     icon: 'contact',          href: 'contacts.html' },
+    { id: 'contacts',   label: 'All Contacts', icon: 'contact',          href: 'contacts.html' },
     { id: 'realtors',   label: 'Realtors',     icon: 'home',             href: 'realtors.html' },
-    { id: 'clients',    label: 'Clients',      icon: 'user-check',       href: 'clients.html' }
+    { id: 'clients',    label: 'Past Clients', icon: 'user-check',       href: 'clients.html' }
   ] },
   { id: 'tasks',        label: 'Tasks',        icon: 'check-square',     href: 'tasks.html' },
   { id: 'calendar',     label: 'Calendar',     icon: 'calendar',         href: 'calendar.html' },
