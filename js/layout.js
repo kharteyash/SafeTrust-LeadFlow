@@ -13,7 +13,13 @@ LF.roleLabel = function (role) {
 try { if (localStorage.getItem('lf-theme') === 'dark') document.documentElement.classList.add('dark'); } catch (e) {}
 
 const NAV_ITEMS = [
-  { id: 'dashboard',    label: 'Dashboard',    icon: 'layout-dashboard', href: 'index.html' },
+  // Home: dashboard, tasks, calendar, reports grouped together.
+  { id: 'home',         label: 'Home',         icon: 'house', group: true, children: [
+    { id: 'dashboard',  label: 'Dashboard',    icon: 'layout-dashboard', href: 'index.html' },
+    { id: 'tasks',      label: 'Tasks',        icon: 'check-square',     href: 'tasks.html' },
+    { id: 'calendar',   label: 'Calendar',     icon: 'calendar',         href: 'calendar.html' },
+    { id: 'reports',    label: 'Reports',      icon: 'bar-chart-3',      href: 'reports.html' }
+  ] },
   // People: leads, contacts, realtors, clients grouped together.
   { id: 'people',       label: 'People',       icon: 'users', group: true, children: [
     { id: 'leads',      label: 'Leads',        icon: 'user-plus',        href: 'leads.html' },
@@ -21,15 +27,12 @@ const NAV_ITEMS = [
     { id: 'realtors',   label: 'Realtors',     icon: 'home',             href: 'realtors.html' },
     { id: 'clients',    label: 'Past Clients', icon: 'user-check',       href: 'clients.html' }
   ] },
-  { id: 'tasks',        label: 'Tasks',        icon: 'check-square',     href: 'tasks.html' },
-  { id: 'calendar',     label: 'Calendar',     icon: 'calendar',         href: 'calendar.html' },
   // Outreach channels grouped under a collapsible "Connect" section.
   { id: 'connect',      label: 'Connect',      icon: 'share-2', group: true, children: [
     { id: 'calls',      label: 'Calls',        icon: 'phone',            href: 'calls.html' },
     { id: 'messages',   label: 'Messages',     icon: 'message-square',   href: 'messages.html' },
     { id: 'campaigns',  label: 'Campaigns',    icon: 'megaphone',        href: 'campaigns.html' }
   ] },
-  { id: 'reports',      label: 'Reports',      icon: 'bar-chart-3',      href: 'reports.html' },
   { id: 'settings',     label: 'Settings',     icon: 'settings',         href: 'settings.html' }
 ];
 
