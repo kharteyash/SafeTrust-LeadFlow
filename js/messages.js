@@ -472,56 +472,8 @@
   }
 
   // ----- Mount -----
-  // ----- Email delivery (Resend) health + test -----
   function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
   function escAttr(s) { return esc(s).replace(/"/g, '&quot;'); }
-  function dot(ok) {
-    const c = ok ? '#138A4B' : '#D63333';
-    return `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${c};margin-right:6px;"></span>`;
-  }
-
-  // Per-user "send as yourself" connection. Only surfaced when Google sign-in is
-  // configured on the server; otherwise the card is hidden entirely.
-  async function renderEmailHealth() {
-    const box = document.getElementById('email-health');
-    if (!box) return;
-    let s = null;
-    try { const r = await fetch('/api/email/status', { credentials: 'same-origin' }); if (r.ok) s = await r.json(); }
-    catch (e) {}
-    if (!s || !s.gmailConfigured) { box.style.display = 'none'; box.innerHTML = ''; return; }
-    box.style.display = '';
-
-    if (s.gmailConnected) {
-      box.innerHTML = `
-        <div class="flex items-center justify-between flex-wrap gap-3">
-          <div>
-            <div class="text-[14px] font-semibold mb-1">Sending email as yourself</div>
-            <div class="text-[12.5px]">${dot(true)}Connected — emails you send go out from <b>${esc(s.gmailEmail || '')}</b>.</div>
-          </div>
-          <button id="gmail-disconnect-btn" class="btn-secondary" style="padding:5px 12px;font-size:12px;">Disconnect</button>
-        </div>`;
-    } else {
-      box.innerHTML = `
-        <div class="flex items-center justify-between flex-wrap gap-3">
-          <div>
-            <div class="text-[14px] font-semibold mb-1">Send emails as yourself</div>
-            <div class="text-[12.5px] text-muted">Connect your Google account once — then everything you send comes from your own name and address. No password needed.</div>
-          </div>
-          <button id="gmail-connect-btn" class="btn-primary" style="padding:6px 14px;font-size:12.5px;white-space:nowrap;">
-            <i data-lucide="mail" style="width:14px;height:14px;"></i> Connect Google account</button>
-        </div>`;
-    }
-    if (window.lucide) lucide.createIcons();
-
-    const connectBtn = document.getElementById('gmail-connect-btn');
-    if (connectBtn) connectBtn.addEventListener('click', () => { window.location.href = '/api/google/connect?from=messages'; });
-    const disconnectBtn = document.getElementById('gmail-disconnect-btn');
-    if (disconnectBtn) disconnectBtn.addEventListener('click', async () => {
-      if (!window.confirm('Disconnect your Google account?')) return;
-      try { await fetch('/api/google/disconnect', { method: 'POST', credentials: 'same-origin' }); } catch (e) {}
-      renderEmailHealth();
-    });
-  }
 
   document.addEventListener('DOMContentLoaded', async function () {
     await LF.renderLayout({ active: 'messages' });
@@ -529,14 +481,10 @@
     bindCompose();
     bindRemove();
     render();
-    await renderEmailHealth();
-
-    // Show the outcome of a Google connect redirect, then clean the URL.
+    // Old Google-connect redirects (?gmail=) now land on Settings → Profile;
+    // tidy the URL if someone arrives here with a stale param.
     try {
-      const params = new URLSearchParams(window.location.search);
-      const g = params.get('gmail');
-      if (g) {
-        if (g === 'error') window.alert('Could not connect your Google account. Please try again.');
+      if (new URLSearchParams(window.location.search).get('gmail')) {
         window.history.replaceState({}, '', '/messages.html');
       }
     } catch (e) {}

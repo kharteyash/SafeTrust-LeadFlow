@@ -37,9 +37,9 @@
     { q: 'How do I connect RETR (retr.app) to LeadFlow?',
       a: "Open Settings → Integrations. You'll see two personal webhook URLs (one for agents, one for loan officers). In RETR's CRM Integrations, choose “Other”, name it “LeadFlow”, and paste those URLs. When you push agents/loan officers from RETR, they're added to your Contacts (agents as Realtor, loan officers as Loan Officer), skipping anyone already there. The URLs are unique to you, so each person connects their own account — and you can regenerate your token any time." },
     { q: 'How do I send emails from LeadFlow?',
-      a: "Go to the Messages page and click “Connect Google account.” After you approve, everything you send — scheduled messages, “Send now,” campaigns, and the automatic birthday/anniversary emails — goes out from your own Gmail, so recipients see your name and address. No password is stored." },
+      a: "Go to Settings → Profile and click “Connect Google account” under Email connection. After you approve, everything you send — scheduled messages, “Send now,” campaigns, and the automatic birthday/anniversary emails — goes out from your own Gmail, so recipients see your name and address. No password is stored." },
     { q: "Why aren't my scheduled or automatic emails being sent?",
-      a: "Email only works once you've connected your Google account on the Messages page. If you haven't connected, nothing is scheduled or sent — including birthday and loan-anniversary emails. Connect your account and they'll start going out. Scheduled sending also needs the background scheduler running (your admin sets this up)." },
+      a: "Email only works once you've connected your Google account in Settings → Profile. If you haven't connected, nothing is scheduled or sent — including birthday and loan-anniversary emails. Connect your account and they'll start going out. Scheduled sending also needs the background scheduler running (your admin sets this up)." },
     { q: 'How is the lead score calculated?',
       a: "It's shown as a 1–5 star rating (1 = lowest, 5 = best). Hover over the stars in the leads table or a lead's details to see the exact breakdown. Behind the stars: buying timeline (the biggest factor — “Buying Immediately” is highest), pre-approved, has a phone number, and loan profile (a cash-out refinance, or a purchase lead that already has a realtor, scores highest). A forwarded lead that's accepted is automatically boosted to a top rating." },
     { q: 'Can I change a lead’s rating manually?',
@@ -164,7 +164,57 @@
           <button type="submit" class="btn-primary">Save changes</button>
         </div>
       </form>
+
+      <div class="divider my-6 max-w-[640px]"></div>
+      <div class="max-w-[640px]">
+        <h3 class="text-[15px] font-semibold mb-1">Email connection</h3>
+        <p class="text-[12.5px] text-muted mb-3">Connect your Google account so everything you send — scheduled messages, campaigns, and the automatic emails — goes out from your own Gmail.</p>
+        <div id="email-health" class="panel p-4"></div>
+      </div>
     `;
+  }
+
+  // ----- Gmail connection card (moved here from Messages) -----
+  async function renderEmailHealth() {
+    const box = document.getElementById('email-health');
+    if (!box) return;
+    const dot = (ok) => `<span style="display:inline-block;width:8px;height:8px;border-radius:999px;background:${ok ? '#138A4B' : '#B07A00'};margin-right:6px;"></span>`;
+    let s = null;
+    try { const r = await fetch('/api/email/status', { credentials: 'same-origin' }); if (r.ok) s = await r.json(); }
+    catch (e) {}
+    if (!s || !s.gmailConfigured) {
+      box.innerHTML = `<div class="text-[12.5px] text-muted">Email sending isn't configured on this server yet.</div>`;
+      return;
+    }
+    if (s.gmailConnected) {
+      box.innerHTML = `
+        <div class="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <div class="text-[14px] font-semibold mb-1">Sending email as yourself</div>
+            <div class="text-[12.5px]">${dot(true)}Connected — emails you send go out from <b>${escapeHTML(s.gmailEmail || '')}</b>.</div>
+          </div>
+          <button id="gmail-disconnect-btn" class="btn-secondary" style="padding:5px 12px;font-size:12px;">Disconnect</button>
+        </div>`;
+    } else {
+      box.innerHTML = `
+        <div class="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <div class="text-[14px] font-semibold mb-1">Send emails as yourself</div>
+            <div class="text-[12.5px] text-muted">Connect your Google account once — then everything you send comes from your own name and address. No password needed.</div>
+          </div>
+          <button id="gmail-connect-btn" class="btn-primary" style="padding:6px 14px;font-size:12.5px;white-space:nowrap;">
+            <i data-lucide="mail" style="width:14px;height:14px;"></i> Connect Google account</button>
+        </div>`;
+    }
+    if (window.lucide) lucide.createIcons();
+    const connectBtn = document.getElementById('gmail-connect-btn');
+    if (connectBtn) connectBtn.addEventListener('click', () => { window.location.href = '/api/google/connect?from=settings'; });
+    const disconnectBtn = document.getElementById('gmail-disconnect-btn');
+    if (disconnectBtn) disconnectBtn.addEventListener('click', async () => {
+      if (!window.confirm('Disconnect your Google account?')) return;
+      try { await fetch('/api/google/disconnect', { method: 'POST', credentials: 'same-origin' }); } catch (e) {}
+      renderEmailHealth();
+    });
   }
 
   // Resize an image file to a small square-ish JPEG data URL (longest side = max).
@@ -190,6 +240,7 @@
   }
 
   function bindProfile() {
+    renderEmailHealth();   // Gmail connection card
     const form = document.getElementById('profile-form');
     if (!form) return;
     const msg = document.getElementById('profile-msg');
@@ -1180,6 +1231,15 @@
     // Deep link, e.g. settings.html#changepassword, opens that section directly.
     const hash = (window.location.hash || '').replace('#', '');
     if (SECTIONS.some(s => s.id === hash)) state.section = hash;
+    // Returning from a Google connect redirect lands on Profile; show the outcome.
+    try {
+      const g = new URLSearchParams(window.location.search).get('gmail');
+      if (g) {
+        state.section = 'profile';
+        if (g === 'error') setTimeout(() => window.alert('Could not connect your Google account. Please try again.'), 50);
+        window.history.replaceState({}, '', '/settings.html');
+      }
+    } catch (e) {}
     renderNav();
     renderContent();
     if (window.lucide) lucide.createIcons();

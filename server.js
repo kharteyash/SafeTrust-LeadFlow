@@ -1374,7 +1374,7 @@ app.post('/api/campaigns/:id/send', safe(async (req, res) => {
     return res.status(400).json({ error: 'Add a subject and message before sending.' });
   }
   const canSend = (await userHasGmail(req.user.id)) || !!smtpConfig();
-  if (!canSend) return res.status(400).json({ error: 'Connect your Google account on the Messages page before sending campaigns.' });
+  if (!canSend) return res.status(400).json({ error: 'Connect your Google account in Settings → Profile before sending campaigns.' });
 
   const recipients = await segmentLeads(req.user, c.audience);
   if (!recipients.length) return res.status(400).json({ error: 'No recipients with an email in this audience.' });
@@ -1662,7 +1662,7 @@ async function sendEmailViaSMTP({ to, subject, text }) {
 function emailProvider() { return smtpConfig() ? 'smtp' : 'none'; }
 async function sendEmail(opts) {
   if (!smtpConfig()) {
-    throw new Error('Email isn’t set up. Connect your Google account on the Messages page to send as yourself.');
+    throw new Error('Email isn’t set up. Connect your Google account in Settings → Profile to send as yourself.');
   }
   return sendEmailViaSMTP(opts);
 }
@@ -2247,7 +2247,7 @@ app.post('/api/meet', safe(async (req, res) => {
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) return res.status(400).json({ error: 'A valid recipient email is required.' });
 
   const token = await getGoogleToken(req.user.id);
-  if (!token) return res.status(400).json({ error: 'Connect your Google account on the Messages page first.' });
+  if (!token) return res.status(400).json({ error: 'Connect your Google account in Settings → Profile first.' });
   const tz = await gcalTimezone(req.user.id);
 
   let startBody, endBody, whenLabel = '';
