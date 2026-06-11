@@ -1014,10 +1014,10 @@ app.post('/api/call-log', safe(async (req, res) => {
 const CALL_PRIORITIES = ['High', 'Medium', 'Low'];
 
 // Realtor touch-base cadence by relationship: established every 14 days,
-// developing weekly, dormant monthly, past quarterly. Each due realtor surfaces
+// developing weekly, dormant monthly, past every 2 months. Each due realtor surfaces
 // as a call to make today + a task to touch base. Race-safe: one atomic
 // claim-and-advance per cadence means concurrent calls can't create duplicates.
-const REALTOR_CADENCES = { established: 14, developing: 7, dormant: 30, past: 90 };
+const REALTOR_CADENCES = { established: 14, developing: 7, dormant: 30, past: 60 };
 async function ensureRealtorTouchbases(userId) {
   const today = serverToday();
   for (const [rel, days] of Object.entries(REALTOR_CADENCES)) {
