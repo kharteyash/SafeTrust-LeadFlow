@@ -69,6 +69,17 @@
   }
   function closeModal() { document.getElementById('person-modal').classList.add('hidden'); }
 
+  // ----- Add realtor -----
+  function openAddModal() {
+    const form = document.getElementById('realtor-form');
+    form.reset();
+    form.elements['relationship'].value = 'established';
+    document.getElementById('realtor-form-msg').textContent = '';
+    document.getElementById('realtor-modal').classList.remove('hidden');
+    form.elements['name'].focus();
+  }
+  function closeAddModal() { document.getElementById('realtor-modal').classList.add('hidden'); }
+
   function bind() {
     document.getElementById('realtor-search').addEventListener('input', e => { query = e.target.value; render(); });
     document.getElementById('realtors-table').addEventListener('click', e => {
@@ -79,6 +90,38 @@
     });
     document.getElementById('person-close').addEventListener('click', closeModal);
     document.getElementById('person-backdrop').addEventListener('click', closeModal);
+
+    // Add realtor modal.
+    document.getElementById('add-realtor-btn').addEventListener('click', openAddModal);
+    document.getElementById('realtor-modal-close').addEventListener('click', closeAddModal);
+    document.getElementById('realtor-cancel').addEventListener('click', closeAddModal);
+    document.getElementById('realtor-modal-backdrop').addEventListener('click', closeAddModal);
+    const form = document.getElementById('realtor-form');
+    const msg = document.getElementById('realtor-form-msg');
+    form.addEventListener('submit', async e => {
+      e.preventDefault();
+      msg.textContent = '';
+      const data = Object.fromEntries(new FormData(form));
+      if (!data.name.trim()) { msg.textContent = 'Name is required.'; return; }
+      const btn = document.getElementById('realtor-submit');
+      btn.disabled = true; btn.style.opacity = '0.7';
+      try {
+        const res = await fetch('/api/contacts', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+          body: JSON.stringify({
+            name: data.name, email: data.email || '', phone: data.phone || '',
+            company: data.company || '', tag: 'Realtor', relationship: data.relationship || 'established'
+          })
+        });
+        const raw = await res.text(); let body = {}; try { body = raw ? JSON.parse(raw) : {}; } catch (err) {}
+        if (!res.ok) { msg.textContent = body.error || `Request failed (HTTP ${res.status}).`; return; }
+        realtors.push(LF.People.fromContact(body));
+        realtors.sort((a, b) => a.name.localeCompare(b.name));
+        closeAddModal();
+        render();
+      } catch (err) { msg.textContent = 'Network error. Is the server running?'; }
+      finally { btn.disabled = false; btn.style.opacity = ''; }
+    });
   }
 
   document.addEventListener('DOMContentLoaded', async function () {

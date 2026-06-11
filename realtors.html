@@ -18,6 +18,9 @@
         <h1 class="text-[26px] font-bold tracking-tight">Realtors</h1>
         <p class="text-[13.5px] text-muted mt-1">Realtor contacts — pulled from RETR and from realtors attached to your leads.</p>
       </div>
+      <button id="add-realtor-btn" class="btn-primary">
+        <i data-lucide="plus" style="width:14px;height:14px;"></i> Add Realtor
+      </button>
     </div>
 
     <div class="panel">
@@ -30,6 +33,57 @@
       </div>
       <div class="overflow-x-auto">
         <table class="lf-table" id="realtors-table"></table>
+      </div>
+    </div>
+
+    <!-- Add realtor modal -->
+    <div id="realtor-modal" class="hidden" style="position:fixed;inset:0;z-index:55;">
+      <div id="realtor-modal-backdrop" style="position:absolute;inset:0;background:rgba(14,14,27,.45);"></div>
+      <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:100%;max-width:480px;" class="px-4">
+        <div class="bg-white rounded-2xl p-6 shadow-2xl">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-[17px] font-bold">Add realtor</h3>
+            <button id="realtor-modal-close" class="btn-icon" style="width:32px;height:32px;border:none;">
+              <i data-lucide="x" style="width:16px;height:16px;color:var(--text-muted);"></i>
+            </button>
+          </div>
+          <form id="realtor-form" class="flex flex-col gap-3">
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="text-[12px] font-semibold text-muted">Name</label>
+                <input name="name" required maxlength="80" class="input mt-1" placeholder="Realtor's name" />
+              </div>
+              <div>
+                <label class="text-[12px] font-semibold text-muted">Email</label>
+                <input name="email" type="email" maxlength="120" class="input mt-1" placeholder="name@email.com" />
+              </div>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="text-[12px] font-semibold text-muted">Phone</label>
+                <input name="phone" maxlength="40" class="input mt-1" placeholder="(555) 123-4567" />
+              </div>
+              <div>
+                <label class="text-[12px] font-semibold text-muted">Company / Brokerage</label>
+                <input name="company" maxlength="80" class="input mt-1" placeholder="Brokerage" />
+              </div>
+            </div>
+            <div>
+              <label class="text-[12px] font-semibold text-muted">Relationship</label>
+              <select name="relationship" class="input mt-1" style="cursor:pointer;">
+                <option value="established">Established relationship</option>
+                <option value="developing">Developing relationship</option>
+                <option value="dormant">Dormant</option>
+                <option value="past">Past Connection</option>
+              </select>
+            </div>
+            <div id="realtor-form-msg" class="text-[12.5px] font-medium" style="color:#D63333;"></div>
+            <div class="flex items-center justify-end gap-2 mt-2">
+              <button type="button" id="realtor-cancel" class="btn-secondary">Cancel</button>
+              <button type="submit" id="realtor-submit" class="btn-primary">Add realtor</button>
+            </div>
+          </form>
+        </div>
       </div>
     </div>
 
