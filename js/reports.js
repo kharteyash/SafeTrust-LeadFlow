@@ -54,13 +54,13 @@
   function renderLeads() {
     const now = new Date();
     const newThisMonth = leads.filter(l => { if (!l.created) return false; const d = new Date(l.created); return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth(); }).length;
-    const hot = leads.filter(l => LF.scoreStars(l.score) >= 4).length;
+    const hot = leads.filter(l => LF.scoreStars(l.score) === 5).length;
     const interested = leads.filter(l => l.timeline === 'Buying Immediately').length;
 
     const cards =
       statCard('Total leads',  LF.fmtNum(leads.length), 'users',          '#EFEAFF', '#2255a3') +
       statCard('New this month', LF.fmtNum(newThisMonth), 'trending-up',  '#E6F8EC', '#138A4B') +
-      statCard('Hot leads (4–5★)', LF.fmtNum(hot),      'flame',         '#FEECEC', '#D63333') +
+      statCard('Hot leads (5★)', LF.fmtNum(hot),        'flame',         '#FEECEC', '#D63333') +
       statCard('Interested',   LF.fmtNum(interested),    'check-circle-2','#E7EEFF', '#2B57D9');
 
     // Buying patterns
@@ -70,13 +70,13 @@
 
     // Score distribution
     const starOf = (l) => LF.scoreStars(l.score);
-    const hotN = leads.filter(l => starOf(l) >= 4).length;
-    const warmN = leads.filter(l => starOf(l) === 3).length;
+    const hotN = leads.filter(l => starOf(l) === 5).length;
+    const warmN = leads.filter(l => starOf(l) === 3 || starOf(l) === 4).length;
     const coldN = leads.filter(l => starOf(l) <= 2).length;
     const maxS = Math.max(hotN, warmN, coldN, 1);
     const scores =
-      barRow('Hot (4–5★)',  hotN,  maxS, '#138A4B', `${hotN}`) +
-      barRow('Warm (3★)',   warmN, maxS, '#B07A00', `${warmN}`) +
+      barRow('Hot (5★)',    hotN,  maxS, '#138A4B', `${hotN}`) +
+      barRow('Warm (3–4★)', warmN, maxS, '#B07A00', `${warmN}`) +
       barRow('Cold (1–2★)', coldN, maxS, '#D63333', `${coldN}`);
 
     const body = leads.length === 0

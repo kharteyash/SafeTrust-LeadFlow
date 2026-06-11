@@ -18,7 +18,7 @@
       { id: 'calls',     label: 'Call reminders',    desc: 'Overdue calls and calls coming up soon from your queue.', on: true },
       { id: 'tasks',     label: 'Task reminders',    desc: 'Tasks due today and overdue tasks.', on: true },
       { id: 'meetings',  label: 'Meeting reminders', desc: 'Calendar events starting within the hour.', on: true },
-      { id: 'hot_leads', label: 'Hot leads',         desc: 'High-scoring leads with no call logged yet.', on: true }
+      { id: 'hot_leads', label: 'Hot leads',         desc: '5-star leads with no call logged yet.', on: true }
     ]}
   ];
 

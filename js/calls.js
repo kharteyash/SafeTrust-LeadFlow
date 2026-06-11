@@ -99,7 +99,7 @@
   function renderPriority() {
     const calledNames = new Set(callHistory.map(c => (c.name || '').toLowerCase()));
     const notContacted = leads.filter(l => !calledNames.has((l.name || '').toLowerCase())).slice(0, 5);
-    const hotLeads = leads.filter(l => l.score >= 80).sort((a, b) => b.score - a.score).slice(0, 5);
+    const hotLeads = leads.filter(l => LF.scoreStars(l.score) === 5).sort((a, b) => b.score - a.score).slice(0, 5);
     const missed = callHistory.filter(c => isNoAnswer(c.outcome)).slice(0, 5);
 
     // AI-style recommendations derived from the data above.
@@ -113,7 +113,7 @@
       : emptyCardBody('All your leads have been contacted.');
     const hotBody = hotLeads.length
       ? hotLeads.map(l => personRow(l.name, l.phone, `<span class="mr-1">${LF.scoreStarsHTML(l, 12)}</span>`)).join('')
-      : emptyCardBody('No hot leads yet (4–5 stars).');
+      : emptyCardBody('No hot leads yet (5 stars).');
     const missedBody = missed.length
       ? missed.map(c => personRow(c.name, c.phone, `<span class="text-[11.5px] mr-1" style="color:#D63333;">${fmtCallShort(c.date)}</span>`)).join('')
       : emptyCardBody('No missed calls.');
