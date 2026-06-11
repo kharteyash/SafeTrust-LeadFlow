@@ -54,6 +54,20 @@ const serverToday = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
+// Add n days to a 'YYYY-MM-DD' string, returning the same format.
+const addDaysStr = (ymd, n) => {
+  const d = new Date(ymd + 'T00:00:00');
+  d.setDate(d.getDate() + n);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+// Create a task only if an open (not-done) one with the same title doesn't already
+// exist for the user — so automations don't pile up duplicates.
+async function createTaskOnce(userId, { title, due, priority, leadId }) {
+  const dup = await one(`SELECT id FROM tasks WHERE user_id = $1 AND title = $2 AND status <> 'done' LIMIT 1`, [userId, title]);
+  if (dup) return;
+  await q(`INSERT INTO tasks (user_id, title, due_date, priority, status, lead_id)
+     VALUES ($1, $2, $3, $4, 'todo', $5)`, [userId, title, due || null, priority || 'Medium', leadId || null]);
+}
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS users (
@@ -211,6 +225,8 @@ const SCHEMA = `
   ALTER TABLE leads ADD COLUMN IF NOT EXISTS realtor_phone TEXT;
   ALTER TABLE leads ADD COLUMN IF NOT EXISTS state TEXT;
   ALTER TABLE leads ADD COLUMN IF NOT EXISTS assigned_by INTEGER REFERENCES users(id) ON DELETE SET NULL;
+  -- Last time a "reach out — no contact yet" nudge task was auto-created for this lead.
+  ALTER TABLE leads ADD COLUMN IF NOT EXISTS last_nudge_at DATE;
 
   -- Lead assignments from a team leader to members (one or all), with accept/reject.
   CREATE TABLE IF NOT EXISTS lead_assignments (
@@ -262,6 +278,8 @@ const SCHEMA = `
   );
   -- Who assigned this task (a leader/admin), if it was assigned rather than self-created.
   ALTER TABLE tasks ADD COLUMN IF NOT EXISTS assigned_by INTEGER REFERENCES users(id) ON DELETE SET NULL;
+  -- Links an auto-created task to the lead it's about (drives auto-High priority).
+  ALTER TABLE tasks ADD COLUMN IF NOT EXISTS lead_id INTEGER REFERENCES leads(id) ON DELETE SET NULL;
 
   CREATE TABLE IF NOT EXISTS call_queue (
     id         SERIAL PRIMARY KEY,
@@ -944,6 +962,17 @@ app.post('/api/call-log', safe(async (req, res) => {
     VALUES ($1, $2, $3, 'outbound', $4, $5, $6, $7, $8, $9) RETURNING id
   `, [req.user.id, name.trim(), (phone || '').trim(), dur, outcome, note, agent, isRealtor, loggedAt]);
 
+  // Automation: a missed/voicemail/no-answer call schedules a follow-up task in 2 days.
+  if (noTalk && !isRealtor) {
+    try {
+      const lead = await one(`SELECT id FROM leads WHERE user_id = $1 AND lower(name) = lower($2) LIMIT 1`, [req.user.id, name.trim()]);
+      await createTaskOnce(req.user.id, {
+        title: `Follow up with ${name.trim()}`, due: addDaysStr(serverToday(), 2),
+        priority: 'Medium', leadId: lead ? lead.id : null
+      });
+    } catch (e) { console.error('follow-up task:', e); }
+  }
+
   res.json({
     id: row.id, name: name.trim(), phone: (phone || '').trim(), direction: 'outbound',
     duration: dur, outcome, notes: note, agent, isRealtor, date: loggedAt
@@ -953,26 +982,28 @@ app.post('/api/call-log', safe(async (req, res) => {
 // ----- Call queue -----
 const CALL_PRIORITIES = ['High', 'Medium', 'Low'];
 
-// Every 14 days, an established realtor should surface as a call to make today
-// and a task to touch base. This materializes any that are due for the user.
-// Race-safe: a single claim-and-advance UPDATE means concurrent calls (the call
-// queue and tasks endpoints both run it) can't create duplicates.
-const TOUCHBASE_REASON = 'Touch base (every 14 days)';
+// Realtor touch-base cadence by relationship: established every 14 days,
+// developing weekly, dormant monthly, past quarterly. Each due realtor surfaces
+// as a call to make today + a task to touch base. Race-safe: one atomic
+// claim-and-advance per cadence means concurrent calls can't create duplicates.
+const REALTOR_CADENCES = { established: 14, developing: 7, dormant: 30, past: 90 };
 async function ensureRealtorTouchbases(userId) {
   const today = serverToday();
-  const established = `tag = 'Realtor' AND lower(btrim(coalesce(relationship,''))) = 'established'`;
-  // Atomically claim every established realtor that's due — never touched
-  // (NULL) counts as due, so a newly-established realtor surfaces right away —
-  // and advance each by 14 days in the same statement (race-safe, no dupes).
-  const due = await q(`UPDATE contacts SET next_touch_at = $2::date + 14
-     WHERE user_id = $1 AND ${established} AND (next_touch_at IS NULL OR next_touch_at <= $2::date)
-     RETURNING name, phone`, [userId, today]);
-  for (const r of due) {
-    const name = r.name || 'Realtor';
-    await q(`INSERT INTO call_queue (user_id, name, phone, priority, call_time, call_date, reason)
-       VALUES ($1, $2, $3, 'Medium', '', $4, $5)`, [userId, name, r.phone || '', today, TOUCHBASE_REASON]);
-    await q(`INSERT INTO tasks (user_id, title, due_date, priority, status)
-       VALUES ($1, $2, $3, 'Medium', 'todo')`, [userId, `Touch base with ${name} (realtor)`, today]);
+  for (const [rel, days] of Object.entries(REALTOR_CADENCES)) {
+    // `days` is a trusted constant, so it's safe to inline in the interval.
+    const due = await q(`UPDATE contacts SET next_touch_at = $2::date + ${days}
+       WHERE user_id = $1 AND tag = 'Realtor' AND lower(btrim(coalesce(relationship,''))) = $3
+         AND (next_touch_at IS NULL OR next_touch_at <= $2::date)
+       RETURNING name, phone`, [userId, today, rel]);
+    if (!due.length) continue;
+    const reason = `Touch base — ${rel} realtor (every ${days} days)`;
+    for (const r of due) {
+      const name = r.name || 'Realtor';
+      await q(`INSERT INTO call_queue (user_id, name, phone, priority, call_time, call_date, reason)
+         VALUES ($1, $2, $3, 'Medium', '', $4, $5)`, [userId, name, r.phone || '', today, reason]);
+      await q(`INSERT INTO tasks (user_id, title, due_date, priority, status)
+         VALUES ($1, $2, $3, 'Medium', 'todo')`, [userId, `Touch base with ${name} (${rel} realtor)`, today]);
+    }
   }
 }
 
@@ -1886,6 +1917,11 @@ app.post('/api/leads', safe(async (req, res) => {
     } catch (e) { console.error('ensureContact (lead realtor):', e); }
   }
 
+  // Automation: every new lead gets a "first contact" task due today.
+  try {
+    await createTaskOnce(req.user.id, { title: `First contact: ${name.trim()}`, due: serverToday(), priority: 'Medium', leadId: row.id });
+  } catch (e) { console.error('first-contact task:', e); }
+
   res.json(leadRowToJson({
     id: row.id, name: name.trim(), email: email.trim(), phone: (phone || '').trim(),
     timeline, score, owner: (owner || '').trim(), notes: (notes || '').trim(), state,
@@ -2591,19 +2627,50 @@ app.post('/api/integrations/retr/loan-officers', safe(async (req, res) => {
 // ----- Tasks -----
 const TASK_PRIORITIES = ['High', 'Medium', 'Low'];
 
+// Stale leads (created over 7 days ago, never called) auto-spawn a one-off
+// "reach out" task, re-nudging at most weekly. The atomic claim on last_nudge_at
+// makes it race-safe and dedupe-proof.
+async function ensureStaleLeadTasks(userId) {
+  const today = serverToday();
+  const claimed = await q(`UPDATE leads SET last_nudge_at = $2::date
+     WHERE user_id = $1
+       AND created_at < (now() - interval '7 days')
+       AND (last_nudge_at IS NULL OR last_nudge_at <= $2::date - 7)
+       AND NOT EXISTS (SELECT 1 FROM call_log cl WHERE cl.user_id = $1 AND lower(cl.name) = lower(leads.name))
+     RETURNING id, name`, [userId, today]);
+  for (const l of claimed) {
+    await createTaskOnce(userId, { title: `Reach out to ${l.name} (no contact yet)`, due: today, priority: 'Medium', leadId: l.id });
+  }
+}
+
 app.get('/api/tasks', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
   try { await ensureRealtorTouchbases(req.user.id); } catch (e) { console.error('touchbase (tasks):', e); }
+  try { await ensureStaleLeadTasks(req.user.id); } catch (e) { console.error('stale-lead tasks:', e); }
+  const today = serverToday();
   const rows = await q(`
-    SELECT t.id, t.title, t.due_date, t.priority, t.status, ab.name AS assigned_by_name
-    FROM tasks t LEFT JOIN users ab ON ab.id = t.assigned_by
+    SELECT t.id, t.title, t.due_date, t.priority, t.status, t.lead_id,
+           ab.name AS assigned_by_name, le.score AS lead_score
+    FROM tasks t
+    LEFT JOIN users ab ON ab.id = t.assigned_by
+    LEFT JOIN leads le ON le.id = t.lead_id
     WHERE t.user_id = $1
     ORDER BY (t.status = 'done'), t.due_date NULLS LAST, t.id DESC
   `, [req.user.id]);
-  res.json(rows.map(r => ({
-    id: r.id, title: r.title, due: r.due_date || '', priority: r.priority || 'Medium',
-    status: r.status || 'todo', assignedByName: r.assigned_by_name || ''
-  })));
+  res.json(rows.map(r => {
+    const base = r.priority || 'Medium';
+    const overdue = r.status !== 'done' && r.due_date && String(r.due_date) < today;
+    const hotLinked = r.lead_score != null && scoreToStars(r.lead_score) === 5;
+    // Auto-escalate: overdue tasks and tasks tied to a hot (5-star) lead become High.
+    const effective = (base !== 'High' && (overdue || hotLinked)) ? 'High' : base;
+    return {
+      id: r.id, title: r.title, due: r.due_date || '',
+      priority: effective, basePriority: base,
+      autoHigh: effective === 'High' && base !== 'High',
+      autoReason: effective !== 'High' || base === 'High' ? '' : (overdue ? 'Overdue' : 'Hot lead'),
+      status: r.status || 'todo', assignedByName: r.assigned_by_name || ''
+    };
+  }));
 }));
 
 // Who the current user may assign tasks to: a team leader → their members;

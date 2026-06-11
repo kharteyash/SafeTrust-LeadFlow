@@ -233,7 +233,7 @@
                 </span>
               </div>
             </div>
-            <span class="pill ${priorityPill(t.priority)}">${esc(t.priority)}</span>
+            <span class="pill ${priorityPill(t.priority)}" ${t.autoHigh ? `title="Auto-High: ${esc(t.autoReason)}"` : ''}>${esc(t.priority)}${t.autoHigh ? ' ⚡' : ''}</span>
             <span class="pill ${done ? 'pill-green' : 'pill-gray'}" style="font-size:11px;">${done ? 'Completed' : 'In progress'}</span>
           </div>`;
       }).join('');
@@ -282,7 +282,7 @@
               </span>
             </div>
           </div>
-          <span class="pill ${priorityPill(t.priority)}">${esc(t.priority)}</span>
+          <span class="pill ${priorityPill(t.priority)}" ${t.autoHigh ? `title="Auto-High: ${esc(t.autoReason)}"` : ''}>${esc(t.priority)}${t.autoHigh ? ' ⚡' : ''}</span>
           <button data-edit="${t.id}" class="btn-icon" title="Edit task" style="width:30px;height:30px;">
             <i data-lucide="pencil" style="width:13px;height:13px;color:var(--text-muted);pointer-events:none;"></i>
           </button>
@@ -304,7 +304,8 @@
       document.getElementById('task-submit').textContent = 'Save changes';
       form.elements['title'].value = task.title || '';
       form.elements['due'].value = task.due || '';
-      form.elements['priority'].value = task.priority || 'Medium';
+      // Show the user's chosen priority, not the auto-escalated display value.
+      form.elements['priority'].value = task.basePriority || task.priority || 'Medium';
       form.elements['due'].min = ''; // keep an existing (possibly past) date
     } else {
       document.getElementById('task-modal-title').textContent = 'Add task';
