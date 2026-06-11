@@ -52,11 +52,11 @@
   function renderLeadStats() {
     const all = leads;
     const cards = [
-      { label: 'Total Leads',        value: all.length, icon: 'users',        tint: '#EFEAFF', color: '#2255a3' },
-      { label: 'Buying Immediately', value: all.filter(l => l.timeline === 'Buying Immediately').length, icon: 'flame',         tint: '#E6F8EC', color: '#138A4B' },
-      { label: '1-3 Months',         value: all.filter(l => l.timeline === '1-3 Months').length,         icon: 'clock',         tint: '#FFF4D6', color: '#B07A00' },
-      { label: '3-6 Months',         value: all.filter(l => l.timeline === '3-6 Months').length,         icon: 'calendar-clock', tint: '#FEECEC', color: '#D63333' },
-      { label: '6+ Months',          value: all.filter(l => l.timeline === '6+ Months').length,          icon: 'calendar-days',  tint: '#E7EEFF', color: '#2B57D9' },
+      { label: 'Total Leads',        value: all.length, icon: 'users',        tint: '#EFEAFF', color: '#2255a3', tab: 'all' },
+      { label: 'Buying Immediately', value: all.filter(l => l.timeline === 'Buying Immediately').length, icon: 'flame',         tint: '#E6F8EC', color: '#138A4B', tab: 'buying' },
+      { label: '1-3 Months',         value: all.filter(l => l.timeline === '1-3 Months').length,         icon: 'clock',         tint: '#FFF4D6', color: '#B07A00', tab: '1-3' },
+      { label: '3-6 Months',         value: all.filter(l => l.timeline === '3-6 Months').length,         icon: 'calendar-clock', tint: '#FEECEC', color: '#D63333', tab: '3-6' },
+      { label: '6+ Months',          value: all.filter(l => l.timeline === '6+ Months').length,          icon: 'calendar-days',  tint: '#E7EEFF', color: '#2B57D9', tab: '6plus' },
       { label: 'Previously Closed',  value: closedLeads.length, icon: 'archive', tint: 'var(--surface-3)', color: '#5C5C75', tab: 'closed' }
     ];
     document.getElementById('lead-stats').innerHTML = cards.map(c => `
