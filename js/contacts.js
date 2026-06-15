@@ -8,6 +8,8 @@
   let query = '';
   let filterId = 'all';
   let editingId = null;
+  let page = 1;
+  let pageSize = 10;   // show 10 by default, like the Leads table
   const STD_TAGS = ['Buyer', 'Seller', 'Investor', 'Realtor'];
 
   const FILTERS = [
@@ -143,7 +145,7 @@
         </span>
       </div>`).join('');
     document.querySelectorAll('#contact-filters .tab').forEach(el => el.addEventListener('click', () => {
-      filterId = el.dataset.filter; render();
+      filterId = el.dataset.filter; page = 1; render();
     }));
   }
   function render() {
@@ -165,15 +167,21 @@
             </button>
           </div>
         </td></tr></tbody>`;
+      renderFooter(0, 0, 0);
       if (window.lucide) lucide.createIcons();
       return;
     }
+    // Paginate (10 per page by default), like the Leads table.
+    const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+    if (page > totalPages) page = totalPages;
+    const start = (page - 1) * pageSize;
+    const pageRows = rows.slice(start, start + pageSize);
     table.innerHTML = `
       <thead>
         <tr><th>Name</th><th>Type</th><th>Email</th><th>Phone</th><th>Company</th><th>Action</th></tr>
       </thead>
       <tbody>
-        ${rows.length ? rows.map(p => {
+        ${pageRows.length ? pageRows.map(p => {
           const editable = p.group === 'contact' || p.group === 'realtor';
           const actions = editable ? `
             <div class="flex items-center gap-1">
@@ -205,7 +213,45 @@
           </tr>`;
         }).join('') : `<tr><td colspan="6" class="text-center py-8 text-muted">No one matches that search.</td></tr>`}
       </tbody>`;
+    renderFooter(rows.length, start, pageRows.length);
     if (window.lucide) lucide.createIcons();
+  }
+
+  // ----- Summary + pager (mirrors the Leads table) -----
+  function renderFooter(total, start, shown) {
+    const summary = document.getElementById('contact-summary');
+    const pager = document.getElementById('contact-pager');
+    if (!summary || !pager) return;
+    summary.textContent = total === 0
+      ? 'No people to show'
+      : `Showing ${start + 1} to ${start + shown} of ${total}`;
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    if (total <= pageSize) { pager.innerHTML = ''; return; }
+    const pages = [];
+    for (let p = 1; p <= totalPages; p++) pages.push(p);
+    pager.innerHTML = `
+      <button class="btn-icon" data-page="prev" style="width:30px;height:30px;" ${page === 1 ? 'disabled' : ''}>
+        <i data-lucide="chevron-left" style="width:14px;height:14px;color:var(--text-muted);"></i>
+      </button>
+      ${pages.map(p => {
+        const active = p === page;
+        const style = active
+          ? 'background:#2255a3;color:#FFF;'
+          : 'background:var(--surface);color:var(--text);border:1px solid var(--border-strong);';
+        return `<button data-page="${p}" class="rounded-md text-[12.5px] font-semibold" style="width:30px;height:30px;${style}">${p}</button>`;
+      }).join('')}
+      <button class="btn-icon" data-page="next" style="width:30px;height:30px;" ${page === totalPages ? 'disabled' : ''}>
+        <i data-lucide="chevron-right" style="width:14px;height:14px;color:var(--text-muted);"></i>
+      </button>`;
+    pager.querySelectorAll('button[data-page]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const v = btn.dataset.page;
+        if (v === 'prev' && page > 1) page--;
+        else if (v === 'next' && page < totalPages) page++;
+        else if (!isNaN(parseInt(v, 10))) page = parseInt(v, 10);
+        render();
+      });
+    });
   }
 
   // ----- Person detail modal (read-only, all fields) -----
@@ -284,7 +330,13 @@
     document.getElementById('person-close').addEventListener('click', closePerson);
     document.getElementById('person-backdrop').addEventListener('click', closePerson);
 
-    document.getElementById('contact-search').addEventListener('input', e => { query = e.target.value; render(); });
+    document.getElementById('contact-search').addEventListener('input', e => { query = e.target.value; page = 1; render(); });
+
+    const rpp = document.getElementById('contact-rows-per-page');
+    if (rpp) {
+      rpp.value = String(pageSize);
+      rpp.addEventListener('change', e => { pageSize = parseInt(e.target.value, 10) || 10; page = 1; render(); });
+    }
 
     // Delegated table actions.
     document.getElementById('contacts-table').addEventListener('click', async e => {
