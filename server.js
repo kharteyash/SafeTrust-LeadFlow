@@ -1091,6 +1091,22 @@ app.post('/api/realtor/leads', safe(async (req, res) => {
   res.json(realtorLeadRowToJson(row));
 }));
 
+app.patch('/api/realtor/leads/:id', safe(async (req, res) => {
+  if (!req.user || req.user.role !== 'realtor') return res.status(403).json({ error: 'Realtors only.' });
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id.' });
+  const cur = await one('SELECT id FROM realtor_leads WHERE id = $1 AND realtor_id = $2', [id, req.user.id]);
+  if (!cur) return res.status(404).json({ error: 'Lead not found.' });
+  const f = cleanRealtorLead(req.body || {});
+  if (!f.name) return res.status(400).json({ error: 'A name is required.' });
+  const row = await one(
+    `UPDATE realtor_leads SET name=$1, phone=$2, email=$3, intent=$4, timeline=$5, budget=$6, property_type=$7,
+       area=$8, financing=$9, notes=$10, credit_score=$11, assets=$12 WHERE id=$13 AND realtor_id=$14 RETURNING *`,
+    [f.name, f.phone, f.email, f.intent, f.timeline, f.budget, f.propertyType, f.area, f.financing, f.notes, f.creditScore, f.assets, id, req.user.id]
+  );
+  res.json(realtorLeadRowToJson(row));
+}));
+
 app.delete('/api/realtor/leads/:id', safe(async (req, res) => {
   if (!req.user || req.user.role !== 'realtor') return res.status(403).json({ error: 'Realtors only.' });
   const id = Number(req.params.id);
@@ -1272,6 +1288,34 @@ app.get('/api/realtor/clients', safe(async (req, res) => {
   if (!req.user || req.user.role !== 'realtor') return res.status(403).json({ error: 'Realtors only.' });
   const rows = await q('SELECT * FROM realtor_clients WHERE realtor_id = $1 ORDER BY id DESC', [req.user.id]);
   res.json(rows.map(realtorClientRowToJson));
+}));
+
+app.patch('/api/realtor/clients/:id', safe(async (req, res) => {
+  if (!req.user || req.user.role !== 'realtor') return res.status(403).json({ error: 'Realtors only.' });
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id.' });
+  const cur = await one('SELECT * FROM realtor_clients WHERE id = $1 AND realtor_id = $2', [id, req.user.id]);
+  if (!cur) return res.status(404).json({ error: 'Client not found.' });
+  const b = req.body || {};
+  const s = (v, n) => String(v == null ? '' : v).trim().slice(0, n);
+  const name = b.name != null ? s(b.name, 120) : cur.name;
+  if (!name) return res.status(400).json({ error: 'A name is required.' });
+  const dealType = b.dealType != null ? (REALTOR_DEAL_TYPES.includes(s(b.dealType, 20)) ? s(b.dealType, 20) : '') : (cur.deal_type || '');
+  const closedDate = b.closedDate != null ? (/^\d{4}-\d{2}-\d{2}$/.test(s(b.closedDate, 10)) ? s(b.closedDate, 10) : (cur.closed_date || '')) : (cur.closed_date || '');
+  const row = await one(
+    `UPDATE realtor_clients SET name=$1, phone=$2, email=$3, deal_type=$4, address=$5, price=$6, closed_date=$7, notes=$8
+     WHERE id=$9 AND realtor_id=$10 RETURNING *`,
+    [name,
+     b.phone != null ? s(b.phone, 40) : (cur.phone || ''),
+     b.email != null ? s(b.email, 160) : (cur.email || ''),
+     dealType,
+     b.address != null ? s(b.address, 200) : (cur.address || ''),
+     b.price != null ? s(b.price, 60) : (cur.price || ''),
+     closedDate,
+     b.notes != null ? s(b.notes, 2000) : (cur.notes || ''),
+     id, req.user.id]
+  );
+  res.json(realtorClientRowToJson(row));
 }));
 
 app.delete('/api/realtor/clients/:id', safe(async (req, res) => {

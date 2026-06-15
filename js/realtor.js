@@ -138,7 +138,7 @@
         <div id="rl-import-msg" class="px-5 text-[12.5px] font-medium"></div>
         <div class="overflow-x-auto"><table class="lf-table" id="rl-table"></table></div>
       </div>`;
-    document.getElementById('rl-add').addEventListener('click', openLeadModal);
+    document.getElementById('rl-add').addEventListener('click', () => openLeadModal(null));
     document.getElementById('rl-import').addEventListener('click', () => document.getElementById('rl-file').click());
     document.getElementById('rl-export').addEventListener('click', exportLeads);
     document.getElementById('rl-search').addEventListener('input', e => { rlQuery = e.target.value; renderLeadsTable(); });
@@ -193,6 +193,9 @@
             <td style="text-align:right;">
               <div class="flex items-center gap-1 justify-end">
                 <button class="btn-secondary" data-close-lead="${l.id}" data-lead-name="${escAttr(l.name)}" data-lead-phone="${escAttr(l.phone || '')}" title="Mark as a past client" style="padding:5px 10px;font-size:12px;">Close</button>
+                <button class="btn-icon" data-rl-edit="${l.id}" title="Edit lead" style="width:30px;height:30px;">
+                  <i data-lucide="pencil" style="width:13px;height:13px;color:var(--text-muted);pointer-events:none;"></i>
+                </button>
                 <button class="btn-icon" data-del-lead="${l.id}" data-lead-name="${esc(l.name)}" title="Delete lead" style="width:30px;height:30px;border:none;">
                   <i data-lucide="trash-2" style="width:14px;height:14px;color:#D63333;pointer-events:none;"></i>
                 </button>
@@ -203,15 +206,23 @@
     if (window.lucide) lucide.createIcons();
   }
 
-  // Add-lead modal
-  function openLeadModal() {
+  // Add / edit lead modal
+  let rlEditingId = null;
+  function openLeadModal(lead) {
     const form = document.getElementById('rl-form');
     form.reset();
+    rlEditingId = (lead && lead.id) ? lead.id : null;
+    document.getElementById('rl-modal-title').textContent = rlEditingId ? 'Edit lead' : 'Add a lead';
+    document.getElementById('rl-submit').textContent = rlEditingId ? 'Save changes' : 'Add lead';
+    if (lead) {
+      ['name', 'phone', 'email', 'budget', 'area', 'creditScore', 'assets', 'notes'].forEach(k => { if (form.elements[k]) form.elements[k].value = lead[k] || ''; });
+      ['intent', 'timeline', 'propertyType', 'financing'].forEach(k => { if (form.elements[k]) form.elements[k].value = lead[k] || ''; });
+    }
     document.getElementById('rl-msg').textContent = '';
     document.getElementById('rl-modal').classList.remove('hidden');
     form.elements['name'].focus();
   }
-  function closeLeadModal() { document.getElementById('rl-modal').classList.add('hidden'); }
+  function closeLeadModal() { document.getElementById('rl-modal').classList.add('hidden'); rlEditingId = null; }
   async function submitLead(e) {
     e.preventDefault();
     const form = document.getElementById('rl-form');
@@ -221,10 +232,13 @@
     const btn = document.getElementById('rl-submit');
     btn.disabled = true; btn.style.opacity = '0.7';
     try {
-      const res = await api('/api/realtor/leads', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+      const res = await api(rlEditingId ? '/api/realtor/leads/' + rlEditingId : '/api/realtor/leads', {
+        method: rlEditingId ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data)
+      });
       const body = await res.json().catch(() => ({}));
-      if (!res.ok) { msg.style.color = '#D63333'; msg.textContent = body.error || 'Could not add the lead.'; return; }
-      rlLeads.unshift(body);
+      if (!res.ok) { msg.style.color = '#D63333'; msg.textContent = body.error || 'Could not save the lead.'; return; }
+      if (rlEditingId) { const i = rlLeads.findIndex(l => String(l.id) === String(rlEditingId)); if (i >= 0) rlLeads[i] = body; }
+      else rlLeads.unshift(body);
       closeLeadModal();
       renderLeadsTable();
     } catch (e2) { msg.style.color = '#D63333'; msg.textContent = 'Network error.'; }
@@ -351,6 +365,8 @@
     document.getElementById('rp-view').addEventListener('click', async (e) => {
       const view = e.target.closest('[data-rl-view]');
       if (view) { openLeadDetail(view.getAttribute('data-rl-view')); return; }
+      const editBtn = e.target.closest('[data-rl-edit]');
+      if (editBtn) { const l = rlLeads.find(x => String(x.id) === editBtn.getAttribute('data-rl-edit')); if (l) openLeadModal(l); return; }
       const closeBtn = e.target.closest('[data-close-lead]');
       if (closeBtn) { openCloseModal({ id: closeBtn.getAttribute('data-close-lead'), name: closeBtn.getAttribute('data-lead-name'), phone: closeBtn.getAttribute('data-lead-phone') || '' }); return; }
       const del = e.target.closest('[data-del-lead]');
@@ -787,7 +803,10 @@
             <td class="text-muted">${esc(c.closedDate) || '—'}</td>
             <td class="text-muted">${[c.phone, c.email].filter(Boolean).map(esc).join('<br>') || '—'}</td>
             <td style="text-align:right;">
-              <button class="btn-icon" data-pc-del="${c.id}" data-pc-name="${escAttr(c.name)}" title="Remove" style="width:30px;height:30px;border:none;"><i data-lucide="trash-2" style="width:14px;height:14px;color:#D63333;pointer-events:none;"></i></button>
+              <div class="flex items-center gap-1 justify-end">
+                <button class="btn-icon" data-pc-edit="${c.id}" title="Edit client" style="width:30px;height:30px;"><i data-lucide="pencil" style="width:13px;height:13px;color:var(--text-muted);pointer-events:none;"></i></button>
+                <button class="btn-icon" data-pc-del="${c.id}" data-pc-name="${escAttr(c.name)}" title="Remove" style="width:30px;height:30px;border:none;"><i data-lucide="trash-2" style="width:14px;height:14px;color:#D63333;pointer-events:none;"></i></button>
+              </div>
             </td>
           </tr>`).join('') : `<tr><td colspan="7" class="text-center py-8 text-muted">No clients match that search.</td></tr>`}
       </tbody>`;
@@ -812,10 +831,49 @@
     const c = pcClients.find(x => String(x.id) === String(id));
     if (c) renderPersonDetail({ kind: 'client', name: c.name, email: c.email || '', phone: c.phone || '', company: '', type: 'Past client', raw: c });
   }
+  // Edit past client modal
+  let pcEditingId = null;
+  function openClientModal(c) {
+    const form = document.getElementById('pc-form');
+    form.reset();
+    pcEditingId = c.id;
+    ['name', 'phone', 'email', 'address', 'price', 'notes'].forEach(k => { if (form.elements[k]) form.elements[k].value = c[k] || ''; });
+    form.elements['dealType'].value = c.dealType || '';
+    form.elements['closedDate'].value = c.closedDate || '';
+    document.getElementById('pc-msg').textContent = '';
+    document.getElementById('pc-modal').classList.remove('hidden');
+    form.elements['name'].focus();
+  }
+  function closeClientModal() { document.getElementById('pc-modal').classList.add('hidden'); pcEditingId = null; }
+  async function submitClient(e) {
+    e.preventDefault();
+    if (!pcEditingId) return;
+    const form = document.getElementById('pc-form');
+    const data = Object.fromEntries(new FormData(form));
+    const msg = document.getElementById('pc-msg');
+    if (!data.name.trim()) { msg.style.color = '#D63333'; msg.textContent = 'A name is required.'; return; }
+    const btn = document.getElementById('pc-submit');
+    btn.disabled = true; btn.style.opacity = '0.7';
+    try {
+      const res = await api('/api/realtor/clients/' + pcEditingId, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) { msg.style.color = '#D63333'; msg.textContent = body.error || 'Could not save the client.'; return; }
+      const i = pcClients.findIndex(x => String(x.id) === String(pcEditingId)); if (i >= 0) pcClients[i] = body;
+      closeClientModal();
+      renderClientsTable();
+    } catch (e2) { msg.style.color = '#D63333'; msg.textContent = 'Network error.'; }
+    finally { btn.disabled = false; btn.style.opacity = ''; }
+  }
   function bindClients() {
+    document.getElementById('pc-close').addEventListener('click', closeClientModal);
+    document.getElementById('pc-cancel').addEventListener('click', closeClientModal);
+    document.getElementById('pc-backdrop').addEventListener('click', closeClientModal);
+    document.getElementById('pc-form').addEventListener('submit', submitClient);
     document.getElementById('rp-view').addEventListener('click', async (e) => {
       const view = e.target.closest('[data-pc-view]');
       if (view) { openClientDetail(view.getAttribute('data-pc-view')); return; }
+      const editBtn = e.target.closest('[data-pc-edit]');
+      if (editBtn) { const c = pcClients.find(x => String(x.id) === editBtn.getAttribute('data-pc-edit')); if (c) openClientModal(c); return; }
       const del = e.target.closest('[data-pc-del]');
       if (del) {
         const id = del.getAttribute('data-pc-del'); const name = del.getAttribute('data-pc-name') || 'this client';

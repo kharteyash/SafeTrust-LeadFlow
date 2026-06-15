@@ -72,7 +72,7 @@
     <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:100%;max-width:520px;" class="px-4">
       <div class="bg-white rounded-2xl p-6 shadow-2xl" style="max-height:88vh;overflow-y:auto;">
         <div class="flex items-center justify-between mb-1">
-          <h3 class="text-[17px] font-bold">Add a lead</h3>
+          <h3 id="rl-modal-title" class="text-[17px] font-bold">Add a lead</h3>
           <button id="rl-close" class="btn-icon" style="width:32px;height:32px;border:none;"><i data-lucide="x" style="width:16px;height:16px;color:var(--text-muted);"></i></button>
         </div>
         <p class="text-[12.5px] text-muted mb-4">Capture the details while you're on the call — only a name is required.</p>
@@ -288,6 +288,67 @@
     </div>
   </div>
 
+  <!-- Edit past client -->
+  <div id="pc-modal" class="hidden" style="position:fixed;inset:0;z-index:57;">
+    <div id="pc-backdrop" style="position:absolute;inset:0;background:rgba(14,14,27,.45);"></div>
+    <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:100%;max-width:460px;" class="px-4">
+      <div class="bg-white rounded-2xl p-6 shadow-2xl" style="max-height:88vh;overflow-y:auto;">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-[17px] font-bold">Edit past client</h3>
+          <button id="pc-close" class="btn-icon" style="width:32px;height:32px;border:none;"><i data-lucide="x" style="width:16px;height:16px;color:var(--text-muted);"></i></button>
+        </div>
+        <form id="pc-form" class="flex flex-col gap-3">
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="text-[12px] font-semibold text-muted">Name</label>
+              <input name="name" required maxlength="120" class="input mt-1" />
+            </div>
+            <div>
+              <label class="text-[12px] font-semibold text-muted">Phone</label>
+              <input name="phone" maxlength="40" class="input mt-1" />
+            </div>
+          </div>
+          <div>
+            <label class="text-[12px] font-semibold text-muted">Email</label>
+            <input name="email" type="email" maxlength="160" class="input mt-1" />
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="text-[12px] font-semibold text-muted">Deal</label>
+              <select name="dealType" class="input mt-1" style="cursor:pointer;">
+                <option value="">Select…</option>
+                <option>Bought</option>
+                <option>Sold</option>
+                <option>Both</option>
+              </select>
+            </div>
+            <div>
+              <label class="text-[12px] font-semibold text-muted">Closed date</label>
+              <input name="closedDate" type="date" class="input mt-1" style="cursor:pointer;" />
+            </div>
+          </div>
+          <div>
+            <label class="text-[12px] font-semibold text-muted">Property address</label>
+            <input name="address" maxlength="200" class="input mt-1" />
+          </div>
+          <div>
+            <label class="text-[12px] font-semibold text-muted">Sale price</label>
+            <input name="price" maxlength="60" class="input mt-1" />
+          </div>
+          <div>
+            <label class="text-[12px] font-semibold text-muted">Notes</label>
+            <textarea name="notes" rows="2" maxlength="2000" class="input mt-1"></textarea>
+          </div>
+          <div id="pc-msg" class="text-[12.5px] font-medium" style="color:#D63333;"></div>
+          <div class="flex items-center justify-end gap-2 mt-1">
+            <button type="button" id="pc-cancel" class="btn-secondary">Cancel</button>
+            <button type="submit" id="pc-submit" class="btn-primary">Save changes</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
   <!-- Log a call -->
   <div id="rk-modal" class="hidden" style="position:fixed;inset:0;z-index:57;">
     <div id="rk-backdrop" style="position:absolute;inset:0;background:rgba(14,14,27,.45);"></div>
@@ -340,6 +401,6 @@
     </div>
   </div>
 
-  <script src="js/realtor.js?v=20260616h"></script>
+  <script src="js/realtor.js?v=20260616i"></script>
 </body>
 </html>
