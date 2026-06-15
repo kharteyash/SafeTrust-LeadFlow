@@ -455,7 +455,7 @@ app.use(async (req, res, next) => {
 // own account basics. This guarantees they can never reach loan-officer features
 // (sending email, leads, campaigns, etc.) even by calling the API directly — they
 // have no business sending mail through the company's system.
-const REALTOR_API_ALLOW = new Set(['/api/me', '/api/logout', '/api/change-password']);
+const REALTOR_API_ALLOW = new Set(['/api/login', '/api/logout', '/api/me', '/api/change-password']);
 function realtorApiAllowed(path) {
   // Account basics + everything namespaced under /api/realtor/ (portal, chat, leads…).
   return REALTOR_API_ALLOW.has(path) || path.startsWith('/api/realtor/');
