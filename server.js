@@ -223,6 +223,26 @@ const SCHEMA = `
   );
   CREATE INDEX IF NOT EXISTS realtor_messages_pair ON realtor_messages (officer_id, realtor_id, id);
 
+  -- Leads a realtor captures in their own portal (their book of business). Stored
+  -- separately from the loan-officer pipeline. officer_id is their connected LO.
+  CREATE TABLE IF NOT EXISTS realtor_leads (
+    id            SERIAL PRIMARY KEY,
+    realtor_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    officer_id    INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    name          TEXT NOT NULL,
+    phone         TEXT,
+    email         TEXT,
+    intent        TEXT,            -- Buying | Selling | Both
+    timeline      TEXT,
+    budget        TEXT,
+    property_type TEXT,
+    area          TEXT,
+    financing     TEXT,            -- Pre-approved | Needs a lender | Paying cash | Not sure
+    notes         TEXT,
+    created_at    TIMESTAMPTZ DEFAULT now()
+  );
+  CREATE INDEX IF NOT EXISTS realtor_leads_owner ON realtor_leads (realtor_id, id);
+
   CREATE TABLE IF NOT EXISTS google_accounts (
     user_id       INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     email         TEXT,
@@ -427,9 +447,13 @@ app.use(async (req, res, next) => {
 // own account basics. This guarantees they can never reach loan-officer features
 // (sending email, leads, campaigns, etc.) even by calling the API directly — they
 // have no business sending mail through the company's system.
-const REALTOR_API_ALLOW = new Set(['/api/me', '/api/logout', '/api/change-password', '/api/realtor/portal', '/api/realtor/chat']);
+const REALTOR_API_ALLOW = new Set(['/api/me', '/api/logout', '/api/change-password']);
+function realtorApiAllowed(path) {
+  // Account basics + everything namespaced under /api/realtor/ (portal, chat, leads…).
+  return REALTOR_API_ALLOW.has(path) || path.startsWith('/api/realtor/');
+}
 app.use((req, res, next) => {
-  if (req.user && req.user.role === 'realtor' && req.path.startsWith('/api/') && !REALTOR_API_ALLOW.has(req.path)) {
+  if (req.user && req.user.role === 'realtor' && req.path.startsWith('/api/') && !realtorApiAllowed(req.path)) {
     return res.status(403).json({ error: 'Not available for realtor accounts.' });
   }
   next();
@@ -960,6 +984,81 @@ app.post('/api/realtor-accounts/:id/chat', safe(async (req, res) => {
                          VALUES ($1, $2, 'officer', $3, TRUE) RETURNING id, sender, body, created_at`,
                         [req.user.id, id, body]);
   res.json(chatRowToJson(row, 'officer'));
+}));
+
+// ----- Realtor's own leads (their book of business) -----
+const REALTOR_LEAD_INTENTS = ['Buying', 'Selling', 'Both'];
+const REALTOR_LEAD_FINANCING = ['Pre-approved', 'Needs a lender', 'Paying cash', 'Not sure'];
+function realtorLeadRowToJson(r) {
+  return {
+    id: r.id, name: r.name, phone: r.phone || '', email: r.email || '',
+    intent: r.intent || '', timeline: r.timeline || '', budget: r.budget || '',
+    propertyType: r.property_type || '', area: r.area || '', financing: r.financing || '',
+    notes: r.notes || '', created: r.created_at
+  };
+}
+function cleanRealtorLead(b) {
+  const s = (v, n) => String(v == null ? '' : v).trim().slice(0, n);
+  const oneOf = (v, list) => { const t = s(v, 40); return list.includes(t) ? t : ''; };
+  return {
+    name: s(b.name, 120),
+    phone: s(b.phone, 40),
+    email: s(b.email, 160),
+    intent: oneOf(b.intent, REALTOR_LEAD_INTENTS),
+    timeline: s(b.timeline, 60),
+    budget: s(b.budget, 60),
+    propertyType: s(b.propertyType, 60),
+    area: s(b.area, 120),
+    financing: oneOf(b.financing, REALTOR_LEAD_FINANCING),
+    notes: s(b.notes, 2000)
+  };
+}
+
+app.get('/api/realtor/leads', safe(async (req, res) => {
+  if (!req.user || req.user.role !== 'realtor') return res.status(403).json({ error: 'Realtors only.' });
+  const rows = await q(`SELECT * FROM realtor_leads WHERE realtor_id = $1 ORDER BY id DESC`, [req.user.id]);
+  res.json(rows.map(realtorLeadRowToJson));
+}));
+
+app.post('/api/realtor/leads', safe(async (req, res) => {
+  if (!req.user || req.user.role !== 'realtor') return res.status(403).json({ error: 'Realtors only.' });
+  const f = cleanRealtorLead(req.body || {});
+  if (!f.name) return res.status(400).json({ error: 'A name is required.' });
+  const row = await one(
+    `INSERT INTO realtor_leads (realtor_id, officer_id, name, phone, email, intent, timeline, budget, property_type, area, financing, notes)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+    [req.user.id, req.user.realtorOwnerId || null, f.name, f.phone, f.email, f.intent, f.timeline, f.budget, f.propertyType, f.area, f.financing, f.notes]
+  );
+  res.json(realtorLeadRowToJson(row));
+}));
+
+app.delete('/api/realtor/leads/:id', safe(async (req, res) => {
+  if (!req.user || req.user.role !== 'realtor') return res.status(403).json({ error: 'Realtors only.' });
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id.' });
+  const r = await pool.query('DELETE FROM realtor_leads WHERE id = $1 AND realtor_id = $2', [id, req.user.id]);
+  if (r.rowCount === 0) return res.status(404).json({ error: 'Lead not found.' });
+  res.json({ ok: true });
+}));
+
+// Bulk import (rows pre-parsed client-side from CSV/XLS). Needs at least a name.
+app.post('/api/realtor/leads/import', safe(async (req, res) => {
+  if (!req.user || req.user.role !== 'realtor') return res.status(403).json({ error: 'Realtors only.' });
+  const rows = (req.body || {}).rows;
+  if (!Array.isArray(rows) || !rows.length) return res.status(400).json({ error: 'No rows to import.' });
+  if (rows.length > 5000) return res.status(400).json({ error: 'Too many rows (max 5000 per import).' });
+  let imported = 0, skipped = 0;
+  for (const raw of rows) {
+    const f = cleanRealtorLead(raw || {});
+    if (!f.name) { skipped++; continue; }
+    await pool.query(
+      `INSERT INTO realtor_leads (realtor_id, officer_id, name, phone, email, intent, timeline, budget, property_type, area, financing, notes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+      [req.user.id, req.user.realtorOwnerId || null, f.name, f.phone, f.email, f.intent, f.timeline, f.budget, f.propertyType, f.area, f.financing, f.notes]
+    );
+    imported++;
+  }
+  res.json({ ok: true, imported, skipped });
 }));
 
 // Admin: delete a user account entirely. The admin can't delete themselves or

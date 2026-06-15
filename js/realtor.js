@@ -76,11 +76,214 @@
     if (active === 'settings') {
       view.innerHTML = renderSettings();
       bindChangePassword();
+    } else if (active === 'leads') {
+      renderLeads();
     } else {
       const s = SECTIONS.find(x => x.id === active);
       view.innerHTML = placeholder(s ? s.label : 'Section', 'Tell us what you want here.');
     }
     if (window.lucide) lucide.createIcons();
+  }
+
+  // ----- Leads section -----
+  let rlLeads = [], rlQuery = '';
+  function renderLeads() {
+    const view = document.getElementById('rp-view');
+    view.innerHTML = `
+      <div class="flex items-start justify-between mb-5 flex-wrap gap-3">
+        <div>
+          <h1 class="text-[24px] font-bold tracking-tight">Leads</h1>
+          <p class="text-[13.5px] text-muted mt-1">Capture and keep track of the people you're working with.</p>
+        </div>
+        <div class="flex items-center gap-2 flex-wrap">
+          <button id="rl-import" class="btn-secondary"><i data-lucide="upload" style="width:14px;height:14px;"></i> Import</button>
+          <button id="rl-export" class="btn-secondary"><i data-lucide="download" style="width:14px;height:14px;"></i> Export</button>
+          <button id="rl-add" class="btn-primary"><i data-lucide="plus" style="width:14px;height:14px;"></i> Add lead</button>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="p-5 pb-3 flex items-center justify-between flex-wrap gap-3">
+          <h3 class="text-[15px] font-semibold">All leads <span id="rl-count" class="text-muted font-normal"></span></h3>
+          <div class="relative">
+            <i data-lucide="search" style="width:14px;height:14px;color:#8A8AA0;position:absolute;left:12px;top:50%;transform:translateY(-50%);"></i>
+            <input id="rl-search" class="input pl-9" style="padding-top:7px;padding-bottom:7px;font-size:12.5px;width:240px;" placeholder="Search leads…" />
+          </div>
+        </div>
+        <div id="rl-import-msg" class="px-5 text-[12.5px] font-medium"></div>
+        <div class="overflow-x-auto"><table class="lf-table" id="rl-table"></table></div>
+      </div>`;
+    document.getElementById('rl-add').addEventListener('click', openLeadModal);
+    document.getElementById('rl-import').addEventListener('click', () => document.getElementById('rl-file').click());
+    document.getElementById('rl-export').addEventListener('click', exportLeads);
+    document.getElementById('rl-search').addEventListener('input', e => { rlQuery = e.target.value; renderLeadsTable(); });
+    if (window.lucide) lucide.createIcons();
+    loadRealtorLeads();
+  }
+  async function loadRealtorLeads() {
+    try {
+      const res = await api('/api/realtor/leads', { cache: 'no-store' });
+      rlLeads = res.ok ? await res.json() : [];
+    } catch (e) { rlLeads = []; }
+    renderLeadsTable();
+  }
+  function filteredLeads() {
+    const t = rlQuery.trim().toLowerCase();
+    if (!t) return rlLeads;
+    return rlLeads.filter(l => [l.name, l.phone, l.email, l.area, l.budget, l.intent, l.timeline]
+      .some(v => String(v || '').toLowerCase().includes(t)));
+  }
+  function renderLeadsTable() {
+    const table = document.getElementById('rl-table');
+    if (!table) return;
+    const countEl = document.getElementById('rl-count');
+    if (countEl) countEl.textContent = rlLeads.length ? `(${rlLeads.length})` : '';
+    if (!rlLeads.length) {
+      table.innerHTML = `<tbody><tr><td><div class="text-center py-14">
+        <div class="mx-auto mb-3 stat-icon" style="background:var(--surface-3);width:46px;height:46px;border-radius:12px;">
+          <i data-lucide="user-plus" style="width:20px;height:20px;color:#8A8AA0;"></i></div>
+        <div class="text-[14px] font-semibold mb-1">No leads yet</div>
+        <div class="text-[13px] text-muted mb-4">Add a lead while you're on a call, or import a CSV/Excel file.</div>
+        <button class="btn-primary" onclick="document.getElementById('rl-add').click()"><i data-lucide="plus" style="width:14px;height:14px;"></i> Add lead</button>
+      </div></td></tr></tbody>`;
+      if (window.lucide) lucide.createIcons();
+      return;
+    }
+    const rows = filteredLeads();
+    const intentPill = (i) => i === 'Buying' ? 'pill-green' : i === 'Selling' ? 'pill-blue' : i === 'Both' ? 'pill-purple' : 'pill-gray';
+    table.innerHTML = `
+      <thead><tr><th>Name</th><th>Contact</th><th>Looking to</th><th>Timeline</th><th>Budget</th><th>Area</th><th>Financing</th><th></th></tr></thead>
+      <tbody>
+        ${rows.length ? rows.map(l => `
+          <tr>
+            <td><span class="font-semibold text-[13px]">${esc(l.name)}</span></td>
+            <td class="text-muted">${[l.phone, l.email].filter(Boolean).map(esc).join('<br>') || '—'}</td>
+            <td>${l.intent ? `<span class="pill ${intentPill(l.intent)}">${esc(l.intent)}</span>` : '<span class="text-soft">—</span>'}</td>
+            <td>${esc(l.timeline) || '<span class="text-soft">—</span>'}</td>
+            <td>${esc(l.budget) || '<span class="text-soft">—</span>'}</td>
+            <td class="text-muted">${esc(l.area) || '—'}</td>
+            <td>${esc(l.financing) || '<span class="text-soft">—</span>'}</td>
+            <td style="text-align:right;">
+              <button class="btn-icon" data-del-lead="${l.id}" data-lead-name="${esc(l.name)}" title="Delete lead" style="width:30px;height:30px;border:none;">
+                <i data-lucide="trash-2" style="width:14px;height:14px;color:#D63333;pointer-events:none;"></i>
+              </button>
+            </td>
+          </tr>`).join('') : `<tr><td colspan="8" class="text-center py-8 text-muted">No leads match that search.</td></tr>`}
+      </tbody>`;
+    if (window.lucide) lucide.createIcons();
+  }
+
+  // Add-lead modal
+  function openLeadModal() {
+    const form = document.getElementById('rl-form');
+    form.reset();
+    document.getElementById('rl-msg').textContent = '';
+    document.getElementById('rl-modal').classList.remove('hidden');
+    form.elements['name'].focus();
+  }
+  function closeLeadModal() { document.getElementById('rl-modal').classList.add('hidden'); }
+  async function submitLead(e) {
+    e.preventDefault();
+    const form = document.getElementById('rl-form');
+    const data = Object.fromEntries(new FormData(form));
+    const msg = document.getElementById('rl-msg');
+    if (!data.name.trim()) { msg.style.color = '#D63333'; msg.textContent = 'A name is required.'; return; }
+    const btn = document.getElementById('rl-submit');
+    btn.disabled = true; btn.style.opacity = '0.7';
+    try {
+      const res = await api('/api/realtor/leads', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) { msg.style.color = '#D63333'; msg.textContent = body.error || 'Could not add the lead.'; return; }
+      rlLeads.unshift(body);
+      closeLeadModal();
+      renderLeadsTable();
+    } catch (e2) { msg.style.color = '#D63333'; msg.textContent = 'Network error.'; }
+    finally { btn.disabled = false; btn.style.opacity = ''; }
+  }
+
+  // Import from CSV / XLS / XLSX (parsed in-browser with SheetJS).
+  function mapImportRow(obj) {
+    const pick = (re) => { for (const k of Object.keys(obj)) { if (re.test(k)) { const v = String(obj[k] == null ? '' : obj[k]).trim(); if (v) return v; } } return ''; };
+    const norm = (v, list) => { const t = v.toLowerCase(); return list.find(x => x.toLowerCase() === t) || (list.find(x => t.includes(x.toLowerCase())) || ''); };
+    return {
+      name: pick(/^name$|full ?name|contact|client|lead/i),
+      phone: pick(/phone|mobile|\bcell\b|\btel\b/i),
+      email: pick(/e-?mail/i),
+      intent: norm(pick(/intent|buying|selling|buyer|seller|type/i), ['Buying', 'Selling', 'Both']),
+      timeline: pick(/timeline|how soon|when|time ?frame/i),
+      budget: pick(/budget|price|range/i),
+      propertyType: pick(/property|home ?type|prop ?type/i),
+      area: pick(/area|location|city|neighborhood|region/i),
+      financing: norm(pick(/financing|pre-?approv|lender|cash|loan/i), ['Pre-approved', 'Needs a lender', 'Paying cash', 'Not sure']),
+      notes: pick(/notes?|comments?|details?/i)
+    };
+  }
+  function importMsg(text, kind) {
+    const el = document.getElementById('rl-import-msg');
+    if (!el) return;
+    el.style.color = kind === 'err' ? '#D63333' : kind === 'ok' ? '#138A4B' : 'var(--text-muted)';
+    el.textContent = text || '';
+  }
+  async function handleImportFile(file) {
+    if (!file) return;
+    if (typeof XLSX === 'undefined') { importMsg('Spreadsheet reader failed to load — check your connection and retry.', 'err'); return; }
+    importMsg('Reading file…');
+    let objs;
+    try {
+      const buf = new Uint8Array(await file.arrayBuffer());
+      const wb = XLSX.read(buf, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      objs = XLSX.utils.sheet_to_json(ws, { defval: '' });
+    } catch (e) { importMsg('Could not read that file. Use a .csv, .xls, or .xlsx with a header row.', 'err'); return; }
+    const rows = (objs || []).map(mapImportRow).filter(r => r.name);
+    if (!rows.length) { importMsg('No rows with a Name column were found.', 'err'); return; }
+    importMsg(`Importing ${rows.length} lead${rows.length === 1 ? '' : 's'}…`);
+    try {
+      const res = await api('/api/realtor/leads/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rows }) });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) { importMsg(body.error || 'Import failed.', 'err'); return; }
+      await loadRealtorLeads();
+      importMsg(`Imported ${body.imported} lead${body.imported === 1 ? '' : 's'}` + (body.skipped ? ` · ${body.skipped} skipped (no name)` : ''), 'ok');
+    } catch (e) { importMsg('Network error.', 'err'); }
+  }
+
+  // Export the current leads as a CSV download.
+  function exportLeads() {
+    if (!rlLeads.length) { importMsg('No leads to export yet.', 'err'); return; }
+    const cols = [['Name', 'name'], ['Phone', 'phone'], ['Email', 'email'], ['Looking to', 'intent'], ['Timeline', 'timeline'], ['Budget', 'budget'], ['Property type', 'propertyType'], ['Area', 'area'], ['Financing', 'financing'], ['Notes', 'notes']];
+    const escCsv = (v) => { const s = String(v == null ? '' : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+    const lines = [cols.map(c => c[0]).join(',')].concat(rlLeads.map(l => cols.map(c => escCsv(l[c[1]])).join(',')));
+    const blob = new Blob([lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'my-leads.csv';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  function bindLeads() {
+    document.getElementById('rl-close').addEventListener('click', closeLeadModal);
+    document.getElementById('rl-cancel').addEventListener('click', closeLeadModal);
+    document.getElementById('rl-backdrop').addEventListener('click', closeLeadModal);
+    document.getElementById('rl-form').addEventListener('submit', submitLead);
+    document.getElementById('rl-file').addEventListener('change', e => {
+      const f = e.target.files && e.target.files[0];
+      handleImportFile(f);
+      e.target.value = '';
+    });
+    // Delegated delete on the leads table (table is re-rendered, so listen on the view).
+    document.getElementById('rp-view').addEventListener('click', async (e) => {
+      const del = e.target.closest('[data-del-lead]');
+      if (!del) return;
+      const id = del.getAttribute('data-del-lead');
+      const name = del.getAttribute('data-lead-name') || 'this lead';
+      if (!window.confirm(`Delete ${name}?`)) return;
+      try {
+        const res = await api('/api/realtor/leads/' + id, { method: 'DELETE' });
+        if (!res.ok && res.status !== 404) { window.alert('Could not delete the lead.'); return; }
+        rlLeads = rlLeads.filter(l => String(l.id) !== String(id));
+        renderLeadsTable();
+      } catch (err) { window.alert('Network error.'); }
+    });
   }
 
   function setSection(id) {
@@ -280,7 +483,7 @@
   }
 
   document.addEventListener('DOMContentLoaded', async function () {
-    bindGate(); bindNav(); bindTheme(); bindUserMenu();
+    bindGate(); bindNav(); bindTheme(); bindUserMenu(); bindLeads();
     let res;
     try { res = await api('/api/me'); } catch (e) { window.location.href = '/login.html'; return; }
     if (!res.ok) { window.location.href = '/login.html'; return; }

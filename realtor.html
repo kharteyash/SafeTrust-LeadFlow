@@ -6,6 +6,7 @@
   <title>Realtor Portal — LeadFlow</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script>try{if(localStorage.getItem('lf-theme')==='dark')document.documentElement.classList.add('dark')}catch(e){}</script>
   <link rel="stylesheet" href="css/styles.css" />
 </head>
@@ -82,6 +83,104 @@
         </header>
 
         <main id="rp-view" class="flex-1 p-6 overflow-y-auto min-h-0"></main>
+      </div>
+    </div>
+  </div>
+
+  <!-- Hidden file input for lead import -->
+  <input id="rl-file" type="file" accept=".csv,.xls,.xlsx" style="display:none;" />
+
+  <!-- Add / capture a lead -->
+  <div id="rl-modal" class="hidden" style="position:fixed;inset:0;z-index:56;">
+    <div id="rl-backdrop" style="position:absolute;inset:0;background:rgba(14,14,27,.45);"></div>
+    <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:100%;max-width:520px;" class="px-4">
+      <div class="bg-white rounded-2xl p-6 shadow-2xl" style="max-height:88vh;overflow-y:auto;">
+        <div class="flex items-center justify-between mb-1">
+          <h3 class="text-[17px] font-bold">Add a lead</h3>
+          <button id="rl-close" class="btn-icon" style="width:32px;height:32px;border:none;"><i data-lucide="x" style="width:16px;height:16px;color:var(--text-muted);"></i></button>
+        </div>
+        <p class="text-[12.5px] text-muted mb-4">Capture the details while you're on the call — only a name is required.</p>
+        <form id="rl-form" class="flex flex-col gap-3">
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="text-[12px] font-semibold text-muted">Name</label>
+              <input name="name" required maxlength="120" class="input mt-1" placeholder="Who are you speaking with?" />
+            </div>
+            <div>
+              <label class="text-[12px] font-semibold text-muted">Phone</label>
+              <input name="phone" maxlength="40" class="input mt-1" placeholder="(555) 123-4567" />
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="text-[12px] font-semibold text-muted">Email</label>
+              <input name="email" type="email" maxlength="160" class="input mt-1" placeholder="name@email.com" />
+            </div>
+            <div>
+              <label class="text-[12px] font-semibold text-muted">Are they buying or selling?</label>
+              <select name="intent" class="input mt-1" style="cursor:pointer;">
+                <option value="">Select…</option>
+                <option value="Buying">Buying</option>
+                <option value="Selling">Selling</option>
+                <option value="Both">Both</option>
+              </select>
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="text-[12px] font-semibold text-muted">How soon are they looking?</label>
+              <select name="timeline" class="input mt-1" style="cursor:pointer;">
+                <option value="">Select…</option>
+                <option>ASAP</option>
+                <option>1-3 months</option>
+                <option>3-6 months</option>
+                <option>6+ months</option>
+                <option>Just browsing</option>
+              </select>
+            </div>
+            <div>
+              <label class="text-[12px] font-semibold text-muted">Budget / price range</label>
+              <input name="budget" maxlength="60" class="input mt-1" placeholder="e.g. $400k–$500k" />
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="text-[12px] font-semibold text-muted">Property type</label>
+              <select name="propertyType" class="input mt-1" style="cursor:pointer;">
+                <option value="">Select…</option>
+                <option>Single-family</option>
+                <option>Condo</option>
+                <option>Townhouse</option>
+                <option>Multi-family</option>
+                <option>Land</option>
+                <option>Other</option>
+              </select>
+            </div>
+            <div>
+              <label class="text-[12px] font-semibold text-muted">Preferred area / location</label>
+              <input name="area" maxlength="120" class="input mt-1" placeholder="Neighborhood, city…" />
+            </div>
+          </div>
+          <div>
+            <label class="text-[12px] font-semibold text-muted">Financing</label>
+            <select name="financing" class="input mt-1" style="cursor:pointer;">
+              <option value="">Select…</option>
+              <option>Pre-approved</option>
+              <option>Needs a lender</option>
+              <option>Paying cash</option>
+              <option>Not sure</option>
+            </select>
+          </div>
+          <div>
+            <label class="text-[12px] font-semibold text-muted">Notes</label>
+            <textarea name="notes" rows="3" maxlength="2000" class="input mt-1" placeholder="Anything else they mentioned…"></textarea>
+          </div>
+          <div id="rl-msg" class="text-[12.5px] font-medium" style="color:#D63333;"></div>
+          <div class="flex items-center justify-end gap-2 mt-1">
+            <button type="button" id="rl-cancel" class="btn-secondary">Cancel</button>
+            <button type="submit" id="rl-submit" class="btn-primary">Add lead</button>
+          </div>
+        </form>
       </div>
     </div>
   </div>
