@@ -100,6 +100,8 @@
       renderLeads();
     } else if (active === 'contacts') {
       renderContacts();
+    } else if (active === 'calls') {
+      renderCalls();
     } else {
       const s = SECTIONS.find(x => x.id === active);
       view.innerHTML = placeholder(s ? s.label : 'Section', 'Tell us what you want here.');
@@ -620,6 +622,125 @@
     });
   }
 
+  // ----- Calls: prioritized "who to call" + call log -----
+  let rkQueue = [], rkCalls = [], rkTarget = null;
+  function priPill(p) { return p === 'High' ? 'pill-red' : p === 'Medium' ? 'pill-yellow' : 'pill-gray'; }
+  function rkTimeAgo(at) {
+    const d = new Date(at); if (isNaN(d.getTime())) return '';
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ', ' +
+      d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  }
+  function renderCalls() {
+    const view = document.getElementById('rp-view');
+    view.innerHTML = `
+      <div class="mb-5">
+        <h1 class="text-[24px] font-bold tracking-tight">Calls</h1>
+        <p class="text-[13.5px] text-muted mt-1">Who to call next, ranked by how ready each lead is from the info you've captured.</p>
+      </div>
+      <div class="grid grid-cols-12 gap-5">
+        <div class="panel col-span-12 lg:col-span-7">
+          <div class="p-5 pb-3"><h3 class="text-[15px] font-semibold">Who to call <span id="rk-q-count" class="text-muted font-normal"></span></h3></div>
+          <div class="overflow-x-auto"><table class="lf-table" id="rk-queue"></table></div>
+        </div>
+        <div class="panel col-span-12 lg:col-span-5">
+          <div class="p-5 pb-3"><h3 class="text-[15px] font-semibold">Recent calls</h3></div>
+          <div id="rk-log" class="px-5 pb-5"></div>
+        </div>
+      </div>`;
+    if (window.lucide) lucide.createIcons();
+    loadCalls();
+  }
+  async function loadCalls() {
+    try {
+      const [q1, c1] = await Promise.all([api('/api/realtor/call-queue', { cache: 'no-store' }), api('/api/realtor/calls', { cache: 'no-store' })]);
+      rkQueue = q1.ok ? await q1.json() : [];
+      rkCalls = c1.ok ? await c1.json() : [];
+    } catch (e) { rkQueue = []; rkCalls = []; }
+    renderQueue(); renderCallLog();
+  }
+  function renderQueue() {
+    const table = document.getElementById('rk-queue'); if (!table) return;
+    const countEl = document.getElementById('rk-q-count'); if (countEl) countEl.textContent = rkQueue.length ? `(${rkQueue.length})` : '';
+    if (!rkQueue.length) {
+      table.innerHTML = `<tbody><tr><td><div class="text-center py-12">
+        <div class="mx-auto mb-3 stat-icon" style="background:var(--surface-3);width:46px;height:46px;border-radius:12px;"><i data-lucide="phone" style="width:20px;height:20px;color:#8A8AA0;"></i></div>
+        <div class="text-[14px] font-semibold mb-1">No one to call right now</div>
+        <div class="text-[13px] text-muted">Add leads with a phone number and they'll be ranked here. Anyone you called in the last 2 days is hidden.</div>
+      </div></td></tr></tbody>`;
+      if (window.lucide) lucide.createIcons();
+      return;
+    }
+    table.innerHTML = `
+      <thead><tr><th>Name</th><th>Priority</th><th>Why</th><th>Phone</th><th>Action</th></tr></thead>
+      <tbody>
+        ${rkQueue.map(p => `
+          <tr>
+            <td><span class="font-semibold text-[13px]">${esc(p.name)}</span></td>
+            <td><span class="pill ${priPill(p.priority)}">${esc(p.priority)}</span></td>
+            <td class="text-muted">${esc(p.reason)}</td>
+            <td>${esc(p.phone)}</td>
+            <td>
+              <div class="flex items-center gap-1">
+                ${telLink(p.phone) ? `<a href="${escAttr(telLink(p.phone))}" class="btn-icon" title="Call" style="width:30px;height:30px;"><i data-lucide="phone" style="width:13px;height:13px;color:#2255a3;pointer-events:none;"></i></a>` : ''}
+                ${smsLink(p.phone) ? `<a href="${escAttr(smsLink(p.phone))}" class="btn-icon" title="Text" style="width:30px;height:30px;"><i data-lucide="message-square" style="width:13px;height:13px;color:#2255a3;pointer-events:none;"></i></a>` : ''}
+                <button class="btn-secondary" data-rk-log="${p.leadId}" data-rk-name="${escAttr(p.name)}" data-rk-phone="${escAttr(p.phone)}" style="padding:5px 10px;font-size:12px;">Log call</button>
+              </div>
+            </td>
+          </tr>`).join('')}
+      </tbody>`;
+    if (window.lucide) lucide.createIcons();
+  }
+  function renderCallLog() {
+    const host = document.getElementById('rk-log'); if (!host) return;
+    if (!rkCalls.length) { host.innerHTML = `<div class="text-[13px] text-muted py-2">No calls logged yet.</div>`; return; }
+    const outPill = (o) => o === 'Connected' ? 'pill-green' : o === 'Voicemail' ? 'pill-yellow' : 'pill-gray';
+    host.innerHTML = `<div class="flex flex-col gap-2">
+      ${rkCalls.slice(0, 25).map(c => `
+        <div class="rounded-lg p-3" style="border:1px solid var(--border);">
+          <div class="flex items-center justify-between gap-2">
+            <span class="font-semibold text-[13px]">${esc(c.name)}</span>
+            <span class="pill ${outPill(c.outcome)}" style="font-size:11px;">${esc(c.outcome)}</span>
+          </div>
+          <div class="text-[11.5px] text-muted mt-0.5">${esc(rkTimeAgo(c.loggedAt))}${c.notes ? ' · ' + esc(c.notes) : ''}</div>
+        </div>`).join('')}
+    </div>`;
+  }
+  // Log-call modal
+  function openLogCall(target) {
+    rkTarget = target;
+    document.getElementById('rk-who').textContent = target.name + (target.phone ? ` · ${target.phone}` : '');
+    document.getElementById('rk-outcome').value = 'Connected';
+    document.getElementById('rk-notes').value = '';
+    document.getElementById('rk-msg').textContent = '';
+    document.getElementById('rk-modal').classList.remove('hidden');
+  }
+  function closeLogCall() { document.getElementById('rk-modal').classList.add('hidden'); rkTarget = null; }
+  async function saveLogCall() {
+    if (!rkTarget) return;
+    const msg = document.getElementById('rk-msg');
+    const btn = document.getElementById('rk-save');
+    btn.disabled = true; btn.style.opacity = '0.7';
+    try {
+      const payload = { leadId: rkTarget.leadId, name: rkTarget.name, phone: rkTarget.phone, outcome: document.getElementById('rk-outcome').value, notes: document.getElementById('rk-notes').value };
+      const res = await api('/api/realtor/calls', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) { msg.style.color = '#D63333'; msg.textContent = body.error || 'Could not log the call.'; return; }
+      closeLogCall();
+      await loadCalls();   // refresh queue (callee drops off) + history
+    } catch (e) { msg.style.color = '#D63333'; msg.textContent = 'Network error.'; }
+    finally { btn.disabled = false; btn.style.opacity = ''; }
+  }
+  function bindCalls() {
+    document.getElementById('rk-close').addEventListener('click', closeLogCall);
+    document.getElementById('rk-cancel').addEventListener('click', closeLogCall);
+    document.getElementById('rk-backdrop').addEventListener('click', closeLogCall);
+    document.getElementById('rk-save').addEventListener('click', saveLogCall);
+    document.getElementById('rp-view').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-rk-log]');
+      if (b) openLogCall({ leadId: parseInt(b.getAttribute('data-rk-log'), 10) || null, name: b.getAttribute('data-rk-name'), phone: b.getAttribute('data-rk-phone') || '' });
+    });
+  }
+
   // ----- Chat with the loan officer (top-bar modal) -----
   let chatCount = -1, unseen = 0, chatStarted = false;
   function updateChatBadge() {
@@ -742,7 +863,7 @@
   }
 
   document.addEventListener('DOMContentLoaded', async function () {
-    bindNav(); bindTheme(); bindUserMenu(); bindLeads(); bindContacts();
+    bindNav(); bindTheme(); bindUserMenu(); bindLeads(); bindContacts(); bindCalls();
     let res;
     try { res = await api('/api/me', { cache: 'no-store' }); } catch (e) { window.location.href = '/login.html'; return; }
     if (!res.ok) { window.location.href = '/login.html'; return; }

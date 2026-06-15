@@ -258,6 +258,19 @@ const SCHEMA = `
   );
   CREATE INDEX IF NOT EXISTS realtor_contacts_owner ON realtor_contacts (realtor_id, id);
 
+  -- A realtor's logged calls (drives "who to call next" and the call history).
+  CREATE TABLE IF NOT EXISTS realtor_calls (
+    id         SERIAL PRIMARY KEY,
+    realtor_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    lead_id    INTEGER,
+    name       TEXT NOT NULL,
+    phone      TEXT,
+    outcome    TEXT NOT NULL,         -- Connected | Voicemail | No Answer | Missed
+    notes      TEXT,
+    logged_at  TIMESTAMPTZ DEFAULT now()
+  );
+  CREATE INDEX IF NOT EXISTS realtor_calls_owner ON realtor_calls (realtor_id, id);
+
   CREATE TABLE IF NOT EXISTS google_accounts (
     user_id       INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     email         TEXT,
@@ -1136,6 +1149,71 @@ app.delete('/api/realtor/contacts/:id', safe(async (req, res) => {
   const r = await pool.query('DELETE FROM realtor_contacts WHERE id = $1 AND realtor_id = $2', [id, req.user.id]);
   if (r.rowCount === 0) return res.status(404).json({ error: 'Contact not found.' });
   res.json({ ok: true });
+}));
+
+// ----- Realtor calls: a "who to call next" queue ranked from the lead info -----
+// Readiness is inferred from what the realtor captured: timeline, financing,
+// credit, intent. Higher = more ready to transact, so call them first.
+function scoreRealtorLead(l) {
+  let score = 0; const why = [];
+  if (l.intent === 'Both') { score += 10; why.push('Buying & selling'); }
+  else if (l.intent) { score += 5; why.push(l.intent); }
+  const tl = (l.timeline || '').toLowerCase();
+  if (tl.includes('asap')) { score += 40; why.push('ASAP'); }
+  else if (tl.includes('1-3')) { score += 30; why.push('1-3 months'); }
+  else if (tl.includes('3-6')) { score += 20; why.push('3-6 months'); }
+  else if (tl.includes('6+')) { score += 10; why.push('6+ months'); }
+  else if (tl.includes('brows')) { score += 0; why.push('Just browsing'); }
+  const fin = (l.financing || '');
+  if (fin === 'Pre-approved') { score += 30; why.push('Pre-approved'); }
+  else if (fin === 'Paying cash') { score += 28; why.push('Paying cash'); }
+  else if (fin === 'Needs a lender') { score += 12; why.push('Needs a lender'); }
+  else if (fin === 'Not sure') { score += 5; }
+  const cs = parseInt(String(l.credit_score || '').replace(/\D/g, ''), 10);
+  if (!isNaN(cs) && cs >= 100) { if (cs >= 740) { score += 12; why.push(`${cs} credit`); } else if (cs >= 680) { score += 8; why.push(`${cs} credit`); } else if (cs >= 620) { score += 4; } }
+  if (String(l.assets || '').trim()) { score += 4; }
+  const priority = score >= 55 ? 'High' : score >= 28 ? 'Medium' : 'Low';
+  let reason = why.slice(0, 3).join(' · ') || 'Follow up';
+  return { score, priority, reason };
+}
+
+app.get('/api/realtor/call-queue', safe(async (req, res) => {
+  if (!req.user || req.user.role !== 'realtor') return res.status(403).json({ error: 'Realtors only.' });
+  // Leads with a phone, not already called in the last 2 days.
+  const leads = await q(`
+    SELECT * FROM realtor_leads l
+    WHERE l.realtor_id = $1 AND l.phone IS NOT NULL AND btrim(l.phone) <> ''
+      AND NOT EXISTS (
+        SELECT 1 FROM realtor_calls c
+        WHERE c.realtor_id = $1 AND (c.lead_id = l.id OR lower(c.name) = lower(l.name))
+          AND c.logged_at > now() - interval '2 days')
+    ORDER BY id DESC`, [req.user.id]);
+  const queue = leads.map(l => {
+    const s = scoreRealtorLead(l);
+    return { leadId: l.id, name: l.name, phone: l.phone || '', intent: l.intent || '', timeline: l.timeline || '', priority: s.priority, reason: s.reason, score: s.score };
+  }).sort((a, b) => b.score - a.score);
+  res.json(queue);
+}));
+
+app.get('/api/realtor/calls', safe(async (req, res) => {
+  if (!req.user || req.user.role !== 'realtor') return res.status(403).json({ error: 'Realtors only.' });
+  const rows = await q('SELECT id, lead_id, name, phone, outcome, notes, logged_at FROM realtor_calls WHERE realtor_id = $1 ORDER BY id DESC LIMIT 100', [req.user.id]);
+  res.json(rows.map(r => ({ id: r.id, leadId: r.lead_id, name: r.name, phone: r.phone || '', outcome: r.outcome, notes: r.notes || '', loggedAt: r.logged_at })));
+}));
+
+app.post('/api/realtor/calls', safe(async (req, res) => {
+  if (!req.user || req.user.role !== 'realtor') return res.status(403).json({ error: 'Realtors only.' });
+  const b = req.body || {};
+  const name = String(b.name || '').trim().slice(0, 120);
+  if (!name) return res.status(400).json({ error: 'A name is required.' });
+  if (!['Connected', 'Voicemail', 'No Answer', 'Missed'].includes(b.outcome)) return res.status(400).json({ error: 'Choose a valid outcome.' });
+  const leadId = Number.isInteger(b.leadId) ? b.leadId : null;
+  const row = await one(
+    `INSERT INTO realtor_calls (realtor_id, lead_id, name, phone, outcome, notes)
+     VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, lead_id, name, phone, outcome, notes, logged_at`,
+    [req.user.id, leadId, name, String(b.phone || '').trim().slice(0, 40), b.outcome, String(b.notes || '').trim().slice(0, 2000)]
+  );
+  res.json({ id: row.id, leadId: row.lead_id, name: row.name, phone: row.phone || '', outcome: row.outcome, notes: row.notes || '', loggedAt: row.logged_at });
 }));
 
 // Admin: delete a user account entirely. The admin can't delete themselves or
