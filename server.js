@@ -649,6 +649,32 @@ app.post('/api/admin/users/:id/promote-admin', safe(async (req, res) => {
   res.json({ ok: true, role: 'admin' });
 }));
 
+// Admin: remove another admin's access (back to a regular member). Also password
+// gated. You can't demote yourself, and the last remaining admin can't be removed.
+app.post('/api/admin/users/:id/demote-admin', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin only.' });
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid user id.' });
+  if (id === req.user.id) return res.status(400).json({ error: 'You can’t remove your own admin access.' });
+  const password = String((req.body || {}).password || '');
+  if (!password) return res.status(400).json({ error: 'Enter your password to confirm.' });
+
+  const me = await one('SELECT password_hash FROM users WHERE id = $1', [req.user.id]);
+  if (!me || !bcrypt.compareSync(password, me.password_hash)) {
+    return res.status(403).json({ error: 'That password is incorrect.' });
+  }
+
+  const target = await one('SELECT id, role FROM users WHERE id = $1', [id]);
+  if (!target) return res.status(404).json({ error: 'User not found.' });
+  if (target.role !== 'admin') return res.status(400).json({ error: 'That user isn’t an admin.' });
+  const cnt = await one(`SELECT COUNT(*)::int AS n FROM users WHERE role = 'admin'`);
+  if (cnt && cnt.n <= 1) return res.status(400).json({ error: 'There must be at least one admin.' });
+
+  await q(`UPDATE users SET role = 'user' WHERE id = $1`, [id]);
+  res.json({ ok: true, role: 'user' });
+}));
+
 // Admin: clear a user's failed-login lock so they can sign in again immediately.
 app.post('/api/admin/users/:id/unlock', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
