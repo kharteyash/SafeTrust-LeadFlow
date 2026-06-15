@@ -159,7 +159,7 @@
     const rows = filteredLeads();
     const intentPill = (i) => i === 'Buying' ? 'pill-green' : i === 'Selling' ? 'pill-blue' : i === 'Both' ? 'pill-purple' : 'pill-gray';
     table.innerHTML = `
-      <thead><tr><th>Name</th><th>Contact</th><th>Looking to</th><th>Timeline</th><th>Budget</th><th>Area</th><th>Financing</th><th></th></tr></thead>
+      <thead><tr><th>Name</th><th>Contact</th><th>Looking to</th><th>Timeline</th><th>Budget</th><th>Area</th><th>Financing</th><th>Credit</th><th>Assets</th><th></th></tr></thead>
       <tbody>
         ${rows.length ? rows.map(l => `
           <tr>
@@ -170,12 +170,14 @@
             <td>${esc(l.budget) || '<span class="text-soft">—</span>'}</td>
             <td class="text-muted">${esc(l.area) || '—'}</td>
             <td>${esc(l.financing) || '<span class="text-soft">—</span>'}</td>
+            <td>${esc(l.creditScore) || '<span class="text-soft">—</span>'}</td>
+            <td class="text-muted">${esc(l.assets) || '—'}</td>
             <td style="text-align:right;">
               <button class="btn-icon" data-del-lead="${l.id}" data-lead-name="${esc(l.name)}" title="Delete lead" style="width:30px;height:30px;border:none;">
                 <i data-lucide="trash-2" style="width:14px;height:14px;color:#D63333;pointer-events:none;"></i>
               </button>
             </td>
-          </tr>`).join('') : `<tr><td colspan="8" class="text-center py-8 text-muted">No leads match that search.</td></tr>`}
+          </tr>`).join('') : `<tr><td colspan="10" class="text-center py-8 text-muted">No leads match that search.</td></tr>`}
       </tbody>`;
     if (window.lucide) lucide.createIcons();
   }
@@ -222,6 +224,8 @@
       propertyType: pick(/property|home ?type|prop ?type/i),
       area: pick(/area|location|city|neighborhood|region/i),
       financing: norm(pick(/financing|pre-?approv|lender|cash|loan/i), ['Pre-approved', 'Needs a lender', 'Paying cash', 'Not sure']),
+      creditScore: pick(/credit ?score|\bfico\b|\bcredit\b/i),
+      assets: pick(/assets?|cash on hand|cash|down ?payment|savings/i),
       notes: pick(/notes?|comments?|details?/i)
     };
   }
@@ -257,7 +261,7 @@
   // Export the current leads as a CSV download.
   function exportLeads() {
     if (!rlLeads.length) { importMsg('No leads to export yet.', 'err'); return; }
-    const cols = [['Name', 'name'], ['Phone', 'phone'], ['Email', 'email'], ['Looking to', 'intent'], ['Timeline', 'timeline'], ['Budget', 'budget'], ['Property type', 'propertyType'], ['Area', 'area'], ['Financing', 'financing'], ['Notes', 'notes']];
+    const cols = [['Name', 'name'], ['Phone', 'phone'], ['Email', 'email'], ['Looking to', 'intent'], ['Timeline', 'timeline'], ['Budget', 'budget'], ['Property type', 'propertyType'], ['Area', 'area'], ['Financing', 'financing'], ['Credit score', 'creditScore'], ['Assets available', 'assets'], ['Notes', 'notes']];
     const escCsv = (v) => { const s = String(v == null ? '' : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
     const lines = [cols.map(c => c[0]).join(',')].concat(rlLeads.map(l => cols.map(c => escCsv(l[c[1]])).join(',')));
     const blob = new Blob([lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
