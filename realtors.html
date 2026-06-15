@@ -34,6 +34,22 @@
       <div class="overflow-x-auto">
         <table class="lf-table" id="realtors-table"></table>
       </div>
+
+      <div class="p-4 flex items-center justify-between border-t flex-wrap gap-3" style="border-color:var(--border);">
+        <span id="realtor-summary" class="text-[12.5px] text-muted"></span>
+        <div class="flex items-center gap-4">
+          <div id="realtor-pager" class="flex items-center gap-1"></div>
+          <div class="flex items-center gap-2 text-[12.5px] text-muted">
+            <span>Rows per page:</span>
+            <select id="realtor-rows-per-page" class="btn-secondary" style="padding:4px 8px;font-size:12px;cursor:pointer;">
+              <option value="10">10</option>
+              <option value="25">25</option>
+              <option value="50">50</option>
+              <option value="100">100</option>
+            </select>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Add realtor modal -->
