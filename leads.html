@@ -108,8 +108,8 @@
     <!-- Add lead modal -->
     <div id="lead-modal" class="hidden" style="position:fixed;inset:0;z-index:50;">
       <div id="lead-modal-backdrop" style="position:absolute;inset:0;background:rgba(14,14,27,.45);"></div>
-      <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:100%;max-width:480px;" class="px-4">
-        <div class="bg-white rounded-2xl p-6 shadow-2xl">
+      <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:100%;max-width:720px;" class="px-4">
+        <div class="bg-white rounded-2xl p-6 shadow-2xl" style="max-height:90vh;overflow-y:auto;">
           <div class="flex items-center justify-between mb-4">
             <h3 id="lead-modal-title" class="text-[17px] font-bold">Add lead</h3>
             <button id="lead-modal-close" class="btn-icon" style="width:32px;height:32px;border:none;">
@@ -117,7 +117,7 @@
             </button>
           </div>
           <form id="lead-form" class="flex flex-col gap-3">
-            <div class="grid grid-cols-2 gap-3">
+            <div class="grid grid-cols-3 gap-3">
               <div>
                 <label class="text-[12px] font-semibold text-muted">Name</label>
                 <input name="name" required maxlength="80" class="input mt-1" placeholder="Full name" />
@@ -126,18 +126,16 @@
                 <label class="text-[12px] font-semibold text-muted">Email</label>
                 <input name="email" type="email" required maxlength="120" class="input mt-1" placeholder="name@email.com" />
               </div>
-            </div>
-            <div class="grid grid-cols-2 gap-3">
               <div>
                 <label class="text-[12px] font-semibold text-muted">Phone</label>
                 <input name="phone" maxlength="40" class="input mt-1" placeholder="(555) 123-4567" />
               </div>
+            </div>
+            <div class="grid grid-cols-3 gap-3">
               <div>
                 <label class="text-[12px] font-semibold text-muted">Owner</label>
                 <input name="owner" maxlength="60" class="input mt-1" placeholder="Assigned agent" />
               </div>
-            </div>
-            <div class="grid grid-cols-2 gap-3">
               <div>
                 <label class="text-[12px] font-semibold text-muted">State</label>
                 <select name="state" class="input mt-1" style="cursor:pointer;">
@@ -207,15 +205,12 @@
             </div>
             <div class="text-[11.5px] text-soft" style="margin-top:-2px;">Lead score is calculated automatically from the timeline, phone, preapproval, refinance type, and whether a realtor is attached.</div>
 
-            <div class="grid grid-cols-2 gap-3">
+            <div class="grid grid-cols-3 gap-3">
               <div>
                 <label class="text-[12px] font-semibold text-muted">Birthday <span class="text-soft">(optional)</span></label>
                 <input name="birthday" type="date" class="input mt-1" style="cursor:pointer;" />
-                <div class="text-[11.5px] text-soft mt-1">Used to send an automatic birthday email at 9am.</div>
+                <div class="text-[11.5px] text-soft mt-1">Auto birthday email at 9am.</div>
               </div>
-            </div>
-
-            <div class="grid grid-cols-2 gap-3">
               <div>
                 <label class="text-[12px] font-semibold text-muted">Lead type</label>
                 <select name="lead_type" id="lead-type-select" class="input mt-1" style="cursor:pointer;">
@@ -257,11 +252,11 @@
                   </select>
                   <div class="text-[11.5px] text-soft mt-1">Pick a realtor to auto-fill their details, or enter a new one below.</div>
                 </div>
-                <div>
-                  <label class="text-[12px] font-semibold text-muted">Realtor name</label>
-                  <input name="realtor_name" maxlength="80" class="input mt-1" placeholder="Realtor's name" />
-                </div>
-                <div class="grid grid-cols-2 gap-3">
+                <div class="grid grid-cols-3 gap-3">
+                  <div>
+                    <label class="text-[12px] font-semibold text-muted">Realtor name</label>
+                    <input name="realtor_name" maxlength="80" class="input mt-1" placeholder="Realtor's name" />
+                  </div>
                   <div>
                     <label class="text-[12px] font-semibold text-muted">Realtor email</label>
                     <input name="realtor_email" type="email" maxlength="120" class="input mt-1" placeholder="realtor@email.com" />
