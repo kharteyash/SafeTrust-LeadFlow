@@ -619,6 +619,36 @@ app.patch('/api/admin/users/:id/role', safe(async (req, res) => {
   res.json({ ok: true, role });
 }));
 
+// Admin: promote another account to admin. Gated by the acting admin re-entering
+// their own password — a deliberate friction step for an irreversible-ish change.
+app.post('/api/admin/users/:id/promote-admin', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin only.' });
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid user id.' });
+  const password = String((req.body || {}).password || '');
+  if (!password) return res.status(400).json({ error: 'Enter your password to confirm.' });
+
+  // Verify the acting admin's own password before doing anything.
+  const me = await one('SELECT password_hash FROM users WHERE id = $1', [req.user.id]);
+  if (!me || !bcrypt.compareSync(password, me.password_hash)) {
+    return res.status(403).json({ error: 'That password is incorrect.' });
+  }
+
+  const target = await one('SELECT id, role FROM users WHERE id = $1', [id]);
+  if (!target) return res.status(404).json({ error: 'User not found.' });
+  if (target.role === 'admin') return res.status(400).json({ error: 'That user is already an admin.' });
+
+  await q(`UPDATE users SET role = 'admin' WHERE id = $1`, [id]);
+  // An admin isn't a team leader: release any members + cancel pending invites
+  // the user had while they were a team leader.
+  if (target.role === 'team_leader') {
+    await q('UPDATE users SET leader_id = NULL WHERE leader_id = $1', [id]);
+    await q(`UPDATE team_invites SET status = 'cancelled' WHERE leader_id = $1 AND status = 'pending'`, [id]);
+  }
+  res.json({ ok: true, role: 'admin' });
+}));
+
 // Admin: clear a user's failed-login lock so they can sign in again immediately.
 app.post('/api/admin/users/:id/unlock', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });

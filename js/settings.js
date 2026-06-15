@@ -585,7 +585,10 @@
         <td style="text-align:right;">
           ${u.role === 'admin'
             ? '<span class="text-soft">—</span>'
-            : `<button data-delete-user="${u.id}" data-user-name="${escAttr(u.name)}" class="btn-icon" title="Delete user" style="width:30px;height:30px;border:none;">
+            : `<button data-make-admin="${u.id}" data-user-name="${escAttr(u.name)}" class="btn-icon" title="Make admin" style="width:30px;height:30px;border:none;">
+                 <i data-lucide="shield-check" style="width:14px;height:14px;color:var(--accent);pointer-events:none;"></i>
+               </button>
+               <button data-delete-user="${u.id}" data-user-name="${escAttr(u.name)}" class="btn-icon" title="Delete user" style="width:30px;height:30px;border:none;">
                  <i data-lucide="trash-2" style="width:14px;height:14px;color:#D63333;pointer-events:none;"></i>
                </button>`}
         </td>
@@ -618,7 +621,27 @@
         </table>
       </div>
       <div id="roles-msg" class="text-[12.5px] mt-3"></div>
-      <div id="admin-team-detail" class="mt-5"></div>`;
+      <div id="admin-team-detail" class="mt-5"></div>
+
+      <!-- Make-admin confirmation (password-gated) -->
+      <div id="make-admin-modal" class="hidden" style="position:fixed;inset:0;z-index:50;">
+        <div id="make-admin-backdrop" style="position:absolute;inset:0;background:rgba(14,14,27,.45);"></div>
+        <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:100%;max-width:420px;" class="px-4">
+          <div class="bg-white rounded-2xl p-6 shadow-2xl">
+            <div class="flex items-center justify-between mb-3">
+              <h3 class="text-[17px] font-bold">Make admin</h3>
+              <button id="make-admin-close" class="btn-icon" style="width:32px;height:32px;border:none;"><i data-lucide="x" style="width:16px;height:16px;color:var(--text-muted);"></i></button>
+            </div>
+            <p class="text-[13px] text-muted mb-3">You're about to give <b id="make-admin-name"></b> full admin access — they'll be able to see and manage every user's data, create and delete accounts, and promote others. To confirm, enter <b>your</b> password.</p>
+            <input id="make-admin-password" type="password" autocomplete="current-password" class="input" placeholder="Your password" />
+            <div id="make-admin-msg" class="text-[12.5px] font-medium mt-2" style="color:#D63333;"></div>
+            <div class="flex items-center justify-end gap-2 mt-4">
+              <button type="button" id="make-admin-cancel" class="btn-secondary">Cancel</button>
+              <button type="button" id="make-admin-confirm" class="btn-primary"><i data-lucide="shield-check" style="width:13px;height:13px;"></i> Make admin</button>
+            </div>
+          </div>
+        </div>
+      </div>`;
   }
 
   // Team leader: members + invite + pending.
@@ -786,6 +809,46 @@
       } catch (e) { if (msg) { msg.style.color = '#D63333'; msg.textContent = 'Network error.'; } }
       finally { btn.disabled = false; }
     }));
+
+    // Admin: promote another user to admin — gated by a password-confirm modal.
+    const maModal = document.getElementById('make-admin-modal');
+    function closeMakeAdmin() { if (maModal) maModal.classList.add('hidden'); }
+    document.querySelectorAll('[data-make-admin]').forEach(btn => btn.addEventListener('click', () => {
+      if (!maModal) return;
+      maModal.dataset.userId = btn.getAttribute('data-make-admin');
+      document.getElementById('make-admin-name').textContent = btn.getAttribute('data-user-name') || 'this user';
+      document.getElementById('make-admin-password').value = '';
+      document.getElementById('make-admin-msg').textContent = '';
+      maModal.classList.remove('hidden');
+      document.getElementById('make-admin-password').focus();
+    }));
+    if (maModal) {
+      document.getElementById('make-admin-close').addEventListener('click', closeMakeAdmin);
+      document.getElementById('make-admin-cancel').addEventListener('click', closeMakeAdmin);
+      document.getElementById('make-admin-backdrop').addEventListener('click', closeMakeAdmin);
+      const confirmBtn = document.getElementById('make-admin-confirm');
+      confirmBtn.addEventListener('click', async () => {
+        const id = maModal.dataset.userId;
+        const m = document.getElementById('make-admin-msg');
+        const password = document.getElementById('make-admin-password').value;
+        if (!password) { m.style.color = '#D63333'; m.textContent = 'Enter your password to confirm.'; return; }
+        confirmBtn.disabled = true;
+        m.style.color = 'var(--text-muted)'; m.textContent = 'Confirming…';
+        try {
+          const res = await fetch('/api/admin/users/' + id + '/promote-admin', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+            body: JSON.stringify({ password })
+          });
+          const body = await res.json().catch(() => ({}));
+          if (!res.ok) { m.style.color = '#D63333'; m.textContent = body.error || 'Could not promote the user.'; return; }
+          closeMakeAdmin();
+          const rmsg = document.getElementById('roles-msg');
+          if (rmsg) { rmsg.style.color = '#138A4B'; rmsg.textContent = 'That user is now an admin.'; }
+          bindRoles();
+        } catch (e) { m.style.color = '#D63333'; m.textContent = 'Network error.'; }
+        finally { confirmBtn.disabled = false; }
+      });
+    }
 
     // Leader: invite.
     const inviteBtn = document.getElementById('invite-btn');
