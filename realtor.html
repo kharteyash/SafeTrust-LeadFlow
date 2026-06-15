@@ -151,7 +151,14 @@
             </div>
             <div>
               <label class="text-[12px] font-semibold text-muted">Credit score</label>
-              <input name="creditScore" maxlength="40" class="input mt-1" placeholder="e.g. 720" />
+              <select name="creditScore" class="input mt-1" style="cursor:pointer;">
+                <option value="">Select…</option>
+                <option value="&lt;580">&lt;580</option>
+                <option value="581-620">581-620</option>
+                <option value="621-680">621-680</option>
+                <option value="681-740">681-740</option>
+                <option value="741+">741+</option>
+              </select>
             </div>
           </div>
           <div>
@@ -394,7 +401,8 @@
           <button id="rp-chat-close" class="btn-icon" style="width:32px;height:32px;border:none;"><i data-lucide="x" style="width:16px;height:16px;color:var(--text-muted);"></i></button>
         </div>
         <div id="rp-chat" class="px-4 py-3 flex flex-col gap-2" style="flex:1;overflow-y:auto;"></div>
-        <div class="p-3 flex items-center gap-2" style="border-top:1px solid var(--border);">
+        <div id="rp-chat-emojis" class="px-3 pt-2 flex items-center gap-1 flex-wrap" style="border-top:1px solid var(--border);"></div>
+        <div class="px-3 pb-3 pt-2 flex items-center gap-2">
           <input id="rp-chat-input" class="input" style="flex:1;" placeholder="Type a message…" maxlength="4000" autocomplete="off" />
           <button id="rp-chat-send" class="btn-primary" style="padding:8px 14px;"><i data-lucide="send" style="width:14px;height:14px;"></i></button>
         </div>
@@ -402,6 +410,6 @@
     </div>
   </div>
 
-  <script src="js/realtor.js?v=20260616k"></script>
+  <script src="js/realtor.js?v=20260616l"></script>
 </body>
 </html>

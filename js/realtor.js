@@ -1159,10 +1159,32 @@
     loadChat(true);
   }
   function closeChat() { document.getElementById('rp-chat-modal').classList.add('hidden'); }
+  // Quick emojis relevant to a loan-officer / realtor conversation.
+  const CHAT_EMOJIS = ['🏠', '🏡', '🔑', '📄', '✍️', '🤝', '💰', '📊', '📈', '📅', '📞', '📧', '✅', '👍', '🎉', '⏳'];
+  function insertEmoji(inputId, em) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+    const start = input.selectionStart != null ? input.selectionStart : input.value.length;
+    const end = input.selectionEnd != null ? input.selectionEnd : input.value.length;
+    input.value = input.value.slice(0, start) + em + input.value.slice(end);
+    const pos = start + em.length;
+    input.focus();
+    try { input.setSelectionRange(pos, pos); } catch (e) {}
+  }
+  function renderEmojiRow(hostId, inputId) {
+    const host = document.getElementById(hostId);
+    if (!host) return;
+    host.innerHTML = CHAT_EMOJIS.map(e => `<button type="button" data-emoji="${e}" title="${e}" style="font-size:18px;line-height:1;padding:3px 5px;border:none;background:none;cursor:pointer;border-radius:6px;">${e}</button>`).join('');
+    host.addEventListener('click', (ev) => {
+      const b = ev.target.closest('[data-emoji]');
+      if (b) insertEmoji(inputId, b.getAttribute('data-emoji'));
+    });
+  }
   function startChat(officerName) {
     if (officerName) document.getElementById('rp-chat-officer').textContent = officerName.split(/\s+/)[0] || 'your loan officer';
     if (chatStarted) return;
     chatStarted = true;
+    renderEmojiRow('rp-chat-emojis', 'rp-chat-input');
     document.getElementById('rp-chat-btn').addEventListener('click', openChat);
     document.getElementById('rp-chat-close').addEventListener('click', closeChat);
     document.getElementById('rp-chat-backdrop').addEventListener('click', closeChat);

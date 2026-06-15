@@ -1205,8 +1205,16 @@ function scoreRealtorLead(l) {
   else if (fin === 'Paying cash') { score += 28; why.push('Paying cash'); }
   else if (fin === 'Needs a lender') { score += 12; why.push('Needs a lender'); }
   else if (fin === 'Not sure') { score += 5; }
-  const cs = parseInt(String(l.credit_score || '').replace(/\D/g, ''), 10);
-  if (!isNaN(cs) && cs >= 100) { if (cs >= 740) { score += 12; why.push(`${cs} credit`); } else if (cs >= 680) { score += 8; why.push(`${cs} credit`); } else if (cs >= 620) { score += 4; } }
+  const cred = String(l.credit_score || '').trim();
+  const credMap = { '741+': 12, '681-740': 8, '621-680': 4, '581-620': 2, '<580': 0 };
+  if (Object.prototype.hasOwnProperty.call(credMap, cred)) {
+    score += credMap[cred];
+    if (credMap[cred] >= 8) why.push(`${cred} credit`);
+  } else {
+    // Fallback for any free-text value: use the first 3-digit number.
+    const m = cred.match(/\d{3}/); const cs = m ? +m[0] : NaN;
+    if (!isNaN(cs)) { if (cs >= 740) { score += 12; why.push(`${cs} credit`); } else if (cs >= 680) { score += 8; why.push(`${cs} credit`); } else if (cs >= 620) { score += 4; } }
+  }
   if (String(l.assets || '').trim()) { score += 4; }
   const priority = score >= 55 ? 'High' : score >= 28 ? 'Medium' : 'Low';
   let reason = why.slice(0, 3).join(' · ') || 'Follow up';

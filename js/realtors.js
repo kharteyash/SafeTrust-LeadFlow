@@ -379,11 +379,31 @@
     chatId = null;
     loadLogins().then(renderLogins);   // refresh unread badges after reading
   }
+  // Quick emojis relevant to a loan-officer / realtor conversation.
+  const CHAT_EMOJIS = ['🏠', '🏡', '🔑', '📄', '✍️', '🤝', '💰', '📊', '📈', '📅', '📞', '📧', '✅', '👍', '🎉', '⏳'];
+  function renderChatEmojis() {
+    const host = document.getElementById('rchat-emojis');
+    if (!host) return;
+    host.innerHTML = CHAT_EMOJIS.map(e => `<button type="button" data-emoji="${e}" title="${e}" style="font-size:18px;line-height:1;padding:3px 5px;border:none;background:none;cursor:pointer;border-radius:6px;">${e}</button>`).join('');
+    host.addEventListener('click', (ev) => {
+      const b = ev.target.closest('[data-emoji]');
+      if (!b) return;
+      const input = document.getElementById('rchat-input');
+      const em = b.getAttribute('data-emoji');
+      const start = input.selectionStart != null ? input.selectionStart : input.value.length;
+      const end = input.selectionEnd != null ? input.selectionEnd : input.value.length;
+      input.value = input.value.slice(0, start) + em + input.value.slice(end);
+      const pos = start + em.length;
+      input.focus();
+      try { input.setSelectionRange(pos, pos); } catch (e) {}
+    });
+  }
   function bindChat() {
     document.getElementById('rchat-close').addEventListener('click', closeChat);
     document.getElementById('rchat-backdrop').addEventListener('click', closeChat);
     document.getElementById('rchat-send').addEventListener('click', sendChat);
     document.getElementById('rchat-input').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); sendChat(); } });
+    renderChatEmojis();
   }
 
   document.addEventListener('DOMContentLoaded', async function () {
