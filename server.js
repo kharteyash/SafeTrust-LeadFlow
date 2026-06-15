@@ -410,6 +410,18 @@ app.use(async (req, res, next) => {
   next();
 });
 
+// Sandbox realtor accounts: an external realtor may only use the portal and their
+// own account basics. This guarantees they can never reach loan-officer features
+// (sending email, leads, campaigns, etc.) even by calling the API directly — they
+// have no business sending mail through the company's system.
+const REALTOR_API_ALLOW = new Set(['/api/me', '/api/logout', '/api/change-password', '/api/realtor/portal']);
+app.use((req, res, next) => {
+  if (req.user && req.user.role === 'realtor' && req.path.startsWith('/api/') && !REALTOR_API_ALLOW.has(req.path)) {
+    return res.status(403).json({ error: 'Not available for realtor accounts.' });
+  }
+  next();
+});
+
 // Wraps a route handler (sync or async) so any thrown/rejected error becomes a JSON 500.
 function safe(handler) {
   return (req, res, next) => {
