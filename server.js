@@ -432,6 +432,14 @@ app.set('trust proxy', 1); // behind Render/most PaaS proxies, for secure cookie
 app.use(express.json());
 app.use(cookieParser());
 
+// API responses must never be cached by the browser — otherwise stale data (e.g.
+// a cached /api/me still flagged "must change password", or an old chat thread)
+// reappears until a hard refresh.
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/')) res.set('Cache-Control', 'no-store');
+  next();
+});
+
 // Resolve req.user from the session cookie — only for pages and API calls
 // (skip static assets to avoid a DB hit per file).
 app.use(async (req, res, next) => {
