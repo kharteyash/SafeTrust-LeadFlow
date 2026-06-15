@@ -179,7 +179,7 @@
       <tbody>
         ${rows.length ? rows.map(l => `
           <tr>
-            <td><span class="font-semibold text-[13px]">${esc(l.name)}</span></td>
+            <td><span class="font-semibold text-[13px]" data-rl-view="${l.id}" style="cursor:pointer;color:var(--accent);">${esc(l.name)}</span></td>
             <td class="text-muted">${[l.phone, l.email].filter(Boolean).map(esc).join('<br>') || '—'}</td>
             <td>${l.intent ? `<span class="pill ${intentPill(l.intent)}">${esc(l.intent)}</span>` : '<span class="text-soft">—</span>'}</td>
             <td>${esc(l.timeline) || '<span class="text-soft">—</span>'}</td>
@@ -298,8 +298,10 @@
       handleImportFile(f);
       e.target.value = '';
     });
-    // Delegated delete on the leads table (table is re-rendered, so listen on the view).
+    // Delegated actions on the leads table (table is re-rendered, so listen on the view).
     document.getElementById('rp-view').addEventListener('click', async (e) => {
+      const view = e.target.closest('[data-rl-view]');
+      if (view) { openLeadDetail(view.getAttribute('data-rl-view')); return; }
       const del = e.target.closest('[data-del-lead]');
       if (!del) return;
       const id = del.getAttribute('data-del-lead');
@@ -564,26 +566,48 @@
     finally { btn.disabled = false; btn.style.opacity = ''; }
   }
 
-  // Detail modal
-  function openContactDetail(kind, id) {
-    const p = rcPeople().find(x => x.kind === kind && String(x.id) === String(id));
-    if (!p) return;
+  // Shared detail modal (contacts + leads). Phone/email rows get action buttons.
+  function actBtn(href, icon, title, color, blank) {
+    return `<a href="${escAttr(href)}" ${blank ? 'target="_blank" rel="noopener"' : ''} class="btn-icon" title="${title}" style="width:26px;height:26px;"><i data-lucide="${icon}" style="width:13px;height:13px;color:${color};pointer-events:none;"></i></a>`;
+  }
+  function phoneActions(ph) {
+    let h = '';
+    if (telLink(ph)) h += actBtn(telLink(ph), 'phone', 'Call', '#2255a3', false);
+    if (smsLink(ph)) h += actBtn(smsLink(ph), 'message-square', 'Text', '#2255a3', false);
+    if (waLink(ph)) h += actBtn(waLink(ph), 'message-circle', 'WhatsApp', '#138A4B', true);
+    return h;
+  }
+  function detailRow(label, val, actions) {
+    if (!val) return '';
+    return `<div class="flex items-center justify-between gap-4 py-2" style="border-bottom:1px solid var(--border-soft);">
+      <span class="text-[12.5px] text-muted flex-shrink-0">${esc(label)}</span>
+      <span class="text-[13px] font-medium text-right" style="display:flex;align-items:center;gap:6px;justify-content:flex-end;word-break:break-word;">${esc(val)}${actions || ''}</span>
+    </div>`;
+  }
+  function renderPersonDetail(p) {
     document.getElementById('rc-detail-title').textContent = p.name || 'Details';
     const r = p.raw || {};
-    const row = (label, val) => val ? `<div class="flex justify-between gap-4 py-2" style="border-bottom:1px solid var(--border-soft);"><span class="text-[12.5px] text-muted">${esc(label)}</span><span class="text-[13px] font-medium text-right" style="word-break:break-word;">${esc(val)}</span></div>` : '';
     let rows = '';
-    rows += row('Type', p.type);
-    rows += row('Email', p.email);
-    rows += row('Phone', p.phone);
-    rows += row('Company', p.company);
-    if (kind === 'lead') {
-      rows += row('Looking to', r.intent); rows += row('Timeline', r.timeline); rows += row('Budget', r.budget);
-      rows += row('Property type', r.propertyType); rows += row('Area', r.area); rows += row('Financing', r.financing);
-      rows += row('Credit score', r.creditScore); rows += row('Assets', r.assets); rows += row('Notes', r.notes);
+    rows += detailRow('Type', p.type);
+    rows += detailRow('Phone', p.phone, p.phone ? phoneActions(p.phone) : '');
+    rows += detailRow('Email', p.email, p.email ? actBtn(gmailCompose(p.email), 'mail', 'Email', '#2255a3', true) : '');
+    rows += detailRow('Company', p.company);
+    if (p.kind === 'lead') {
+      rows += detailRow('Looking to', r.intent); rows += detailRow('Timeline', r.timeline); rows += detailRow('Budget', r.budget);
+      rows += detailRow('Property type', r.propertyType); rows += detailRow('Area', r.area); rows += detailRow('Financing', r.financing);
+      rows += detailRow('Credit score', r.creditScore); rows += detailRow('Assets', r.assets); rows += detailRow('Notes', r.notes);
     }
     document.getElementById('rc-detail-body').innerHTML = rows || '<div class="text-[13px] text-muted py-2">No details.</div>';
     document.getElementById('rc-detail').classList.remove('hidden');
     if (window.lucide) lucide.createIcons();
+  }
+  function openContactDetail(kind, id) {
+    const p = rcPeople().find(x => x.kind === kind && String(x.id) === String(id));
+    if (p) renderPersonDetail(p);
+  }
+  function openLeadDetail(id) {
+    const l = rlLeads.find(x => String(x.id) === String(id));
+    if (l) renderPersonDetail({ kind: 'lead', name: l.name, email: l.email || '', phone: l.phone || '', company: '', type: 'Lead', raw: l });
   }
   function closeContactDetail() { document.getElementById('rc-detail').classList.add('hidden'); }
 
