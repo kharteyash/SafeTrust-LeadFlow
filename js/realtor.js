@@ -643,9 +643,13 @@
   function actBtn(href, icon, title, color, blank) {
     return `<a href="${escAttr(href)}" ${blank ? 'target="_blank" rel="noopener"' : ''} class="btn-icon" title="${title}" style="width:26px;height:26px;"><i data-lucide="${icon}" style="width:13px;height:13px;color:${color};pointer-events:none;"></i></a>`;
   }
-  function phoneActions(ph) {
+  function phoneActions(ph, logTarget) {
     let h = '';
-    if (telLink(ph)) h += actBtn(telLink(ph), 'phone', 'Call', '#2255a3', false);
+    if (telLink(ph)) {
+      // For leads, the Call button also opens the log-call modal so the call gets recorded.
+      const dataAttr = logTarget ? ` data-rk-callnow="${logTarget.leadId}" data-rk-name="${escAttr(logTarget.name)}" data-rk-phone="${escAttr(logTarget.phone || '')}"` : '';
+      h += `<a href="${escAttr(telLink(ph))}"${dataAttr} class="btn-icon" title="${logTarget ? 'Call & log' : 'Call'}" style="width:26px;height:26px;"><i data-lucide="phone" style="width:13px;height:13px;color:#2255a3;pointer-events:none;"></i></a>`;
+    }
     if (smsLink(ph)) h += actBtn(smsLink(ph), 'message-square', 'Text', '#2255a3', false);
     if (waLink(ph)) h += actBtn(waLink(ph), 'message-circle', 'WhatsApp', '#138A4B', true);
     return h;
@@ -662,7 +666,7 @@
     const r = p.raw || {};
     let rows = '';
     rows += detailRow('Type', p.type);
-    rows += detailRow('Phone', p.phone, p.phone ? phoneActions(p.phone) : '');
+    rows += detailRow('Phone', p.phone, p.phone ? phoneActions(p.phone, p.kind === 'lead' ? { leadId: r.id, name: p.name, phone: p.phone } : null) : '');
     rows += detailRow('Email', p.email, p.email ? actBtn(gmailCompose(p.email), 'mail', 'Email', '#2255a3', true) : '');
     rows += detailRow('Company', p.company);
     if (p.kind === 'lead') {
@@ -1022,7 +1026,7 @@
             <td>${esc(p.phone)}</td>
             <td>
               <div class="flex items-center gap-1">
-                ${telLink(p.phone) ? `<a href="${escAttr(telLink(p.phone))}" class="btn-icon" title="Call" style="width:30px;height:30px;"><i data-lucide="phone" style="width:13px;height:13px;color:#2255a3;pointer-events:none;"></i></a>` : ''}
+                ${telLink(p.phone) ? `<a href="${escAttr(telLink(p.phone))}" data-rk-callnow="${p.leadId}" data-rk-name="${escAttr(p.name)}" data-rk-phone="${escAttr(p.phone)}" class="btn-icon" title="Call & log" style="width:30px;height:30px;"><i data-lucide="phone" style="width:13px;height:13px;color:#2255a3;pointer-events:none;"></i></a>` : ''}
                 ${smsLink(p.phone) ? `<a href="${escAttr(smsLink(p.phone))}" class="btn-icon" title="Text" style="width:30px;height:30px;"><i data-lucide="message-square" style="width:13px;height:13px;color:#2255a3;pointer-events:none;"></i></a>` : ''}
                 <button class="btn-secondary" data-rk-log="${p.leadId}" data-rk-name="${escAttr(p.name)}" data-rk-phone="${escAttr(p.phone)}" style="padding:5px 10px;font-size:12px;">Log call</button>
               </div>
@@ -1076,6 +1080,12 @@
     document.getElementById('rk-cancel').addEventListener('click', closeLogCall);
     document.getElementById('rk-backdrop').addEventListener('click', closeLogCall);
     document.getElementById('rk-save').addEventListener('click', saveLogCall);
+    // Clicking "Call" anywhere (queue or a lead's detail modal) dials via the
+    // tel: link AND opens the log modal so the call gets recorded right after.
+    document.addEventListener('click', (e) => {
+      const callBtn = e.target.closest('[data-rk-callnow]');
+      if (callBtn) openLogCall({ leadId: parseInt(callBtn.getAttribute('data-rk-callnow'), 10) || null, name: callBtn.getAttribute('data-rk-name'), phone: callBtn.getAttribute('data-rk-phone') || '' });
+    });
     document.getElementById('rp-view').addEventListener('click', (e) => {
       const b = e.target.closest('[data-rk-log]');
       if (b) openLogCall({ leadId: parseInt(b.getAttribute('data-rk-log'), 10) || null, name: b.getAttribute('data-rk-name'), phone: b.getAttribute('data-rk-phone') || '' });
