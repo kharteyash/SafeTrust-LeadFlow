@@ -597,9 +597,17 @@
       rows += detailRow('Property type', r.propertyType); rows += detailRow('Area', r.area); rows += detailRow('Financing', r.financing);
       rows += detailRow('Credit score', r.creditScore); rows += detailRow('Assets', r.assets); rows += detailRow('Notes', r.notes);
     }
-    document.getElementById('rc-detail-body').innerHTML = rows || '<div class="text-[13px] text-muted py-2">No details.</div>';
+    const editBtn = p.kind === 'contact'
+      ? `<div class="mt-4 flex justify-end"><button id="rc-detail-edit" class="btn-secondary" style="font-size:12.5px;"><i data-lucide="pencil" style="width:13px;height:13px;"></i> Edit</button></div>` : '';
+    document.getElementById('rc-detail-body').innerHTML = (rows || '<div class="text-[13px] text-muted py-2">No details.</div>') + editBtn;
     document.getElementById('rc-detail').classList.remove('hidden');
     if (window.lucide) lucide.createIcons();
+    const eb = document.getElementById('rc-detail-edit');
+    if (eb) eb.addEventListener('click', () => {
+      closeContactDetail();
+      const c = rcContacts.find(x => String(x.id) === String(p.id));
+      if (c) openContactModal(c);
+    });
   }
   function openContactDetail(kind, id) {
     const p = rcPeople().find(x => x.kind === kind && String(x.id) === String(id));
