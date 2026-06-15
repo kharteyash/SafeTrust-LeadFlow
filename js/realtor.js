@@ -335,28 +335,45 @@
   }
 
   // ----- First-login password gate -----
+  // Delegated submit so it works no matter when the form mounts, and a single
+  // try/catch so nothing can fail silently and leave a dead button.
+  let gateSaving = false;
+  async function doGateSave() {
+    if (gateSaving) return;
+    const msg = document.getElementById('rp-gate-msg');
+    const setMsg = (t) => { if (msg) { msg.style.color = '#D63333'; msg.textContent = t; } };
+    const btn = document.getElementById('rp-gate-save');
+    try {
+      gateSaving = true;
+      const cur = (document.getElementById('rp-cur') || {}).value || '';
+      const nw = (document.getElementById('rp-new') || {}).value || '';
+      const nw2 = (document.getElementById('rp-new2') || {}).value || '';
+      if (!cur || !nw) { setMsg('Fill in all fields.'); return; }
+      if (nw.length < 6) { setMsg('New password must be at least 6 characters.'); return; }
+      if (nw !== nw2) { setMsg('The new passwords don’t match.'); return; }
+      if (btn) { btn.disabled = true; btn.style.opacity = '0.7'; }
+      const res = await api('/api/change-password', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ currentPassword: cur, newPassword: nw })
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) { setMsg(body.error || `Could not update your password (HTTP ${res.status}).`); return; }
+      // Reload so fresh /api/me (no longer flagged) renders the portal directly.
+      window.location.reload();
+    } catch (e) {
+      setMsg('Something went wrong: ' + ((e && e.message) || e));
+    } finally {
+      gateSaving = false;
+      if (btn) { btn.disabled = false; btn.style.opacity = ''; }
+    }
+  }
   function bindGate() {
-    document.getElementById('rp-gate-save').addEventListener('click', async () => {
-      const cur = document.getElementById('rp-cur').value;
-      const nw = document.getElementById('rp-new').value;
-      const nw2 = document.getElementById('rp-new2').value;
-      const msg = document.getElementById('rp-gate-msg');
-      msg.style.color = '#D63333';
-      if (!cur || !nw) { msg.textContent = 'Fill in all fields.'; return; }
-      if (nw.length < 6) { msg.textContent = 'New password must be at least 6 characters.'; return; }
-      if (nw !== nw2) { msg.textContent = 'The new passwords don’t match.'; return; }
-      const btn = document.getElementById('rp-gate-save');
-      btn.disabled = true; btn.style.opacity = '0.7';
-      try {
-        const res = await api('/api/change-password', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ currentPassword: cur, newPassword: nw })
-        });
-        const body = await res.json().catch(() => ({}));
-        if (!res.ok) { msg.textContent = body.error || 'Could not update your password.'; return; }
-        enterPortal();
-      } catch (e) { msg.textContent = 'Network error.'; }
-      finally { btn.disabled = false; btn.style.opacity = ''; }
+    // Delegated on document — robust against timing / stale markup.
+    document.addEventListener('submit', (e) => {
+      if (e.target && e.target.id === 'rp-gate-form') { e.preventDefault(); doGateSave(); }
+    });
+    document.addEventListener('click', (e) => {
+      if (e.target && e.target.closest && e.target.closest('#rp-gate-save')) { e.preventDefault(); doGateSave(); }
     });
   }
 
