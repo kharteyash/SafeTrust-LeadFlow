@@ -60,6 +60,14 @@ const addDaysStr = (ymd, n) => {
   d.setDate(d.getDate() + n);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
+// Master automation switches (both default ON). `kind` is 'emails' or 'tasks'.
+// When a user turns one off in Settings, the matching generators no-op for them.
+async function autoEnabled(userId, kind) {
+  const col = kind === 'emails' ? 'auto_emails_enabled' : 'auto_tasks_enabled';
+  const r = await one(`SELECT ${col} AS v FROM users WHERE id = $1`, [userId]);
+  return !r || r.v !== false;     // NULL / missing user → treated as ON
+}
+
 // Create a task only if an open (not-done) one with the same title doesn't already
 // exist for the user — so automations don't pile up duplicates.
 async function createTaskOnce(userId, { title, due, priority, leadId }) {
@@ -99,6 +107,10 @@ const SCHEMA = `
   -- Daily digest email: on by default; last_digest_at gates one send per day.
   ALTER TABLE users ADD COLUMN IF NOT EXISTS digest_enabled BOOLEAN DEFAULT TRUE;
   ALTER TABLE users ADD COLUMN IF NOT EXISTS last_digest_at DATE;
+  -- Master switches for the automation engine (both on by default). When off,
+  -- no new automatic emails / tasks+call-queue items are scheduled for the user.
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS auto_emails_enabled BOOLEAN DEFAULT TRUE;
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS auto_tasks_enabled BOOLEAN DEFAULT TRUE;
 
   -- Team join invitations (a leader invites a user; the user accepts/rejects).
   CREATE TABLE IF NOT EXISTS team_invites (
@@ -351,7 +363,7 @@ async function loadUserFromSession(sid) {
   if (!sid) return null;
   const row = await one(`
     SELECT u.id, u.email, u.name, u.phone, u.title, u.bio, u.role, u.leader_id, u.photo,
-           u.must_change_password, l.name AS leader_name
+           u.must_change_password, u.auto_emails_enabled, u.auto_tasks_enabled, l.name AS leader_name
     FROM sessions s JOIN users u ON u.id = s.user_id
     LEFT JOIN users l ON l.id = u.leader_id
     WHERE s.id = $1 AND s.expires_at > now()
@@ -361,7 +373,9 @@ async function loadUserFromSession(sid) {
     id: row.id, email: row.email, name: row.name,
     phone: row.phone || '', title: row.title || '', bio: row.bio || '',
     role: row.role || 'user', leaderId: row.leader_id || null, leaderName: row.leader_name || '',
-    photo: row.photo || '', mustChangePassword: !!row.must_change_password
+    photo: row.photo || '', mustChangePassword: !!row.must_change_password,
+    // Default to ON when the column is NULL (existing rows before this feature).
+    autoEmails: row.auto_emails_enabled !== false, autoTasks: row.auto_tasks_enabled !== false
   };
 }
 
@@ -981,8 +995,9 @@ app.post('/api/call-log', safe(async (req, res) => {
     VALUES ($1, $2, $3, 'outbound', $4, $5, $6, $7, $8, $9) RETURNING id
   `, [req.user.id, name.trim(), (phone || '').trim(), dur, outcome, note, agent, isRealtor, loggedAt]);
 
-  // Automations for a missed / voicemail / no-answer call:
-  if (noTalk) {
+  // Automations for a missed / voicemail / no-answer call (skipped when the user
+  // has turned off automatic tasks & call queue).
+  if (noTalk && req.user.autoTasks !== false) {
     // #5: re-add the call to the queue in 3 days (deduped on name+date+reason).
     try {
       const retryDate = addDaysStr(serverToday(), 3);
@@ -1019,6 +1034,7 @@ const CALL_PRIORITIES = ['High', 'Medium', 'Low'];
 // claim-and-advance per cadence means concurrent calls can't create duplicates.
 const REALTOR_CADENCES = { established: 14, developing: 7, dormant: 30, past: 60 };
 async function ensureRealtorTouchbases(userId) {
+  if (!(await autoEnabled(userId, 'tasks'))) return;
   const today = serverToday();
   for (const [rel, days] of Object.entries(REALTOR_CADENCES)) {
     // `days` is a trusted constant, so it's safe to inline in the interval.
@@ -1042,6 +1058,7 @@ async function ensureRealtorTouchbases(userId) {
 // queue, once each (hot_queued_at marks it, so deleting the entry won't re-add,
 // and logging a call removes them from the pool). Race-safe atomic claim.
 async function ensureHotLeadQueue(userId) {
+  if (!(await autoEnabled(userId, 'tasks'))) return;
   const today = serverToday();
   const claimed = await q(`UPDATE leads SET hot_queued_at = $2::date
      WHERE user_id = $1 AND score >= 81 AND hot_queued_at IS NULL
@@ -1058,6 +1075,7 @@ async function ensureHotLeadQueue(userId) {
 // call queued (so it never doubles up with the hot-lead queue or a prior cycle).
 const LEAD_CALL_CADENCES = { 'Buying Immediately': 2, '1-3 Months': 7, '3-6 Months': 14, '6+ Months': 30 };
 async function ensureLeadCallCadence(userId) {
+  if (!(await autoEnabled(userId, 'tasks'))) return;
   const today = serverToday();
   for (const [timeline, days] of Object.entries(LEAD_CALL_CADENCES)) {
     const due = await q(`UPDATE leads SET next_call_at = $2::date + ${days}
@@ -1547,6 +1565,7 @@ function buildAutoEmail(kind, settings, recipient, senderName) {
 // Create any due auto emails. Pass a userId to scope to one user (cheap, for the
 // scheduled view); omit to process everyone (used by the dispatcher).
 async function ensureAnniversaryMessages(userId) {
+  if (userId && !(await autoEnabled(userId, 'emails'))) return;
   const now = new Date();
   const horizon = new Date(now.getTime() + AUTO_WINDOW_DAYS * 86400000);
   const closed = userId
@@ -1612,6 +1631,7 @@ async function ensureAnniversaryMessages(userId) {
 const POST_CLOSE_SCHEDULE = [{ key: 'pc7', day: 7 }, { key: 'pc30', day: 30 }, { key: 'pc90', day: 90 }, { key: 'pc180', day: 180 }];
 
 async function ensurePostCloseMessages(userId) {
+  if (userId && !(await autoEnabled(userId, 'emails'))) return;
   const now = new Date();
   const horizon = new Date(now.getTime() + AUTO_WINDOW_DAYS * 86400000);
   const stale = new Date(now.getTime() - 14 * 86400000);   // don't back-blast old clients
@@ -1662,6 +1682,7 @@ async function ensurePostCloseMessages(userId) {
 // (closed clients are handled by ensureAnniversaryMessages). Uses the editable
 // birthday template, sent at 9am in the owner's timezone, deduped per year.
 async function ensureBirthdayMessages(userId) {
+  if (userId && !(await autoEnabled(userId, 'emails'))) return;
   const now = new Date();
   const horizon = new Date(now.getTime() + AUTO_WINDOW_DAYS * 86400000);
   const connRows = await q('SELECT user_id FROM google_accounts');
@@ -1720,8 +1741,24 @@ app.get('/api/auto-email-settings', safe(async (req, res) => {
     defaults: DEFAULT_AUTO,
     extraDefs: AUTO_EXTRA_DEFS.map(d => ({ key: d.key, group: d.group, label: d.label })),
     extraDefaults: DEFAULT_AUTO_EXTRA,
-    timezones: SUPPORTED_TIMEZONES
+    timezones: SUPPORTED_TIMEZONES,
+    automation: { emails: req.user.autoEmails !== false, tasks: req.user.autoTasks !== false }
   });
+}));
+
+// Master automation switches (auto emails, auto tasks/call-queue). Either field
+// may be sent; omitted fields are left unchanged.
+app.put('/api/automation-prefs', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  const b = req.body || {};
+  if (b.emails != null) {
+    await pool.query('UPDATE users SET auto_emails_enabled = $1 WHERE id = $2', [!!b.emails, req.user.id]);
+  }
+  if (b.tasks != null) {
+    await pool.query('UPDATE users SET auto_tasks_enabled = $1 WHERE id = $2', [!!b.tasks, req.user.id]);
+  }
+  const r = await one('SELECT auto_emails_enabled, auto_tasks_enabled FROM users WHERE id = $1', [req.user.id]);
+  res.json({ ok: true, automation: { emails: r.auto_emails_enabled !== false, tasks: r.auto_tasks_enabled !== false } });
 }));
 app.put('/api/auto-email-settings', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
@@ -1917,18 +1954,19 @@ async function dispatchScheduled(req, res) {
     (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
   if (provided !== secret) return res.status(401).json({ error: 'Unauthorized.' });
 
-  // Materialize any newly-due birthday / anniversary emails before sending.
-  try { await ensureAnniversaryMessages(); } catch (e) { console.error('auto-email gen:', e); }
-  // #1 post-close nurture (+7/+30/+90/+180 day check-ins for closed clients).
-  try { await ensurePostCloseMessages(); } catch (e) { console.error('post-close gen:', e); }
-  // #3 birthday emails for leads + contacts with a birthday on file.
-  try { await ensureBirthdayMessages(); } catch (e) { console.error('birthday gen:', e); }
-  // #2 new-lead drip + 15-day nurture: per connected user (these query live leads).
+  // Materialize any newly-due automatic emails before sending — per user, so each
+  // person's "Automatic emails" switch is respected. Only users who have it on AND
+  // connected Google get anything (the generators self-skip otherwise).
   try {
-    const conn = await q('SELECT user_id FROM google_accounts');
-    for (const r of conn) {
-      try { await ensureLeadDripMessages(r.user_id); } catch (e) { console.error('drip gen:', e); }
-      try { await ensureNurtureMessages(r.user_id); } catch (e) { console.error('nurture gen:', e); }
+    const users = await q(`SELECT id FROM users
+       WHERE COALESCE(auto_emails_enabled, true) = true AND id IN (SELECT user_id FROM google_accounts)`);
+    for (const u of users) {
+      const uid = u.id;
+      try { await ensureAnniversaryMessages(uid); } catch (e) { console.error('anniversary gen:', e); }
+      try { await ensurePostCloseMessages(uid); } catch (e) { console.error('post-close gen:', e); }
+      try { await ensureBirthdayMessages(uid); } catch (e) { console.error('birthday gen:', e); }
+      try { await ensureLeadDripMessages(uid); } catch (e) { console.error('drip gen:', e); }
+      try { await ensureNurtureMessages(uid); } catch (e) { console.error('nurture gen:', e); }
     }
   } catch (e) { console.error('per-user auto gen:', e); }
   // #14 triggered (recurring) campaigns.
@@ -2162,6 +2200,7 @@ function leadRowToJson(r) {
 // Only for owners who've connected Google (else nothing is scheduled), mirroring
 // the birthday/anniversary auto-emails. Race-safe claim on last_nurture_at.
 async function ensureNurtureMessages(userId) {
+  if (!(await autoEnabled(userId, 'emails'))) return;  // user turned auto emails off
   const conn = await one('SELECT 1 AS x FROM google_accounts WHERE user_id = $1', [userId]);
   if (!conn) return; // no connected email → don't schedule anything
   const today = serverToday();
@@ -2196,6 +2235,7 @@ async function ensureNurtureMessages(userId) {
 const LEAD_DRIP_SCHEDULE = [{ key: 'drip1', day: 0 }, { key: 'drip2', day: 3 }, { key: 'drip3', day: 7 }];
 
 async function ensureLeadDripMessages(userId) {
+  if (!(await autoEnabled(userId, 'emails'))) return;       // user turned auto emails off
   const conn = await one('SELECT 1 AS x FROM google_accounts WHERE user_id = $1', [userId]);
   if (!conn) return;                                        // no connected email → nothing
   const u = await one('SELECT name FROM users WHERE id = $1', [userId]);
@@ -2305,9 +2345,11 @@ app.post('/api/leads', safe(async (req, res) => {
   }
 
   // Automation: every new lead gets a "first contact" task due today.
-  try {
-    await createTaskOnce(req.user.id, { title: `First contact: ${name.trim()}`, due: serverToday(), priority: 'Medium', leadId: row.id });
-  } catch (e) { console.error('first-contact task:', e); }
+  if (req.user.autoTasks !== false) {
+    try {
+      await createTaskOnce(req.user.id, { title: `First contact: ${name.trim()}`, due: serverToday(), priority: 'Medium', leadId: row.id });
+    } catch (e) { console.error('first-contact task:', e); }
+  }
 
   res.json(leadRowToJson({
     id: row.id, name: name.trim(), email: email.trim(), phone: (phone || '').trim(),
@@ -3021,6 +3063,7 @@ const TASK_PRIORITIES = ['High', 'Medium', 'Low'];
 // "reach out" task, re-nudging at most weekly. The atomic claim on last_nudge_at
 // makes it race-safe and dedupe-proof.
 async function ensureStaleLeadTasks(userId) {
+  if (!(await autoEnabled(userId, 'tasks'))) return;
   const today = serverToday();
   const claimed = await q(`UPDATE leads SET last_nudge_at = $2::date
      WHERE user_id = $1

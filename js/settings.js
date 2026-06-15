@@ -26,7 +26,7 @@
     { id: 'profile',         label: 'Profile',             icon: 'user-circle' },
     { id: 'roles',           label: 'Roles & Permissions', icon: 'shield' },
     { id: 'notifications',   label: 'Notifications',       icon: 'bell' },
-    { id: 'autoemails',      label: 'Automated Emails',    icon: 'cake' },
+    { id: 'autoemails',      label: 'Automation',          icon: 'zap' },
     { id: 'integrations',    label: 'Integrations',        icon: 'plug' },
     { id: 'changepassword',  label: 'Change Password',     icon: 'key-round' },
     { id: 'help',            label: 'Help & FAQ',          icon: 'help-circle' }
@@ -61,7 +61,7 @@
     { q: 'Can I email a lead’s realtor in a campaign?',
       a: "Yes — choose the “Realtors (from leads)” audience. It sends to the realtor email addresses saved on your leads, de-duplicated so each realtor is emailed once." },
     { q: 'What automatic emails does LeadFlow send?',
-      a: "Five sequences, all sent from your connected Google account and all editable in Settings → Automated Emails:\n\n• New-lead drip — Day 0 / 3 / 7 emails to a fresh lead, stopping the moment you log a call.\n• 15-day nurture — a check-in to any lead you haven't contacted in 15 days, repeating every 15 days.\n• Post-close — check-ins to a closed client at +7 / +30 / +90 / +180 days.\n• Birthday — a yearly greeting to anyone (lead, realtor/contact, or closed client) who has a birthday on file. Add one on the lead, realtor, or contact form.\n• Loan anniversary — a yearly email to closed clients on their closing date.\n\nEvery one first appears in Messages → Scheduled (tagged “Auto”) so you can edit or dismiss it before it sends. Personalize the wording, signature, and send timezone in Settings → Automated Emails." },
+      a: "Five sequences, all sent from your connected Google account and all editable in Settings → Automation:\n\n• New-lead drip — Day 0 / 3 / 7 emails to a fresh lead, stopping the moment you log a call.\n• 15-day nurture — a check-in to any lead you haven't contacted in 15 days, repeating every 15 days.\n• Post-close — check-ins to a closed client at +7 / +30 / +90 / +180 days.\n• Birthday — a yearly greeting to anyone (lead, realtor/contact, or closed client) who has a birthday on file. Add one on the lead, realtor, or contact form.\n• Loan anniversary — a yearly email to closed clients on their closing date.\n\nEvery one first appears in Messages → Scheduled (tagged “Auto”) so you can edit or dismiss it before it sends. You can turn all automatic emails (or automatic tasks & call queue) on or off, and personalize the wording, signature, and send timezone, in Settings → Automation." },
     { q: 'How do I sync with Google Calendar?',
       a: "On the Calendar page, click Connect/Reconnect Google. Events you create in LeadFlow are added to your Google Calendar, and your Google events appear in LeadFlow (badged “Google”). Your admin must enable the Google Calendar API and add the calendar permission for this to work." },
     { q: 'How does the call queue work?',
@@ -1047,17 +1047,58 @@
   function renderAutoEmails() {
     return `
       <div class="max-w-[760px]">
-        <h3 class="text-[15px] font-semibold mb-1">Automated emails</h3>
-        <p class="text-[12.5px] text-muted mb-4">These emails go out automatically from your connected Google account — the new-lead drip and nurture to active leads, and the post-close, birthday, and anniversary emails to closed clients. Each one lands in Messages as a pending email you can edit or dismiss before it sends. Personalize with <b>{{first_name}}</b>, <b>{{name}}</b>, or <b>{{state}}</b>.</p>
+        <h2 class="text-[18px] font-bold mb-1">Automation</h2>
+        <p class="text-[13px] text-muted mb-4">Control whether LeadFlow schedules things for you automatically, and personalize the emails it sends.</p>
+
+        <div class="rounded-xl mb-6" style="border:1px solid var(--border);">
+          <div class="flex items-center justify-between gap-4 px-4 py-3">
+            <div class="flex-1 min-w-0">
+              <div class="text-[13.5px] font-medium">Automatic emails</div>
+              <div class="text-[12.5px] text-muted">Schedule the new-lead drip, 15-day nurture, post-close, birthday, and anniversary emails. When off, no new ones are scheduled.</div>
+            </div>
+            <div id="auto-toggle-emails" class="lf-switch"></div>
+          </div>
+          <div class="flex items-center justify-between gap-4 px-4 py-3 border-t" style="border-color:var(--border);">
+            <div class="flex-1 min-w-0">
+              <div class="text-[13.5px] font-medium">Automatic tasks &amp; call queue</div>
+              <div class="text-[12.5px] text-muted">Auto-create follow-up tasks, the timeline-based call queue, hot-lead calls, stale-lead nudges, and realtor touch-bases. When off, none are generated.</div>
+            </div>
+            <div id="auto-toggle-tasks" class="lf-switch"></div>
+          </div>
+        </div>
+
+        <h3 class="text-[15px] font-semibold mb-1">Email templates</h3>
+        <p class="text-[12.5px] text-muted mb-4">Each automatic email goes out from your connected Google account and lands in Messages as a pending email you can edit or dismiss before it sends. Personalize with <b>{{first_name}}</b>, <b>{{name}}</b>, or <b>{{state}}</b>.</p>
         <div id="auto-email-wrap" class="text-[13px] text-muted">Loading…</div>
       </div>`;
   }
+  // Wire one master automation switch: reflect state, and PUT on toggle. Reverts
+  // the visual state if the save fails so the switch never lies about what's saved.
+  function bindAutoSwitch(el, field, initialOn) {
+    if (!el) return;
+    el.classList.toggle('on', !!initialOn);
+    el.addEventListener('click', async () => {
+      const newOn = !el.classList.contains('on');
+      el.classList.toggle('on', newOn);
+      try {
+        const r = await fetch('/api/automation-prefs', {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+          body: JSON.stringify({ [field]: newOn })
+        });
+        if (!r.ok) throw new Error('save failed');
+      } catch (e) { el.classList.toggle('on', !newOn); }   // revert on failure
+    });
+  }
+
   async function bindAutoEmails() {
     const wrap = document.getElementById('auto-email-wrap');
     let data = null;
     try { const r = await fetch('/api/auto-email-settings', { credentials: 'same-origin' }); data = r.ok ? await r.json() : null; }
     catch (e) {}
     if (!data) { wrap.innerHTML = '<span style="color:#D63333;">Could not load settings.</span>'; return; }
+    const auto = data.automation || { emails: true, tasks: true };
+    bindAutoSwitch(document.getElementById('auto-toggle-emails'), 'emails', auto.emails);
+    bindAutoSwitch(document.getElementById('auto-toggle-tasks'), 'tasks', auto.tasks);
     const s = data.settings;
     const extraDefs = data.extraDefs || [];
     const tzOpts = data.timezones.map(tz => `<option value="${escapeAttr(tz)}" ${tz === s.tz ? 'selected' : ''}>${escapeHTML(tz.replace(/_/g, ' '))}</option>`).join('');
