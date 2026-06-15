@@ -743,9 +743,16 @@
   function renderClients() {
     const view = document.getElementById('rp-view');
     view.innerHTML = `
-      <div class="mb-5">
-        <h1 class="text-[24px] font-bold tracking-tight">Past Clients</h1>
-        <p class="text-[13.5px] text-muted mt-1">Leads you've closed. Close a lead from the Leads section and it lands here.</p>
+      <div class="flex items-start justify-between mb-5 flex-wrap gap-3">
+        <div>
+          <h1 class="text-[24px] font-bold tracking-tight">Past Clients</h1>
+          <p class="text-[13.5px] text-muted mt-1">Leads you've closed, plus any you add or import directly.</p>
+        </div>
+        <div class="flex items-center gap-2 flex-wrap">
+          <button id="pc-import" class="btn-secondary"><i data-lucide="upload" style="width:14px;height:14px;"></i> Import</button>
+          <button id="pc-export" class="btn-secondary"><i data-lucide="download" style="width:14px;height:14px;"></i> Export</button>
+          <button id="pc-add" class="btn-primary"><i data-lucide="plus" style="width:14px;height:14px;"></i> Add client</button>
+        </div>
       </div>
       <div class="panel">
         <div class="p-5 pb-3 flex items-center justify-between flex-wrap gap-3">
@@ -755,6 +762,7 @@
             <input id="pc-search" class="input pl-9" style="padding-top:7px;padding-bottom:7px;font-size:12.5px;width:240px;" placeholder="Search clients…" />
           </div>
         </div>
+        <div id="pc-import-msg" class="px-5 text-[12.5px] font-medium"></div>
         <div class="overflow-x-auto"><table class="lf-table" id="pc-table"></table></div>
         <div class="p-4 flex items-center justify-between border-t flex-wrap gap-3" style="border-color:var(--border);">
           <span id="pc-summary" class="text-[12.5px] text-muted"></span>
@@ -762,6 +770,9 @@
         </div>
       </div>`;
     document.getElementById('pc-search').addEventListener('input', e => { pcQuery = e.target.value; pcPage = 1; renderClientsTable(); });
+    document.getElementById('pc-add').addEventListener('click', () => openClientModal(null));
+    document.getElementById('pc-import').addEventListener('click', () => document.getElementById('pc-file').click());
+    document.getElementById('pc-export').addEventListener('click', exportClients);
     if (window.lucide) lucide.createIcons();
     loadClients();
   }
@@ -831,15 +842,21 @@
     const c = pcClients.find(x => String(x.id) === String(id));
     if (c) renderPersonDetail({ kind: 'client', name: c.name, email: c.email || '', phone: c.phone || '', company: '', type: 'Past client', raw: c });
   }
-  // Edit past client modal
+  // Add / edit past client modal
   let pcEditingId = null;
   function openClientModal(c) {
     const form = document.getElementById('pc-form');
     form.reset();
-    pcEditingId = c.id;
-    ['name', 'phone', 'email', 'address', 'price', 'notes'].forEach(k => { if (form.elements[k]) form.elements[k].value = c[k] || ''; });
-    form.elements['dealType'].value = c.dealType || '';
-    form.elements['closedDate'].value = c.closedDate || '';
+    pcEditingId = (c && c.id) ? c.id : null;
+    document.getElementById('pc-modal-title').textContent = pcEditingId ? 'Edit past client' : 'Add past client';
+    document.getElementById('pc-submit').textContent = pcEditingId ? 'Save changes' : 'Add client';
+    if (c) {
+      ['name', 'phone', 'email', 'address', 'price', 'notes'].forEach(k => { if (form.elements[k]) form.elements[k].value = c[k] || ''; });
+      form.elements['dealType'].value = c.dealType || '';
+      form.elements['closedDate'].value = c.closedDate || '';
+    } else {
+      form.elements['closedDate'].value = todayStr();
+    }
     document.getElementById('pc-msg').textContent = '';
     document.getElementById('pc-modal').classList.remove('hidden');
     form.elements['name'].focus();
@@ -847,7 +864,6 @@
   function closeClientModal() { document.getElementById('pc-modal').classList.add('hidden'); pcEditingId = null; }
   async function submitClient(e) {
     e.preventDefault();
-    if (!pcEditingId) return;
     const form = document.getElementById('pc-form');
     const data = Object.fromEntries(new FormData(form));
     const msg = document.getElementById('pc-msg');
@@ -855,20 +871,79 @@
     const btn = document.getElementById('pc-submit');
     btn.disabled = true; btn.style.opacity = '0.7';
     try {
-      const res = await api('/api/realtor/clients/' + pcEditingId, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+      const res = await api(pcEditingId ? '/api/realtor/clients/' + pcEditingId : '/api/realtor/clients', {
+        method: pcEditingId ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data)
+      });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) { msg.style.color = '#D63333'; msg.textContent = body.error || 'Could not save the client.'; return; }
-      const i = pcClients.findIndex(x => String(x.id) === String(pcEditingId)); if (i >= 0) pcClients[i] = body;
+      if (pcEditingId) { const i = pcClients.findIndex(x => String(x.id) === String(pcEditingId)); if (i >= 0) pcClients[i] = body; }
+      else pcClients.unshift(body);
       closeClientModal();
       renderClientsTable();
     } catch (e2) { msg.style.color = '#D63333'; msg.textContent = 'Network error.'; }
     finally { btn.disabled = false; btn.style.opacity = ''; }
+  }
+  // Import / export past clients
+  function pcImportMsg(text, kind) {
+    const el = document.getElementById('pc-import-msg'); if (!el) return;
+    el.style.color = kind === 'err' ? '#D63333' : kind === 'ok' ? '#138A4B' : 'var(--text-muted)';
+    el.textContent = text || '';
+  }
+  function mapClientImportRow(obj) {
+    const pick = (re) => { for (const k of Object.keys(obj)) { if (re.test(k)) { const v = String(obj[k] == null ? '' : obj[k]).trim(); if (v) return v; } } return ''; };
+    const norm = (v, list) => { const t = v.toLowerCase(); return list.find(x => x.toLowerCase() === t) || (list.find(x => t.includes(x.toLowerCase())) || ''); };
+    let cd = pick(/closed ?date|close ?date|date/i);
+    const m = /(\d{4})-(\d{1,2})-(\d{1,2})/.exec(cd) || /(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(cd);
+    if (m) { cd = m[1].length === 4 ? `${m[1]}-${String(m[2]).padStart(2, '0')}-${String(m[3]).padStart(2, '0')}` : `${m[3]}-${String(m[1]).padStart(2, '0')}-${String(m[2]).padStart(2, '0')}`; }
+    else cd = '';
+    return {
+      name: pick(/^name$|full ?name|client|contact/i),
+      phone: pick(/phone|mobile|\bcell\b/i),
+      email: pick(/e-?mail/i),
+      dealType: norm(pick(/deal|bought|sold|transaction/i), ['Bought', 'Sold', 'Both']),
+      address: pick(/address|property|location/i),
+      price: pick(/price|sale|amount|value/i),
+      closedDate: cd,
+      notes: pick(/notes?|comments?/i)
+    };
+  }
+  async function handleClientImport(file) {
+    if (!file) return;
+    if (typeof XLSX === 'undefined') { pcImportMsg('Spreadsheet reader failed to load — retry.', 'err'); return; }
+    pcImportMsg('Reading file…');
+    let objs;
+    try {
+      const buf = new Uint8Array(await file.arrayBuffer());
+      const wb = XLSX.read(buf, { type: 'array' });
+      objs = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' });
+    } catch (e) { pcImportMsg('Could not read that file. Use a .csv, .xls, or .xlsx with a header row.', 'err'); return; }
+    const rows = (objs || []).map(mapClientImportRow).filter(r => r.name);
+    if (!rows.length) { pcImportMsg('No rows with a Name column were found.', 'err'); return; }
+    pcImportMsg(`Importing ${rows.length} client${rows.length === 1 ? '' : 's'}…`);
+    try {
+      const res = await api('/api/realtor/clients/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rows }) });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) { pcImportMsg(body.error || 'Import failed.', 'err'); return; }
+      await loadClients();
+      pcImportMsg(`Imported ${body.imported} client${body.imported === 1 ? '' : 's'}` + (body.skipped ? ` · ${body.skipped} skipped (no name)` : ''), 'ok');
+    } catch (e) { pcImportMsg('Network error.', 'err'); }
+  }
+  function exportClients() {
+    if (!pcClients.length) { pcImportMsg('No clients to export yet.', 'err'); return; }
+    const cols = [['Name', 'name'], ['Phone', 'phone'], ['Email', 'email'], ['Deal', 'dealType'], ['Property', 'address'], ['Sale price', 'price'], ['Closed date', 'closedDate'], ['Looking to', 'intent'], ['Budget', 'budget'], ['Property type', 'propertyType'], ['Area', 'area'], ['Notes', 'notes']];
+    const escCsv = (v) => { const s = String(v == null ? '' : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+    const lines = [cols.map(c => c[0]).join(',')].concat(pcClients.map(c => cols.map(col => escCsv(c[col[1]])).join(',')));
+    const blob = new Blob([lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'past-clients.csv';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
   }
   function bindClients() {
     document.getElementById('pc-close').addEventListener('click', closeClientModal);
     document.getElementById('pc-cancel').addEventListener('click', closeClientModal);
     document.getElementById('pc-backdrop').addEventListener('click', closeClientModal);
     document.getElementById('pc-form').addEventListener('submit', submitClient);
+    document.getElementById('pc-file').addEventListener('change', e => { const f = e.target.files && e.target.files[0]; handleClientImport(f); e.target.value = ''; });
     document.getElementById('rp-view').addEventListener('click', async (e) => {
       const view = e.target.closest('[data-pc-view]');
       if (view) { openClientDetail(view.getAttribute('data-pc-view')); return; }

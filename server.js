@@ -1262,6 +1262,24 @@ function realtorClientRowToJson(r) {
   };
 }
 const REALTOR_DEAL_TYPES = ['Bought', 'Sold', 'Both'];
+function cleanRealtorClient(b) {
+  const s = (v, n) => String(v == null ? '' : v).trim().slice(0, n);
+  return {
+    name: s(b.name, 120), phone: s(b.phone, 40), email: s(b.email, 160),
+    intent: s(b.intent, 40), budget: s(b.budget, 60), propertyType: s(b.propertyType, 60), area: s(b.area, 120),
+    dealType: REALTOR_DEAL_TYPES.includes(s(b.dealType, 20)) ? s(b.dealType, 20) : '',
+    address: s(b.address, 200), price: s(b.price, 60),
+    closedDate: /^\d{4}-\d{2}-\d{2}$/.test(s(b.closedDate, 10)) ? s(b.closedDate, 10) : '',
+    notes: s(b.notes, 2000)
+  };
+}
+async function insertRealtorClient(realtorId, f) {
+  return one(
+    `INSERT INTO realtor_clients (realtor_id, name, phone, email, intent, budget, property_type, area, deal_type, address, price, closed_date, notes)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
+    [realtorId, f.name, f.phone, f.email, f.intent, f.budget, f.propertyType, f.area, f.dealType, f.address, f.price, f.closedDate || serverToday(), f.notes]
+  );
+}
 
 // Close a lead: capture the deal, move it into past clients, delete the lead.
 app.post('/api/realtor/leads/:id/close', safe(async (req, res) => {
@@ -1288,6 +1306,31 @@ app.get('/api/realtor/clients', safe(async (req, res) => {
   if (!req.user || req.user.role !== 'realtor') return res.status(403).json({ error: 'Realtors only.' });
   const rows = await q('SELECT * FROM realtor_clients WHERE realtor_id = $1 ORDER BY id DESC', [req.user.id]);
   res.json(rows.map(realtorClientRowToJson));
+}));
+
+// Add a past client directly (not via closing a lead).
+app.post('/api/realtor/clients', safe(async (req, res) => {
+  if (!req.user || req.user.role !== 'realtor') return res.status(403).json({ error: 'Realtors only.' });
+  const f = cleanRealtorClient(req.body || {});
+  if (!f.name) return res.status(400).json({ error: 'A name is required.' });
+  const row = await insertRealtorClient(req.user.id, f);
+  res.json(realtorClientRowToJson(row));
+}));
+
+// Bulk import past clients (rows pre-parsed client-side from CSV/XLS).
+app.post('/api/realtor/clients/import', safe(async (req, res) => {
+  if (!req.user || req.user.role !== 'realtor') return res.status(403).json({ error: 'Realtors only.' });
+  const rows = (req.body || {}).rows;
+  if (!Array.isArray(rows) || !rows.length) return res.status(400).json({ error: 'No rows to import.' });
+  if (rows.length > 5000) return res.status(400).json({ error: 'Too many rows (max 5000 per import).' });
+  let imported = 0, skipped = 0;
+  for (const raw of rows) {
+    const f = cleanRealtorClient(raw || {});
+    if (!f.name) { skipped++; continue; }
+    await insertRealtorClient(req.user.id, f);
+    imported++;
+  }
+  res.json({ ok: true, imported, skipped });
 }));
 
 app.patch('/api/realtor/clients/:id', safe(async (req, res) => {

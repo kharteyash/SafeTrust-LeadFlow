@@ -63,8 +63,9 @@
     </div>
   </div>
 
-  <!-- Hidden file input for lead import -->
+  <!-- Hidden file inputs for import -->
   <input id="rl-file" type="file" accept=".csv,.xls,.xlsx" style="display:none;" />
+  <input id="pc-file" type="file" accept=".csv,.xls,.xlsx" style="display:none;" />
 
   <!-- Add / capture a lead -->
   <div id="rl-modal" class="hidden" style="position:fixed;inset:0;z-index:56;">
@@ -294,7 +295,7 @@
     <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:100%;max-width:460px;" class="px-4">
       <div class="bg-white rounded-2xl p-6 shadow-2xl" style="max-height:88vh;overflow-y:auto;">
         <div class="flex items-center justify-between mb-4">
-          <h3 class="text-[17px] font-bold">Edit past client</h3>
+          <h3 id="pc-modal-title" class="text-[17px] font-bold">Edit past client</h3>
           <button id="pc-close" class="btn-icon" style="width:32px;height:32px;border:none;"><i data-lucide="x" style="width:16px;height:16px;color:var(--text-muted);"></i></button>
         </div>
         <form id="pc-form" class="flex flex-col gap-3">
@@ -401,6 +402,6 @@
     </div>
   </div>
 
-  <script src="js/realtor.js?v=20260616i"></script>
+  <script src="js/realtor.js?v=20260616j"></script>
 </body>
 </html>
