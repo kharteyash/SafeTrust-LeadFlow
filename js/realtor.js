@@ -186,7 +186,7 @@
             <td>${l.intent ? `<span class="pill ${intentPill(l.intent)}">${esc(l.intent)}</span>` : '<span class="text-soft">—</span>'}</td>
             <td>${esc(l.timeline) || '<span class="text-soft">—</span>'}</td>
             <td>${esc(l.budget) || '<span class="text-soft">—</span>'}</td>
-            <td class="text-muted">${esc(l.area) || '—'}</td>
+            <td class="text-muted">${[l.area, l.zipcode].filter(Boolean).map(esc).join(' · ') || '—'}</td>
             <td>${esc(l.financing) || '<span class="text-soft">—</span>'}</td>
             <td>${esc(l.creditScore) || '<span class="text-soft">—</span>'}</td>
             <td class="text-muted">${esc(l.assets) || '—'}</td>
@@ -215,7 +215,7 @@
     document.getElementById('rl-modal-title').textContent = rlEditingId ? 'Edit lead' : 'Add a lead';
     document.getElementById('rl-submit').textContent = rlEditingId ? 'Save changes' : 'Add lead';
     if (lead) {
-      ['name', 'phone', 'email', 'budget', 'area', 'creditScore', 'assets', 'notes'].forEach(k => { if (form.elements[k]) form.elements[k].value = lead[k] || ''; });
+      ['name', 'phone', 'email', 'budget', 'area', 'zipcode', 'creditScore', 'assets', 'notes'].forEach(k => { if (form.elements[k]) form.elements[k].value = lead[k] || ''; });
       ['intent', 'timeline', 'propertyType', 'financing'].forEach(k => { if (form.elements[k]) form.elements[k].value = lead[k] || ''; });
     }
     document.getElementById('rl-msg').textContent = '';
@@ -258,6 +258,7 @@
       budget: pick(/budget|price|range/i),
       propertyType: pick(/property|home ?type|prop ?type/i),
       area: pick(/area|location|city|neighborhood|region/i),
+      zipcode: pick(/zip|postal/i),
       financing: norm(pick(/financing|pre-?approv|lender|cash|loan/i), ['Pre-approved', 'Needs a lender', 'Paying cash', 'Not sure']),
       creditScore: pick(/credit ?score|\bfico\b|\bcredit\b/i),
       assets: pick(/assets?|cash on hand|cash|down ?payment|savings/i),
@@ -296,7 +297,7 @@
   // Export the current leads as a CSV download.
   function exportLeads() {
     if (!rlLeads.length) { importMsg('No leads to export yet.', 'err'); return; }
-    const cols = [['Name', 'name'], ['Phone', 'phone'], ['Email', 'email'], ['Looking to', 'intent'], ['Timeline', 'timeline'], ['Budget', 'budget'], ['Property type', 'propertyType'], ['Area', 'area'], ['Financing', 'financing'], ['Credit score', 'creditScore'], ['Assets available', 'assets'], ['Notes', 'notes']];
+    const cols = [['Name', 'name'], ['Phone', 'phone'], ['Email', 'email'], ['Looking to', 'intent'], ['Timeline', 'timeline'], ['Budget', 'budget'], ['Property type', 'propertyType'], ['Area', 'area'], ['ZIP code', 'zipcode'], ['Financing', 'financing'], ['Credit score', 'creditScore'], ['Assets available', 'assets'], ['Notes', 'notes']];
     const escCsv = (v) => { const s = String(v == null ? '' : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
     const lines = [cols.map(c => c[0]).join(',')].concat(rlLeads.map(l => cols.map(c => escCsv(l[c[1]])).join(',')));
     const blob = new Blob([lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
@@ -671,12 +672,12 @@
     rows += detailRow('Company', p.company);
     if (p.kind === 'lead') {
       rows += detailRow('Looking to', r.intent); rows += detailRow('Timeline', r.timeline); rows += detailRow('Budget', r.budget);
-      rows += detailRow('Property type', r.propertyType); rows += detailRow('Area', r.area); rows += detailRow('Financing', r.financing);
+      rows += detailRow('Property type', r.propertyType); rows += detailRow('Area', r.area); rows += detailRow('ZIP code', r.zipcode); rows += detailRow('Financing', r.financing);
       rows += detailRow('Credit score', r.creditScore); rows += detailRow('Assets', r.assets); rows += detailRow('Notes', r.notes);
     } else if (p.kind === 'client') {
       rows += detailRow('Deal', r.dealType); rows += detailRow('Property', r.address); rows += detailRow('Sale price', r.price);
       rows += detailRow('Closed', r.closedDate); rows += detailRow('Looking to', r.intent); rows += detailRow('Budget', r.budget);
-      rows += detailRow('Property type', r.propertyType); rows += detailRow('Area', r.area); rows += detailRow('Notes', r.notes);
+      rows += detailRow('Property type', r.propertyType); rows += detailRow('Area', r.area); rows += detailRow('ZIP code', r.zipcode); rows += detailRow('Notes', r.notes);
     }
     const editBtn = p.kind === 'contact'
       ? `<div class="mt-4 flex justify-end"><button id="rc-detail-edit" class="btn-secondary" style="font-size:12.5px;"><i data-lucide="pencil" style="width:13px;height:13px;"></i> Edit</button></div>` : '';
@@ -907,6 +908,7 @@
       dealType: norm(pick(/deal|bought|sold|transaction/i), ['Bought', 'Sold', 'Both']),
       address: pick(/address|property|location/i),
       price: pick(/price|sale|amount|value/i),
+      zipcode: pick(/zip|postal/i),
       closedDate: cd,
       notes: pick(/notes?|comments?/i)
     };
