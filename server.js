@@ -2071,13 +2071,18 @@ async function dispatchScheduled(req, res) {
   try { await runTriggeredCampaigns(); } catch (e) { console.error('triggered campaigns:', e); }
 
   // Only send for owners who have connected their own email; others stay pending
-  // (so nothing goes out until they connect on the Messages page).
+  // (so nothing goes out until they connect on the Messages page). Also hold back
+  // AUTOMATIC emails (auto_kind set) for any user who has turned "Automatic emails"
+  // off — those stay pending in the queue and resume if they switch it back on.
+  // Manually-scheduled emails (auto_kind NULL) always send regardless of the switch.
   const due = await q(`
     UPDATE scheduled_messages SET status = 'sending'
     WHERE id IN (
       SELECT id FROM scheduled_messages
       WHERE status = 'pending' AND channel = 'Email' AND send_at IS NOT NULL AND send_at <= now()
         AND user_id IN (SELECT user_id FROM google_accounts)
+        AND NOT (auto_kind IS NOT NULL
+                 AND user_id IN (SELECT id FROM users WHERE COALESCE(auto_emails_enabled, true) = false))
       ORDER BY send_at LIMIT 50 FOR UPDATE SKIP LOCKED
     )
     RETURNING id, user_id, recipient, type, body

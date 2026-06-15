@@ -1144,7 +1144,7 @@
           <div class="flex items-center justify-between gap-4 px-4 py-3">
             <div class="flex-1 min-w-0">
               <div class="text-[13.5px] font-medium">Automatic emails</div>
-              <div class="text-[12.5px] text-muted">Schedule the new-lead drip, 15-day nurture, post-close, birthday, and anniversary emails. When off, no new ones are scheduled.</div>
+              <div class="text-[12.5px] text-muted">Schedule the new-lead drip, 15-day nurture, post-close, birthday, and anniversary emails. When off, none are scheduled and any already in your queue are held (not sent) until you turn it back on. Emails you scheduled by hand still send.</div>
             </div>
             <div id="auto-toggle-emails" class="lf-switch"></div>
           </div>
