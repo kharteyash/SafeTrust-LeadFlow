@@ -10,77 +10,99 @@
   <link rel="stylesheet" href="css/styles.css" />
 </head>
 <body>
-  <!-- Top bar -->
-  <header class="flex items-center justify-between px-5 py-3" style="border-bottom:1px solid var(--border);background:var(--surface);">
-    <div class="flex items-center gap-2">
-      <div class="stat-icon" style="background:#2255a3;width:30px;height:30px;border-radius:8px;">
-        <i data-lucide="home" style="width:16px;height:16px;color:#fff;"></i>
+  <!-- Loading -->
+  <div id="rp-loading" class="text-[13px] text-muted py-16 text-center">Loading…</div>
+
+  <!-- First-login: set a new password (full-screen gate before the portal) -->
+  <div id="rp-gate" class="hidden" style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;">
+    <div class="panel p-6" style="width:100%;max-width:460px;">
+      <h2 class="text-[18px] font-bold mb-1">Set your password</h2>
+      <p class="text-[13px] text-muted mb-4">You're signed in with a temporary password. Choose a new one to continue.</p>
+      <div class="flex flex-col gap-3">
+        <div>
+          <label class="text-[12px] font-semibold text-muted">Temporary password</label>
+          <input id="rp-cur" type="password" autocomplete="current-password" class="input mt-1" placeholder="The password we emailed you" />
+        </div>
+        <div>
+          <label class="text-[12px] font-semibold text-muted">New password</label>
+          <input id="rp-new" type="password" autocomplete="new-password" class="input mt-1" placeholder="At least 6 characters" />
+        </div>
+        <div>
+          <label class="text-[12px] font-semibold text-muted">Confirm new password</label>
+          <input id="rp-new2" type="password" autocomplete="new-password" class="input mt-1" placeholder="Repeat new password" />
+        </div>
+        <div id="rp-gate-msg" class="text-[12.5px] font-medium" style="color:#D63333;"></div>
+        <button id="rp-gate-save" class="btn-primary mt-1">Save and continue</button>
       </div>
-      <span class="text-[16px] font-bold tracking-tight">LeadFlow <span class="text-muted font-medium">· Realtor</span></span>
     </div>
-    <div class="flex items-center gap-3">
-      <span id="rp-name" class="text-[13px] font-semibold"></span>
-      <button id="rp-logout" class="btn-secondary" style="padding:6px 12px;font-size:12.5px;"><i data-lucide="log-out" style="width:13px;height:13px;"></i> Sign out</button>
+  </div>
+
+  <!-- Portal shell (sidebar + topbar + content) -->
+  <div id="rp-shell" class="hidden">
+    <div class="flex" style="height:100vh;overflow:hidden;">
+      <!-- Sidebar -->
+      <aside id="rp-sidebar" class="sidebar flex-shrink-0 flex flex-col" style="height:100vh;">
+        <div class="px-5 pt-5 pb-3 flex items-center gap-3 flex-shrink-0">
+          <div class="brand-logo"><i data-lucide="home" style="color:white;width:18px;height:18px;"></i></div>
+          <span class="brand-text text-white text-[17px] font-bold tracking-tight">LeadFlow</span>
+        </div>
+        <nav id="rp-nav" class="px-3 mt-2 flex-1 flex flex-col gap-1 overflow-y-auto min-h-0"></nav>
+      </aside>
+
+      <!-- Main -->
+      <div class="flex-1 flex flex-col min-w-0" style="height:100vh;">
+        <header class="topbar h-[60px] flex-shrink-0 flex items-center px-6 gap-3">
+          <div class="flex-1"></div>
+          <button id="rp-chat-btn" class="btn-icon relative" title="Chat with your loan officer">
+            <i data-lucide="message-circle" style="width:16px;height:16px;color:var(--text-muted);"></i>
+            <span id="rp-chat-badge" class="absolute -top-1 -right-1 bg-[#E64B4B] text-white text-[10px] font-bold rounded-full hidden items-center justify-center" style="min-width:16px;height:16px;padding:0 3px;"></span>
+          </button>
+          <button id="rp-theme" class="theme-toggle" title="Toggle dark mode">
+            <i data-lucide="moon" style="width:16px;height:16px;color:var(--text-muted);"></i>
+          </button>
+          <div class="relative" id="rp-user-menu">
+            <button id="rp-user-btn" class="flex items-center gap-2 pl-2 pr-3 py-1 rounded-lg hover:bg-[#FAFAFC]" style="cursor:pointer;">
+              <div id="rp-avatar" class="avatar"></div>
+              <div class="leading-tight text-left">
+                <div id="rp-user-name" class="text-[13px] font-semibold"></div>
+                <div class="text-[11px] text-soft">Realtor</div>
+              </div>
+              <i data-lucide="chevron-down" style="width:14px;height:14px;color:var(--text-muted);margin-left:2px;"></i>
+            </button>
+            <div id="rp-user-dropdown" class="hidden absolute right-0 mt-2 panel" style="top:100%;min-width:200px;z-index:30;box-shadow:0 8px 28px rgba(0,0,0,.10);">
+              <div class="px-4 py-3" style="border-bottom:1px solid var(--border);">
+                <div class="text-[11.5px] text-muted">Signed in as</div>
+                <div id="rp-user-email" class="text-[13px] font-semibold truncate"></div>
+              </div>
+              <button id="rp-logout" class="w-full text-left px-4 py-3 hover:bg-[#FAFAFC] text-[13px] font-medium flex items-center gap-2" style="color:#D63333;">
+                <i data-lucide="log-out" style="width:14px;height:14px;"></i> Sign out
+              </button>
+            </div>
+          </div>
+        </header>
+
+        <main id="rp-view" class="flex-1 p-6 overflow-y-auto min-h-0"></main>
+      </div>
     </div>
-  </header>
+  </div>
 
-  <main class="max-w-[920px] mx-auto px-5 py-6">
-    <div id="rp-loading" class="text-[13px] text-muted py-16 text-center">Loading…</div>
-
-    <!-- First-login: set a new password -->
-    <div id="rp-gate" class="hidden">
-      <div class="panel p-6 max-w-[460px] mx-auto mt-6">
-        <h2 class="text-[18px] font-bold mb-1">Set your password</h2>
-        <p class="text-[13px] text-muted mb-4">You're signed in with a temporary password. Choose a new one to continue.</p>
-        <div class="flex flex-col gap-3">
-          <div>
-            <label class="text-[12px] font-semibold text-muted">Temporary password</label>
-            <input id="rp-cur" type="password" autocomplete="current-password" class="input mt-1" placeholder="The password we emailed you" />
-          </div>
-          <div>
-            <label class="text-[12px] font-semibold text-muted">New password</label>
-            <input id="rp-new" type="password" autocomplete="new-password" class="input mt-1" placeholder="At least 6 characters" />
-          </div>
-          <div>
-            <label class="text-[12px] font-semibold text-muted">Confirm new password</label>
-            <input id="rp-new2" type="password" autocomplete="new-password" class="input mt-1" placeholder="Repeat new password" />
-          </div>
-          <div id="rp-gate-msg" class="text-[12.5px] font-medium" style="color:#D63333;"></div>
-          <button id="rp-gate-save" class="btn-primary mt-1">Save and continue</button>
+  <!-- Chat with the loan officer -->
+  <div id="rp-chat-modal" class="hidden" style="position:fixed;inset:0;z-index:56;">
+    <div id="rp-chat-backdrop" style="position:absolute;inset:0;background:rgba(14,14,27,.45);"></div>
+    <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:100%;max-width:520px;" class="px-4">
+      <div class="bg-white rounded-2xl shadow-2xl flex flex-col" style="height:70vh;max-height:580px;">
+        <div class="flex items-center justify-between px-5 py-3" style="border-bottom:1px solid var(--border);">
+          <h3 class="text-[16px] font-bold">Chat with <span id="rp-chat-officer">your loan officer</span></h3>
+          <button id="rp-chat-close" class="btn-icon" style="width:32px;height:32px;border:none;"><i data-lucide="x" style="width:16px;height:16px;color:var(--text-muted);"></i></button>
+        </div>
+        <div id="rp-chat" class="px-4 py-3 flex flex-col gap-2" style="flex:1;overflow-y:auto;"></div>
+        <div class="p-3 flex items-center gap-2" style="border-top:1px solid var(--border);">
+          <input id="rp-chat-input" class="input" style="flex:1;" placeholder="Type a message…" maxlength="4000" autocomplete="off" />
+          <button id="rp-chat-send" class="btn-primary" style="padding:8px 14px;"><i data-lucide="send" style="width:14px;height:14px;"></i></button>
         </div>
       </div>
     </div>
-
-    <!-- Portal -->
-    <div id="rp-content" class="hidden">
-      <h1 class="text-[24px] font-bold tracking-tight mb-1">Welcome, <span id="rp-greet"></span></h1>
-      <p class="text-[13.5px] text-muted mb-5">Here are the clients you're working on together.</p>
-
-      <div id="rp-officer" class="mb-5"></div>
-
-      <div class="grid grid-cols-12 gap-5">
-        <div class="panel col-span-12 lg:col-span-7">
-          <div class="p-5 pb-3">
-            <h3 class="text-[15px] font-semibold">Shared clients <span id="rp-lead-count" class="text-muted font-normal"></span></h3>
-          </div>
-          <div class="overflow-x-auto">
-            <table class="lf-table" id="rp-leads"></table>
-          </div>
-        </div>
-
-        <div class="panel col-span-12 lg:col-span-5 flex flex-col" style="min-height:420px;">
-          <div class="p-4 pb-3" style="border-bottom:1px solid var(--border);">
-            <h3 class="text-[15px] font-semibold">Chat with <span id="rp-officer-name">your loan officer</span></h3>
-          </div>
-          <div id="rp-chat" class="px-4 py-3 flex flex-col gap-2" style="flex:1;overflow-y:auto;max-height:360px;"></div>
-          <div class="p-3 flex items-center gap-2" style="border-top:1px solid var(--border);">
-            <input id="rp-chat-input" class="input" style="flex:1;" placeholder="Type a message…" maxlength="4000" autocomplete="off" />
-            <button id="rp-chat-send" class="btn-primary" style="padding:8px 14px;"><i data-lucide="send" style="width:14px;height:14px;"></i></button>
-          </div>
-        </div>
-      </div>
-    </div>
-  </main>
+  </div>
 
   <script src="js/realtor.js"></script>
 </body>
