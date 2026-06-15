@@ -18,9 +18,14 @@
         <h1 class="text-[26px] font-bold tracking-tight">Realtors</h1>
         <p class="text-[13.5px] text-muted mt-1">Realtor contacts — pulled from RETR and from realtors attached to your leads.</p>
       </div>
-      <button id="add-realtor-btn" class="btn-primary">
-        <i data-lucide="plus" style="width:14px;height:14px;"></i> Add Realtor
-      </button>
+      <div class="flex items-center gap-2 flex-wrap">
+        <button id="realtor-login-btn" class="btn-secondary">
+          <i data-lucide="key-round" style="width:14px;height:14px;"></i> Create realtor login
+        </button>
+        <button id="add-realtor-btn" class="btn-primary">
+          <i data-lucide="plus" style="width:14px;height:14px;"></i> Add Realtor
+        </button>
+      </div>
     </div>
 
     <div class="panel">
@@ -47,6 +52,48 @@
               <option value="50">50</option>
               <option value="100">100</option>
             </select>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Realtor logins (portal accounts you created) -->
+    <div class="panel mt-5">
+      <div class="p-5 pb-3 flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h3 class="text-[15px] font-semibold">Realtor logins <span id="realtor-login-count" class="text-muted font-normal"></span></h3>
+          <p class="text-[12px] text-soft mt-1">Realtors you've given a portal login. They sign in to see the leads they're attached to.</p>
+        </div>
+      </div>
+      <div id="realtor-logins" class="px-5 pb-5"></div>
+    </div>
+
+    <!-- Create realtor login modal -->
+    <div id="rlogin-modal" class="hidden" style="position:fixed;inset:0;z-index:55;">
+      <div id="rlogin-backdrop" style="position:absolute;inset:0;background:rgba(14,14,27,.45);"></div>
+      <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:100%;max-width:440px;" class="px-4">
+        <div class="bg-white rounded-2xl p-6 shadow-2xl">
+          <div class="flex items-center justify-between mb-2">
+            <h3 class="text-[17px] font-bold">Create realtor login</h3>
+            <button id="rlogin-close" class="btn-icon" style="width:32px;height:32px;border:none;">
+              <i data-lucide="x" style="width:16px;height:16px;color:var(--text-muted);"></i>
+            </button>
+          </div>
+          <p class="text-[12.5px] text-muted mb-4">Enter the realtor's email (and optional name). They'll be emailed a temporary password and asked to set their own on first sign-in. They'll see a read-only portal of the leads they're attached to.</p>
+          <div class="flex flex-col gap-3">
+            <div>
+              <label class="text-[12px] font-semibold text-muted">Email</label>
+              <input id="rlogin-email" type="email" class="input mt-1" placeholder="realtor@email.com" />
+            </div>
+            <div>
+              <label class="text-[12px] font-semibold text-muted">Name (optional)</label>
+              <input id="rlogin-name" maxlength="80" class="input mt-1" placeholder="Realtor's name" />
+            </div>
+            <div id="rlogin-msg" class="text-[12.5px] font-medium"></div>
+            <div class="flex items-center justify-end gap-2 mt-1">
+              <button type="button" id="rlogin-cancel" class="btn-secondary">Cancel</button>
+              <button type="button" id="rlogin-submit" class="btn-primary"><i data-lucide="key-round" style="width:13px;height:13px;"></i> Create &amp; email login</button>
+            </div>
           </div>
         </div>
       </div>

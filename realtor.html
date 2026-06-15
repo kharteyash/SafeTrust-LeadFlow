@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Realtor Portal — LeadFlow</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  <script>try{if(localStorage.getItem('lf-theme')==='dark')document.documentElement.classList.add('dark')}catch(e){}</script>
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <!-- Top bar -->
+  <header class="flex items-center justify-between px-5 py-3" style="border-bottom:1px solid var(--border);background:var(--surface);">
+    <div class="flex items-center gap-2">
+      <div class="stat-icon" style="background:#2255a3;width:30px;height:30px;border-radius:8px;">
+        <i data-lucide="home" style="width:16px;height:16px;color:#fff;"></i>
+      </div>
+      <span class="text-[16px] font-bold tracking-tight">LeadFlow <span class="text-muted font-medium">· Realtor</span></span>
+    </div>
+    <div class="flex items-center gap-3">
+      <span id="rp-name" class="text-[13px] font-semibold"></span>
+      <button id="rp-logout" class="btn-secondary" style="padding:6px 12px;font-size:12.5px;"><i data-lucide="log-out" style="width:13px;height:13px;"></i> Sign out</button>
+    </div>
+  </header>
+
+  <main class="max-w-[920px] mx-auto px-5 py-6">
+    <div id="rp-loading" class="text-[13px] text-muted py-16 text-center">Loading…</div>
+
+    <!-- First-login: set a new password -->
+    <div id="rp-gate" class="hidden">
+      <div class="panel p-6 max-w-[460px] mx-auto mt-6">
+        <h2 class="text-[18px] font-bold mb-1">Set your password</h2>
+        <p class="text-[13px] text-muted mb-4">You're signed in with a temporary password. Choose a new one to continue.</p>
+        <div class="flex flex-col gap-3">
+          <div>
+            <label class="text-[12px] font-semibold text-muted">Temporary password</label>
+            <input id="rp-cur" type="password" autocomplete="current-password" class="input mt-1" placeholder="The password we emailed you" />
+          </div>
+          <div>
+            <label class="text-[12px] font-semibold text-muted">New password</label>
+            <input id="rp-new" type="password" autocomplete="new-password" class="input mt-1" placeholder="At least 6 characters" />
+          </div>
+          <div>
+            <label class="text-[12px] font-semibold text-muted">Confirm new password</label>
+            <input id="rp-new2" type="password" autocomplete="new-password" class="input mt-1" placeholder="Repeat new password" />
+          </div>
+          <div id="rp-gate-msg" class="text-[12.5px] font-medium" style="color:#D63333;"></div>
+          <button id="rp-gate-save" class="btn-primary mt-1">Save and continue</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Portal -->
+    <div id="rp-content" class="hidden">
+      <h1 class="text-[24px] font-bold tracking-tight mb-1">Welcome, <span id="rp-greet"></span></h1>
+      <p class="text-[13.5px] text-muted mb-5">Here are the clients you're working on together.</p>
+
+      <div id="rp-officer" class="mb-5"></div>
+
+      <div class="panel">
+        <div class="p-5 pb-3">
+          <h3 class="text-[15px] font-semibold">Shared clients <span id="rp-lead-count" class="text-muted font-normal"></span></h3>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="lf-table" id="rp-leads"></table>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="js/realtor.js"></script>
+</body>
+</html>

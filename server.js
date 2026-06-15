@@ -111,6 +111,10 @@ const SCHEMA = `
   -- no new automatic emails / tasks+call-queue items are scheduled for the user.
   ALTER TABLE users ADD COLUMN IF NOT EXISTS auto_emails_enabled BOOLEAN DEFAULT TRUE;
   ALTER TABLE users ADD COLUMN IF NOT EXISTS auto_tasks_enabled BOOLEAN DEFAULT TRUE;
+  -- Realtor portal accounts: role='realtor'. realtor_owner_id is the loan officer
+  -- who created/owns the account (a realtor belongs to one LO). Deleting that LO
+  -- removes their realtor logins too.
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS realtor_owner_id INTEGER REFERENCES users(id) ON DELETE CASCADE;
 
   -- Team join invitations (a leader invites a user; the user accepts/rejects).
   CREATE TABLE IF NOT EXISTS team_invites (
@@ -363,7 +367,7 @@ async function loadUserFromSession(sid) {
   if (!sid) return null;
   const row = await one(`
     SELECT u.id, u.email, u.name, u.phone, u.title, u.bio, u.role, u.leader_id, u.photo,
-           u.must_change_password, u.auto_emails_enabled, u.auto_tasks_enabled, l.name AS leader_name
+           u.must_change_password, u.auto_emails_enabled, u.auto_tasks_enabled, u.realtor_owner_id, l.name AS leader_name
     FROM sessions s JOIN users u ON u.id = s.user_id
     LEFT JOIN users l ON l.id = u.leader_id
     WHERE s.id = $1 AND s.expires_at > now()
@@ -375,7 +379,8 @@ async function loadUserFromSession(sid) {
     role: row.role || 'user', leaderId: row.leader_id || null, leaderName: row.leader_name || '',
     photo: row.photo || '', mustChangePassword: !!row.must_change_password,
     // Default to ON when the column is NULL (existing rows before this feature).
-    autoEmails: row.auto_emails_enabled !== false, autoTasks: row.auto_tasks_enabled !== false
+    autoEmails: row.auto_emails_enabled !== false, autoTasks: row.auto_tasks_enabled !== false,
+    realtorOwnerId: row.realtor_owner_id || null
   };
 }
 
@@ -511,7 +516,7 @@ app.post('/api/login', safe(async (req, res) => {
   }
   const sid = await createSession(user.id);
   setSessionCookie(res, sid);
-  res.json({ id: user.id, email: user.email, name: user.name, mustChangePassword: !!user.must_change_password });
+  res.json({ id: user.id, email: user.email, name: user.name, role: user.role || 'user', mustChangePassword: !!user.must_change_password });
 }));
 
 app.post('/api/logout', safe(async (req, res) => {
@@ -589,6 +594,7 @@ app.get('/api/admin/users', safe(async (req, res) => {
   const rows = await q(`
     SELECT u.id, u.name, u.email, u.role, u.locked_until, l.name AS leader_name
     FROM users u LEFT JOIN users l ON l.id = u.leader_id
+    WHERE u.role <> 'realtor'
     ORDER BY (u.role='admin') DESC, (u.role='team_leader') DESC, lower(u.name)
   `, []);
   res.json(rows.map(r => ({
@@ -609,6 +615,7 @@ app.patch('/api/admin/users/:id/role', safe(async (req, res) => {
   const target = await one('SELECT id, role FROM users WHERE id = $1', [id]);
   if (!target) return res.status(404).json({ error: 'User not found.' });
   if (target.role === 'admin') return res.status(400).json({ error: 'The admin role cannot be changed.' });
+  if (target.role === 'realtor') return res.status(400).json({ error: 'Realtor accounts are managed on the Realtors page.' });
 
   await q('UPDATE users SET role = $1 WHERE id = $2', [role, id]);
   // Demoting a leader to a plain user: orphan their members + cancel pending invites.
@@ -638,6 +645,7 @@ app.post('/api/admin/users/:id/promote-admin', safe(async (req, res) => {
   const target = await one('SELECT id, role FROM users WHERE id = $1', [id]);
   if (!target) return res.status(404).json({ error: 'User not found.' });
   if (target.role === 'admin') return res.status(400).json({ error: 'That user is already an admin.' });
+  if (target.role === 'realtor') return res.status(400).json({ error: 'Realtor accounts can’t be made admins.' });
 
   await q(`UPDATE users SET role = 'admin' WHERE id = $1`, [id]);
   // An admin isn't a team leader: release any members + cancel pending invites
@@ -744,6 +752,118 @@ app.post('/api/admin/users/create', safe(async (req, res) => {
   }
 
   res.json({ ok: true, id: row.id, email, name, emailed, emailError, tempPassword });
+}));
+
+// ----- Realtor portal accounts -----
+// Any loan officer (member / team leader / admin — but not a realtor) can create a
+// login for a realtor they work with. The realtor is emailed a temporary password
+// and must change it on first sign-in, then sees a read-only portal of the leads
+// they're attached to. A realtor belongs to one loan officer (their creator).
+async function emailTempPassword(fromUserId, { to, name, byName }) {
+  const tempPassword = generateTempPassword();
+  const hash = bcrypt.hashSync(tempPassword, 10);
+  const appUrl = (process.env.APP_URL || '').trim().replace(/\/$/, '');
+  const link = appUrl ? `${appUrl}/login.html` : 'the LeadFlow sign-in page';
+  const subject = 'Your LeadFlow realtor account is ready';
+  const text =
+    `Hi ${name},\n\n` +
+    `${byName} has set up a LeadFlow realtor portal for you, where you can follow the clients you're working on together.\n\n` +
+    `Sign in here: ${link}\n` +
+    `Email: ${to}\n` +
+    `Temporary password: ${tempPassword}\n\n` +
+    `For your security, you'll be asked to set a new password the first time you sign in.\n`;
+  let emailed = false, emailError = '';
+  try { await sendEmailAsUser(fromUserId, { to, subject, text }); emailed = true; }
+  catch (e) { emailError = String((e && e.message) || e).slice(0, 200); console.error('realtor email failed:', emailError); }
+  return { hash, tempPassword, emailed, emailError };
+}
+
+app.post('/api/realtor-accounts/create', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  if (req.user.role === 'realtor') return res.status(403).json({ error: 'Realtors can’t create accounts.' });
+
+  const email = String((req.body || {}).email || '').trim().toLowerCase();
+  if (!email || !/^\S+@\S+\.\S+$/.test(email)) return res.status(400).json({ error: 'Enter a valid email address.' });
+  let name = String((req.body || {}).name || '').trim();
+  if (!name) name = email.split('@')[0];
+  if (name.length > 80) return res.status(400).json({ error: 'Name is too long.' });
+
+  const existing = await one('SELECT id, name FROM users WHERE lower(email) = $1', [email]);
+  if (existing) {
+    return res.status(409).json({ error: `An account with that email already exists${existing.name ? ` (${existing.name})` : ''}. You can't create another one.` });
+  }
+
+  const { hash, tempPassword, emailed, emailError } = await emailTempPassword(req.user.id, { to: email, name, byName: req.user.name || 'Your loan officer' });
+  const row = await one(
+    `INSERT INTO users (email, name, password_hash, role, must_change_password, realtor_owner_id)
+     VALUES ($1, $2, $3, 'realtor', TRUE, $4) RETURNING id`,
+    [email, name, hash, req.user.id]
+  );
+  res.json({ ok: true, id: row.id, email, name, emailed, emailError, tempPassword });
+}));
+
+// The realtor logins this loan officer created.
+app.get('/api/realtor-accounts', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  const rows = await q(
+    `SELECT id, name, email, must_change_password, locked_until FROM users
+     WHERE role = 'realtor' AND realtor_owner_id = $1 ORDER BY lower(name)`, [req.user.id]);
+  res.json(rows.map(r => ({
+    id: r.id, name: r.name, email: r.email,
+    pending: !!r.must_change_password,
+    locked: !!(r.locked_until && new Date(r.locked_until).getTime() > Date.now())
+  })));
+}));
+
+// Remove a realtor login you created.
+app.delete('/api/realtor-accounts/:id', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id.' });
+  const r = await pool.query(`DELETE FROM users WHERE id = $1 AND role = 'realtor' AND realtor_owner_id = $2`, [id, req.user.id]);
+  if (r.rowCount === 0) return res.status(404).json({ error: 'Realtor account not found.' });
+  res.json({ ok: true });
+}));
+
+// Reset (regenerate) a realtor's temporary password and email it again.
+app.post('/api/realtor-accounts/:id/reset-password', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id.' });
+  const target = await one(`SELECT id, name, email FROM users WHERE id = $1 AND role = 'realtor' AND realtor_owner_id = $2`, [id, req.user.id]);
+  if (!target) return res.status(404).json({ error: 'Realtor account not found.' });
+  const { hash, tempPassword, emailed, emailError } = await emailTempPassword(req.user.id, { to: target.email, name: target.name, byName: req.user.name || 'Your loan officer' });
+  await q('UPDATE users SET password_hash = $1, must_change_password = TRUE, failed_attempts = 0, locked_until = NULL WHERE id = $2', [hash, id]);
+  res.json({ ok: true, emailed, emailError, tempPassword });
+}));
+
+// The realtor portal: their loan officer + the active leads they're attached to
+// (matched by the realtor email on each lead). Read-only.
+app.get('/api/realtor/portal', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  if (req.user.role !== 'realtor') return res.status(403).json({ error: 'Realtors only.' });
+  const officer = req.user.realtorOwnerId
+    ? await one('SELECT name, email, phone, title FROM users WHERE id = $1', [req.user.realtorOwnerId])
+    : null;
+  let leads = [];
+  if (req.user.realtorOwnerId) {
+    const rows = await q(`
+      SELECT name, email, phone, timeline, preapproved, lead_type, state
+      FROM leads
+      WHERE user_id = $1 AND email IS NOT NULL
+        AND lower(btrim(coalesce(realtor_email, ''))) = lower($2)
+      ORDER BY lower(name)`, [req.user.realtorOwnerId, req.user.email]);
+    leads = rows.map(r => ({
+      name: r.name, email: r.email || '', phone: r.phone || '',
+      timeline: r.timeline || '', preapproved: !!r.preapproved,
+      leadType: r.lead_type || 'Purchase', state: r.state || ''
+    }));
+  }
+  res.json({
+    realtor: { name: req.user.name, email: req.user.email },
+    officer: officer ? { name: officer.name, email: officer.email, phone: officer.phone || '', title: officer.title || '' } : null,
+    leads
+  });
 }));
 
 // Admin: delete a user account entirely. The admin can't delete themselves or
@@ -2810,7 +2930,7 @@ app.post('/api/leads/:id/close', safe(async (req, res) => {
 //  - member:      their leader + sibling members
 async function assignTargetIds(user) {
   if (user.role === 'admin') {
-    const rows = await q('SELECT id FROM users WHERE id <> $1', [user.id]);
+    const rows = await q(`SELECT id FROM users WHERE id <> $1 AND role <> 'realtor'`, [user.id]);
     return rows.map(r => r.id);
   }
   if (user.role === 'team_leader') {
@@ -2830,7 +2950,7 @@ app.get('/api/assign-targets', safe(async (req, res) => {
   let rows = [];
   if (req.user.role === 'admin') {
     // Admin can forward their own leads to anyone (team leaders flagged).
-    rows = await q(`SELECT id, name, role FROM users WHERE id <> $1
+    rows = await q(`SELECT id, name, role FROM users WHERE id <> $1 AND role <> 'realtor'
                     ORDER BY (role = 'team_leader') DESC, lower(name)`, [req.user.id]);
     return res.json(rows.map(r => ({ id: r.id, name: r.name, isLeader: r.role === 'team_leader' })));
   }
@@ -3233,7 +3353,7 @@ app.get('/api/tasks', safe(async (req, res) => {
 // the admin → everyone else. Regular members can't assign.
 function roleLabelFor(role) { return role === 'admin' ? 'Admin' : role === 'team_leader' ? 'Team Leader' : 'Member'; }
 async function taskAssignTargets(user) {
-  if (user.role === 'admin') return q('SELECT id, name, role FROM users WHERE id <> $1 ORDER BY lower(name)', [user.id]);
+  if (user.role === 'admin') return q(`SELECT id, name, role FROM users WHERE id <> $1 AND role <> 'realtor' ORDER BY lower(name)`, [user.id]);
   if (user.role === 'team_leader') return q('SELECT id, name, role FROM users WHERE leader_id = $1 ORDER BY lower(name)', [user.id]);
   return [];
 }
@@ -3486,6 +3606,9 @@ app.use((req, res, next) => {
   if (!isHtml) return next();
   if (req.path === '/login.html') return next();
   if (!req.user) return res.redirect('/login.html');
+  // Realtors only ever get the realtor portal; everyone else is kept out of it.
+  if (req.user.role === 'realtor' && req.path !== '/realtor.html') return res.redirect('/realtor.html');
+  if (req.user.role !== 'realtor' && req.path === '/realtor.html') return res.redirect('/index.html');
   next();
 });
 

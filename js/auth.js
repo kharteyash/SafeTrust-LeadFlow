@@ -35,7 +35,7 @@
         }
         return;
       }
-      window.location.href = '/index.html';
+      window.location.href = data.role === 'realtor' ? '/realtor.html' : '/index.html';
     } catch (err) {
       errorEl.textContent = 'Network error. Is the server running?';
       console.error('Login network error:', err);

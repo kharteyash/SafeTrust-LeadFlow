@@ -2,6 +2,7 @@
 (function () {
   const esc = LF.People.esc, escAttr = LF.People.escAttr;
   let realtors = [];   // normalized people (group 'realtor')
+  let logins = [];     // realtor portal accounts this user created
   let query = '';
   let page = 1;
   let pageSize = 10;   // show 10 by default, like the Leads table
@@ -174,10 +175,120 @@
     });
   }
 
+  // ----- Realtor logins (portal accounts) -----
+  async function loadLogins() {
+    try { const r = await fetch('/api/realtor-accounts', { credentials: 'same-origin' }); logins = r.ok ? await r.json() : []; }
+    catch (e) { logins = []; }
+  }
+  function renderLogins() {
+    const host = document.getElementById('realtor-logins');
+    const countEl = document.getElementById('realtor-login-count');
+    if (countEl) countEl.textContent = logins.length ? `(${logins.length})` : '';
+    if (!host) return;
+    if (!logins.length) {
+      host.innerHTML = `<div class="text-[13px] text-muted py-2">No realtor logins yet. Click “Create realtor login” to give a realtor portal access.</div>`;
+      return;
+    }
+    host.innerHTML = `<div class="rounded-xl overflow-hidden" style="border:1px solid var(--border);">
+      ${logins.map((l, i) => `
+        <div class="flex items-center justify-between gap-3 px-4 py-3 ${i > 0 ? 'border-t' : ''}" style="border-color:var(--border);">
+          <div class="flex items-center gap-2 min-w-0">
+            <div class="avatar avatar-sm">${initials(l.name)}</div>
+            <div class="min-w-0">
+              <div class="font-semibold text-[13px] flex items-center gap-1.5 flex-wrap">${esc(l.name)}
+                ${l.pending ? '<span class="pill pill-yellow" style="font-size:10px;">Awaiting first sign-in</span>' : '<span class="pill pill-green" style="font-size:10px;">Active</span>'}
+                ${l.locked ? '<span class="pill pill-red" style="font-size:10px;">Locked</span>' : ''}
+              </div>
+              <div class="text-[11.5px] text-muted truncate">${esc(l.email)}</div>
+            </div>
+          </div>
+          <div class="flex items-center gap-1 flex-shrink-0">
+            <button class="btn-secondary" data-reset-login="${l.id}" style="padding:5px 10px;font-size:12px;" title="Email a new temporary password">Reset password</button>
+            <button class="btn-icon" data-del-login="${l.id}" data-login-name="${escAttr(l.name)}" title="Remove login" style="width:30px;height:30px;border:none;">
+              <i data-lucide="trash-2" style="width:14px;height:14px;color:#D63333;pointer-events:none;"></i>
+            </button>
+          </div>
+        </div>`).join('')}
+    </div>`;
+    if (window.lucide) lucide.createIcons();
+  }
+  function openLoginModal() {
+    document.getElementById('rlogin-email').value = '';
+    document.getElementById('rlogin-name').value = '';
+    const m = document.getElementById('rlogin-msg'); m.textContent = '';
+    document.getElementById('rlogin-modal').classList.remove('hidden');
+    document.getElementById('rlogin-email').focus();
+  }
+  function closeLoginModal() { document.getElementById('rlogin-modal').classList.add('hidden'); }
+  function bindLogins() {
+    document.getElementById('realtor-login-btn').addEventListener('click', openLoginModal);
+    document.getElementById('rlogin-close').addEventListener('click', closeLoginModal);
+    document.getElementById('rlogin-cancel').addEventListener('click', closeLoginModal);
+    document.getElementById('rlogin-backdrop').addEventListener('click', closeLoginModal);
+
+    document.getElementById('rlogin-submit').addEventListener('click', async () => {
+      const email = document.getElementById('rlogin-email').value.trim();
+      const name = document.getElementById('rlogin-name').value.trim();
+      const m = document.getElementById('rlogin-msg');
+      if (!email) { m.style.color = '#D63333'; m.textContent = 'Enter an email address.'; return; }
+      const btn = document.getElementById('rlogin-submit');
+      btn.disabled = true; btn.style.opacity = '0.7';
+      m.style.color = 'var(--text-muted)'; m.textContent = 'Creating…';
+      try {
+        const res = await fetch('/api/realtor-accounts/create', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+          body: JSON.stringify({ email, name })
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) { m.style.color = '#D63333'; m.textContent = body.error || 'Could not create the login.'; return; }
+        await loadLogins(); renderLogins();
+        if (body.emailed) {
+          closeLoginModal();
+        } else {
+          m.style.color = '#B07A00';
+          m.innerHTML = `Created, but the email couldn't be sent${body.emailError ? ` (${esc(body.emailError)})` : ''}. Share this temporary password: <b>${esc(body.tempPassword)}</b>`;
+        }
+      } catch (e) { m.style.color = '#D63333'; m.textContent = 'Network error.'; }
+      finally { btn.disabled = false; btn.style.opacity = ''; }
+    });
+
+    // Delegated reset / delete on the logins list.
+    document.getElementById('realtor-logins').addEventListener('click', async (e) => {
+      const resetBtn = e.target.closest('[data-reset-login]');
+      if (resetBtn) {
+        const id = resetBtn.getAttribute('data-reset-login');
+        resetBtn.disabled = true;
+        try {
+          const res = await fetch('/api/realtor-accounts/' + id + '/reset-password', { method: 'POST', credentials: 'same-origin' });
+          const body = await res.json().catch(() => ({}));
+          if (!res.ok) { window.alert(body.error || 'Could not reset the password.'); }
+          else if (body.emailed) { window.alert('A new temporary password was emailed to the realtor.'); }
+          else { window.alert(`Couldn't email it. Share this temporary password with them:\n\n${body.tempPassword}`); }
+          await loadLogins(); renderLogins();
+        } catch (err) { window.alert('Network error.'); }
+        finally { resetBtn.disabled = false; }
+        return;
+      }
+      const delBtn = e.target.closest('[data-del-login]');
+      if (delBtn) {
+        const id = delBtn.getAttribute('data-del-login');
+        const name = delBtn.getAttribute('data-login-name') || 'this realtor';
+        if (!window.confirm(`Remove ${name}'s login? They'll no longer be able to sign in.`)) return;
+        try {
+          const res = await fetch('/api/realtor-accounts/' + id, { method: 'DELETE', credentials: 'same-origin' });
+          if (!res.ok && res.status !== 404) { window.alert('Could not remove the login.'); return; }
+          await loadLogins(); renderLogins();
+        } catch (err) { window.alert('Network error.'); }
+      }
+    });
+  }
+
   document.addEventListener('DOMContentLoaded', async function () {
     await LF.renderLayout({ active: 'realtors' });
-    await load();
+    await Promise.all([load(), loadLogins()]);
     bind();
+    bindLogins();
     render();
+    renderLogins();
   });
 })();

@@ -58,6 +58,9 @@ LF.renderLayout = async function ({ active }) {
     return;
   }
 
+  // Realtors only get the realtor portal — never the loan-officer CRM layout.
+  if (user.role === 'realtor') { window.location.href = '/realtor.html'; return; }
+
   // Make user available to the rest of the app.
   LF_DATA.user = {
     name: user.name,
