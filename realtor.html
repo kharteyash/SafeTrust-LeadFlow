@@ -70,7 +70,7 @@
   <!-- Add / capture a lead -->
   <div id="rl-modal" class="hidden" style="position:fixed;inset:0;z-index:56;">
     <div id="rl-backdrop" style="position:absolute;inset:0;background:rgba(14,14,27,.45);"></div>
-    <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:100%;max-width:520px;" class="px-4">
+    <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:100%;max-width:620px;" class="px-4">
       <div class="bg-white rounded-2xl p-6 shadow-2xl" style="max-height:88vh;overflow-y:auto;">
         <div class="flex items-center justify-between mb-1">
           <h3 id="rl-modal-title" class="text-[17px] font-bold">Add a lead</h3>
@@ -138,11 +138,11 @@
               <input name="area" maxlength="120" class="input mt-1" placeholder="Neighborhood, city…" />
             </div>
           </div>
-          <div>
-            <label class="text-[12px] font-semibold text-muted">ZIP code</label>
-            <input name="zipcode" maxlength="20" class="input mt-1" style="max-width:160px;" placeholder="e.g. 48104" />
-          </div>
           <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="text-[12px] font-semibold text-muted">ZIP code</label>
+              <input name="zipcode" maxlength="20" class="input mt-1" placeholder="e.g. 48104" />
+            </div>
             <div>
               <label class="text-[12px] font-semibold text-muted">Financing</label>
               <select name="financing" class="input mt-1" style="cursor:pointer;">
@@ -153,6 +153,8 @@
                 <option>Not sure</option>
               </select>
             </div>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
             <div>
               <label class="text-[12px] font-semibold text-muted">Credit score</label>
               <select name="creditScore" class="input mt-1" style="cursor:pointer;">
@@ -164,10 +166,10 @@
                 <option value="741+">741+</option>
               </select>
             </div>
-          </div>
-          <div>
-            <label class="text-[12px] font-semibold text-muted">Assets available</label>
-            <input name="assets" maxlength="120" class="input mt-1" placeholder="Cash on hand" />
+            <div>
+              <label class="text-[12px] font-semibold text-muted">Assets available</label>
+              <input name="assets" maxlength="120" class="input mt-1" placeholder="Cash on hand" />
+            </div>
           </div>
           <div>
             <label class="text-[12px] font-semibold text-muted">Notes</label>
