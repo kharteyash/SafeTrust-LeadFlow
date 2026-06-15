@@ -485,7 +485,7 @@
   document.addEventListener('DOMContentLoaded', async function () {
     bindGate(); bindNav(); bindTheme(); bindUserMenu(); bindLeads();
     let res;
-    try { res = await api('/api/me'); } catch (e) { window.location.href = '/login.html'; return; }
+    try { res = await api('/api/me', { cache: 'no-store' }); } catch (e) { window.location.href = '/login.html'; return; }
     if (!res.ok) { window.location.href = '/login.html'; return; }
     me = await res.json();
     if (me.role !== 'realtor') { window.location.href = '/index.html'; return; }

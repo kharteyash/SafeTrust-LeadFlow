@@ -3818,7 +3818,14 @@ app.use((req, res, next) => {
 app.get('/', (req, res) => res.redirect('/index.html'));
 
 // ----- Static -----
-app.use(express.static(__dirname, { dotfiles: 'deny' }));
+app.use(express.static(__dirname, {
+  dotfiles: 'deny',
+  // Make the browser revalidate HTML/JS/CSS every load (cheap 304 when unchanged)
+  // so a new deploy is picked up immediately instead of running stale cached code.
+  setHeaders: (res, p) => {
+    if (/\.(html|js|css)$/i.test(p)) res.set('Cache-Control', 'no-cache');
+  }
+}));
 
 // ----- Start -----
 // One-time: re-score every existing lead with the current model (the old model

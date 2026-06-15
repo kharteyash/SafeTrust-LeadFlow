@@ -50,7 +50,7 @@ LF.renderLayout = async function ({ active }) {
   // redirected the HTML request, but this guards against a stale tab.
   let user;
   try {
-    const res = await fetch('/api/me', { credentials: 'same-origin' });
+    const res = await fetch('/api/me', { credentials: 'same-origin', cache: 'no-store' });
     if (!res.ok) { window.location.href = '/login.html'; return; }
     user = await res.json();
   } catch (e) {
