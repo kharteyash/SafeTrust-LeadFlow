@@ -108,9 +108,30 @@
 
   function openModal(p) {
     document.getElementById('person-title').textContent = p.name || 'Realtor';
-    document.getElementById('person-body').innerHTML = LF.People.detailBodyHTML(p);
+    // A "give this realtor a portal login" action, pre-filled from the contact so
+    // the login email always matches the realtor email saved on their leads.
+    const email = (p.email || '').trim();
+    let loginBlock = '';
+    if (!email) {
+      loginBlock = `<div class="mt-4 pt-3 text-[12.5px] text-muted" style="border-top:1px solid var(--border-soft);">
+        Add an email to this realtor to give them a portal login.</div>`;
+    } else if (logins.some(l => (l.email || '').toLowerCase() === email.toLowerCase())) {
+      loginBlock = `<div class="mt-4 pt-3 flex items-center gap-2 text-[12.5px]" style="border-top:1px solid var(--border-soft);color:#138A4B;">
+        <i data-lucide="check-circle" style="width:14px;height:14px;"></i> This realtor already has a portal login.</div>`;
+    } else {
+      loginBlock = `<div class="mt-4 pt-3 flex items-center justify-between gap-2 flex-wrap" style="border-top:1px solid var(--border-soft);">
+        <span class="text-[12.5px] text-muted">Let this realtor follow their shared clients.</span>
+        <button id="person-give-login" class="btn-secondary" style="padding:6px 12px;font-size:12.5px;"><i data-lucide="key-round" style="width:13px;height:13px;"></i> Create portal login</button>
+      </div>`;
+    }
+    document.getElementById('person-body').innerHTML = LF.People.detailBodyHTML(p) + loginBlock;
     document.getElementById('person-modal').classList.remove('hidden');
     if (window.lucide) lucide.createIcons();
+    const giveBtn = document.getElementById('person-give-login');
+    if (giveBtn) giveBtn.addEventListener('click', () => {
+      closeModal();
+      openLoginModal({ email, name: p.name || '' });
+    });
   }
   function closeModal() { document.getElementById('person-modal').classList.add('hidden'); }
 
@@ -212,12 +233,12 @@
     </div>`;
     if (window.lucide) lucide.createIcons();
   }
-  function openLoginModal() {
-    document.getElementById('rlogin-email').value = '';
-    document.getElementById('rlogin-name').value = '';
+  function openLoginModal(prefill) {
+    document.getElementById('rlogin-email').value = (prefill && prefill.email) || '';
+    document.getElementById('rlogin-name').value = (prefill && prefill.name) || '';
     const m = document.getElementById('rlogin-msg'); m.textContent = '';
     document.getElementById('rlogin-modal').classList.remove('hidden');
-    document.getElementById('rlogin-email').focus();
+    document.getElementById((prefill && prefill.email) ? 'rlogin-name' : 'rlogin-email').focus();
   }
   function closeLoginModal() { document.getElementById('rlogin-modal').classList.add('hidden'); }
   function bindLogins() {
