@@ -224,6 +224,10 @@
             </div>
           </div>
           <div class="flex items-center gap-1 flex-shrink-0">
+            <button class="btn-secondary" data-chat-login="${l.id}" data-login-name="${escAttr(l.name)}" style="padding:5px 10px;font-size:12px;display:inline-flex;align-items:center;gap:5px;" title="Chat with this realtor">
+              <i data-lucide="message-circle" style="width:13px;height:13px;pointer-events:none;"></i> Chat
+              ${l.unread ? `<span class="rounded-full text-[10px] font-bold text-white" style="background:#D63333;min-width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center;padding:0 4px;">${l.unread}</span>` : ''}
+            </button>
             <button class="btn-secondary" data-reset-login="${l.id}" style="padding:5px 10px;font-size:12px;" title="Email a new temporary password">Reset password</button>
             <button class="btn-icon" data-del-login="${l.id}" data-login-name="${escAttr(l.name)}" title="Remove login" style="width:30px;height:30px;border:none;">
               <i data-lucide="trash-2" style="width:14px;height:14px;color:#D63333;pointer-events:none;"></i>
@@ -290,6 +294,8 @@
         finally { resetBtn.disabled = false; }
         return;
       }
+      const chatBtn = e.target.closest('[data-chat-login]');
+      if (chatBtn) { openChat(chatBtn.getAttribute('data-chat-login'), chatBtn.getAttribute('data-login-name') || 'realtor'); return; }
       const delBtn = e.target.closest('[data-del-login]');
       if (delBtn) {
         const id = delBtn.getAttribute('data-del-login');
@@ -304,12 +310,92 @@
     });
   }
 
+  // ----- Chat with a realtor -----
+  let chatId = null, chatTimer = null, chatCount = -1;
+  function chatTime(at) {
+    const d = new Date(at); if (isNaN(d.getTime())) return '';
+    let h = d.getHours(); const m = String(d.getMinutes()).padStart(2, '0');
+    const ap = h >= 12 ? 'PM' : 'AM'; h = h % 12 || 12;
+    return `${h}:${m} ${ap}`;
+  }
+  function renderChat(messages) {
+    const host = document.getElementById('rchat-body');
+    if (!host) return;
+    if (!messages.length) { host.innerHTML = `<div class="text-[12.5px] text-muted text-center py-8">No messages yet. Start the conversation.</div>`; return; }
+    host.innerHTML = messages.map(m => {
+      const mine = m.mine;   // mine = sent by the loan officer
+      const align = mine ? 'align-items:flex-end;' : 'align-items:flex-start;';
+      const bg = mine ? 'background:#2255a3;color:#fff;' : 'background:var(--surface-2);color:var(--text);';
+      return `<div class="flex flex-col" style="${align}">
+        <div style="max-width:80%;${bg}border-radius:12px;padding:7px 11px;font-size:13px;white-space:pre-wrap;word-break:break-word;">${esc(m.body)}</div>
+        <div class="text-[10.5px] text-soft mt-0.5">${chatTime(m.at)}</div>
+      </div>`;
+    }).join('');
+  }
+  async function loadChat() {
+    if (!chatId) return;
+    try {
+      const res = await fetch('/api/realtor-accounts/' + chatId + '/chat', { credentials: 'same-origin' });
+      if (!res.ok) return;
+      const data = await res.json();
+      const msgs = data.messages || [];
+      renderChat(msgs);
+      if (msgs.length !== chatCount) {
+        chatCount = msgs.length;
+        const host = document.getElementById('rchat-body');
+        if (host) host.scrollTop = host.scrollHeight;
+      }
+    } catch (e) {}
+  }
+  async function sendChat() {
+    if (!chatId) return;
+    const input = document.getElementById('rchat-input');
+    const body = input.value.trim();
+    if (!body) return;
+    input.value = '';
+    try {
+      const res = await fetch('/api/realtor-accounts/' + chatId + '/chat', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ body })
+      });
+      if (!res.ok) { input.value = body; return; }
+      await loadChat();
+    } catch (e) { input.value = body; }
+  }
+  function openChat(id, name) {
+    chatId = id; chatCount = -1;
+    document.getElementById('rchat-name').textContent = name;
+    document.getElementById('rchat-body').innerHTML = '<div class="text-[12.5px] text-muted text-center py-8">Loading…</div>';
+    document.getElementById('rchat-input').value = '';
+    document.getElementById('rchat-modal').classList.remove('hidden');
+    if (window.lucide) lucide.createIcons();
+    document.getElementById('rchat-input').focus();
+    loadChat();
+    chatTimer = setInterval(loadChat, 5000);
+  }
+  function closeChat() {
+    document.getElementById('rchat-modal').classList.add('hidden');
+    if (chatTimer) { clearInterval(chatTimer); chatTimer = null; }
+    chatId = null;
+    loadLogins().then(renderLogins);   // refresh unread badges after reading
+  }
+  function bindChat() {
+    document.getElementById('rchat-close').addEventListener('click', closeChat);
+    document.getElementById('rchat-backdrop').addEventListener('click', closeChat);
+    document.getElementById('rchat-send').addEventListener('click', sendChat);
+    document.getElementById('rchat-input').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); sendChat(); } });
+  }
+
   document.addEventListener('DOMContentLoaded', async function () {
     await LF.renderLayout({ active: 'realtors' });
     await Promise.all([load(), loadLogins()]);
     bind();
     bindLogins();
+    bindChat();
     render();
     renderLogins();
+    // Keep unread chat badges fresh (skip while a chat modal is open).
+    setInterval(async () => {
+      if (document.getElementById('rchat-modal').classList.contains('hidden')) { await loadLogins(); renderLogins(); }
+    }, 15000);
   });
 })();

@@ -76,12 +76,77 @@
     if (!res.ok) { document.getElementById('rp-loading').textContent = 'Could not load your portal.'; return; }
     const data = await res.json();
     document.getElementById('rp-greet').textContent = (data.realtor.name || '').split(/\s+/)[0] || 'there';
+    if (data.officer) document.getElementById('rp-officer-name').textContent = (data.officer.name || '').split(/\s+/)[0] || 'your loan officer';
     renderOfficer(data.officer);
     renderLeads(data.leads || []);
     show('rp-loading', false);
     show('rp-gate', false);
     show('rp-content', true);
     if (window.lucide) lucide.createIcons();
+    startChat();
+  }
+
+  // ----- Chat with the loan officer -----
+  let chatCount = -1;
+  function timeLabel(at) {
+    const d = new Date(at);
+    if (isNaN(d.getTime())) return '';
+    let h = d.getHours(); const m = String(d.getMinutes()).padStart(2, '0');
+    const ap = h >= 12 ? 'PM' : 'AM'; h = h % 12 || 12;
+    return `${h}:${m} ${ap}`;
+  }
+  function renderChat(messages) {
+    const host = document.getElementById('rp-chat');
+    if (!host) return;
+    if (!messages.length) {
+      host.innerHTML = `<div class="text-[12.5px] text-muted text-center py-8">No messages yet. Say hello 👋</div>`;
+      return;
+    }
+    host.innerHTML = messages.map(m => {
+      const mine = m.mine;
+      const align = mine ? 'align-items:flex-end;' : 'align-items:flex-start;';
+      const bg = mine ? 'background:#2255a3;color:#fff;' : 'background:var(--surface-2);color:var(--text);';
+      return `<div class="flex flex-col" style="${align}">
+        <div style="max-width:80%;${bg}border-radius:12px;padding:7px 11px;font-size:13px;white-space:pre-wrap;word-break:break-word;">${esc(m.body)}</div>
+        <div class="text-[10.5px] text-soft mt-0.5">${timeLabel(m.at)}</div>
+      </div>`;
+    }).join('');
+  }
+  async function loadChat() {
+    try {
+      const res = await api('/api/realtor/chat');
+      if (!res.ok) return;
+      const data = await res.json();
+      const msgs = data.messages || [];
+      renderChat(msgs);
+      if (msgs.length !== chatCount) {   // only auto-scroll when the set changed
+        chatCount = msgs.length;
+        const host = document.getElementById('rp-chat');
+        if (host) host.scrollTop = host.scrollHeight;
+      }
+    } catch (e) {}
+  }
+  async function sendChat() {
+    const input = document.getElementById('rp-chat-input');
+    const body = input.value.trim();
+    if (!body) return;
+    input.value = '';
+    try {
+      const res = await api('/api/realtor/chat', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ body })
+      });
+      if (!res.ok) { input.value = body; return; }
+      await loadChat();
+    } catch (e) { input.value = body; }
+  }
+  let chatStarted = false;
+  function startChat() {
+    if (chatStarted) return;
+    chatStarted = true;
+    document.getElementById('rp-chat-send').addEventListener('click', sendChat);
+    document.getElementById('rp-chat-input').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); sendChat(); } });
+    loadChat();
+    setInterval(loadChat, 5000);   // poll for new messages while the portal is open
   }
 
   function bindGate() {

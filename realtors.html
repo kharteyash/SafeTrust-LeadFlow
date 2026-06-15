@@ -99,6 +99,26 @@
       </div>
     </div>
 
+    <!-- Chat with a realtor -->
+    <div id="rchat-modal" class="hidden" style="position:fixed;inset:0;z-index:56;">
+      <div id="rchat-backdrop" style="position:absolute;inset:0;background:rgba(14,14,27,.45);"></div>
+      <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:100%;max-width:520px;" class="px-4">
+        <div class="bg-white rounded-2xl shadow-2xl flex flex-col" style="height:70vh;max-height:580px;">
+          <div class="flex items-center justify-between px-5 py-3" style="border-bottom:1px solid var(--border);">
+            <h3 class="text-[16px] font-bold">Chat with <span id="rchat-name"></span></h3>
+            <button id="rchat-close" class="btn-icon" style="width:32px;height:32px;border:none;">
+              <i data-lucide="x" style="width:16px;height:16px;color:var(--text-muted);"></i>
+            </button>
+          </div>
+          <div id="rchat-body" class="px-4 py-3 flex flex-col gap-2" style="flex:1;overflow-y:auto;"></div>
+          <div class="p-3 flex items-center gap-2" style="border-top:1px solid var(--border);">
+            <input id="rchat-input" class="input" style="flex:1;" placeholder="Type a message…" maxlength="4000" autocomplete="off" />
+            <button id="rchat-send" class="btn-primary" style="padding:8px 14px;"><i data-lucide="send" style="width:14px;height:14px;"></i></button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Add realtor modal -->
     <div id="realtor-modal" class="hidden" style="position:fixed;inset:0;z-index:55;">
       <div id="realtor-modal-backdrop" style="position:absolute;inset:0;background:rgba(14,14,27,.45);"></div>

@@ -58,12 +58,25 @@
 
       <div id="rp-officer" class="mb-5"></div>
 
-      <div class="panel">
-        <div class="p-5 pb-3">
-          <h3 class="text-[15px] font-semibold">Shared clients <span id="rp-lead-count" class="text-muted font-normal"></span></h3>
+      <div class="grid grid-cols-12 gap-5">
+        <div class="panel col-span-12 lg:col-span-7">
+          <div class="p-5 pb-3">
+            <h3 class="text-[15px] font-semibold">Shared clients <span id="rp-lead-count" class="text-muted font-normal"></span></h3>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="lf-table" id="rp-leads"></table>
+          </div>
         </div>
-        <div class="overflow-x-auto">
-          <table class="lf-table" id="rp-leads"></table>
+
+        <div class="panel col-span-12 lg:col-span-5 flex flex-col" style="min-height:420px;">
+          <div class="p-4 pb-3" style="border-bottom:1px solid var(--border);">
+            <h3 class="text-[15px] font-semibold">Chat with <span id="rp-officer-name">your loan officer</span></h3>
+          </div>
+          <div id="rp-chat" class="px-4 py-3 flex flex-col gap-2" style="flex:1;overflow-y:auto;max-height:360px;"></div>
+          <div class="p-3 flex items-center gap-2" style="border-top:1px solid var(--border);">
+            <input id="rp-chat-input" class="input" style="flex:1;" placeholder="Type a message…" maxlength="4000" autocomplete="off" />
+            <button id="rp-chat-send" class="btn-primary" style="padding:8px 14px;"><i data-lucide="send" style="width:14px;height:14px;"></i></button>
+          </div>
         </div>
       </div>
     </div>
