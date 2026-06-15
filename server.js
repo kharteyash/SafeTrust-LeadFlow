@@ -974,6 +974,39 @@ app.get('/api/call-log', safe(async (req, res) => {
   })));
 }));
 
+// After a connected call, prepare a recap email for the user to review and send.
+// Saved as a 'draft' (the cron never auto-sends drafts) and pre-filled with the
+// notes they logged. One per call; skipped on a 0:00 "mis-click" connected call,
+// when auto emails are off, when Gmail isn't connected, or when no email is on file.
+async function maybeCreateRecap(user, { callId, name, isRealtor, notes, dur }) {
+  if (user.autoEmails === false) return;
+  if (!dur || dur === '0:00') return;                 // no real conversation → skip
+  if (!(await userHasGmail(user.id))) return;         // can't send a recap without Gmail
+  const rec = isRealtor
+    ? await one(`SELECT email FROM contacts WHERE user_id = $1 AND lower(name) = lower($2) AND tag = 'Realtor' AND email IS NOT NULL AND btrim(email) <> '' LIMIT 1`, [user.id, name])
+    : await one(`SELECT email FROM leads WHERE user_id = $1 AND lower(name) = lower($2) AND email IS NOT NULL AND btrim(email) <> '' LIMIT 1`, [user.id, name]);
+  if (!rec || !rec.email) return;                     // no address on file → nothing to draft
+
+  const settings = await autoSettingsFor(user.id);
+  const tpl = (settings.extra && settings.extra.recap) || DEFAULT_AUTO_EXTRA.recap;
+  const recipient = { name, email: rec.email };
+  const cleanNotes = (notes && notes.trim() && notes.trim() !== '—') ? notes.trim() : '';
+  const notesBlock = cleanNotes ? `\n\nHere's a quick recap of what we discussed:\n\n${cleanNotes}` : '';
+  let body = personalize(tpl.body, recipient).replace(/\{\{\s*notes\s*\}\}/gi, notesBlock);
+  const sig = (settings.signature && settings.signature.trim()) || (user.name || '').trim();
+  if (sig) body += '\n' + sig;
+  const subject = personalize(tpl.subject, recipient);
+
+  const now = new Date();
+  const hhmm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  await pool.query(
+    `INSERT INTO scheduled_messages (user_id, recipient, channel, type, send_date, send_time, send_at, status, body, auto_kind, auto_key)
+     VALUES ($1, $2, 'Email', $3, $4, $5, now(), 'draft', $6, 'recap', $7)
+     ON CONFLICT (auto_key) DO NOTHING`,
+    [user.id, rec.email, subject, serverToday(), hhmm, body, `recap:call:${callId}`]
+  );
+}
+
 app.post('/api/call-log', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
   const { name, phone, outcome, duration, notes } = req.body || {};
@@ -1017,6 +1050,12 @@ app.post('/api/call-log', safe(async (req, res) => {
         });
       } catch (e) { console.error('follow-up task:', e); }
     }
+  }
+
+  // A productive (connected) call → draft a recap email to review and send.
+  if (!noTalk) {
+    try { await maybeCreateRecap(req.user, { callId: row.id, name: name.trim(), isRealtor, notes: note, dur }); }
+    catch (e) { console.error('recap draft:', e); }
   }
 
   res.json({
@@ -1505,7 +1544,10 @@ const AUTO_EXTRA_DEFS = [
     body: "Hi {{first_name}},\n\nIt's been a few months since you closed, and I wanted to check in and see how you're doing.\n\nRates and programs change over time, so if you ever have questions about your mortgage — or want to help a friend or family member — I'm here for you.\n\nWarm regards," },
   { key: 'pc180',  group: 'Post-close nurture', label: '+180 days — Six months',
     subject: 'Six months in — how are things?',
-    body: "Hi {{first_name}},\n\nIt's hard to believe it's already been six months! I hope you're loving your home.\n\nAs always, I'm here if you have any questions about your mortgage or know someone I can help. Thank you again for the opportunity to work with you.\n\nWarm regards," }
+    body: "Hi {{first_name}},\n\nIt's hard to believe it's already been six months! I hope you're loving your home.\n\nAs always, I'm here if you have any questions about your mortgage or know someone I can help. Thank you again for the opportunity to work with you.\n\nWarm regards," },
+  { key: 'recap',  group: 'Post-call recap', label: 'After a connected call',
+    subject: 'Great speaking with you, {{first_name}}',
+    body: "Hi {{first_name}},\n\nThanks for taking the time to talk today — I really enjoyed our conversation.{{notes}}\n\nI'll follow up on the next steps. In the meantime, don't hesitate to reach out with any questions — just reply to this email.\n\nBest," }
 ];
 const DEFAULT_AUTO_EXTRA = Object.fromEntries(
   AUTO_EXTRA_DEFS.map(d => [d.key, { subject: d.subject, body: d.body }])
@@ -2049,9 +2091,10 @@ app.post('/api/scheduled/:id/send', safe(async (req, res) => {
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid message id.' });
 
   // Claim it: must be the user's, an Email, and not already sent/in-flight.
+  // Drafts (e.g. post-call recaps) are sendable too, once reviewed.
   const m = await one(`
     UPDATE scheduled_messages SET status = 'sending'
-    WHERE id = $1 AND user_id = $2 AND channel = 'Email' AND status IN ('pending', 'failed')
+    WHERE id = $1 AND user_id = $2 AND channel = 'Email' AND status IN ('pending', 'failed', 'draft')
     RETURNING id, recipient, type, body
   `, [id, req.user.id]);
   if (!m) {
@@ -2070,6 +2113,25 @@ app.post('/api/scheduled/:id/send', safe(async (req, res) => {
     await pool.query(`UPDATE scheduled_messages SET status = 'failed', error = $2 WHERE id = $1`, [id, msg]);
     res.status(502).json({ error: 'Send failed: ' + msg, status: 'failed' });
   }
+}));
+
+// Edit a not-yet-sent message's subject/body (used to review a draft recap before
+// sending). Only the owner, and only while it's still pending / draft / failed.
+app.patch('/api/scheduled/:id', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid message id.' });
+  const b = req.body || {};
+  const cur = await one('SELECT status, type, body FROM scheduled_messages WHERE id = $1 AND user_id = $2', [id, req.user.id]);
+  if (!cur) return res.status(404).json({ error: 'Message not found.' });
+  if (!['pending', 'draft', 'failed'].includes(cur.status)) {
+    return res.status(400).json({ error: 'This message can no longer be edited.' });
+  }
+  const type = b.type != null ? String(b.type).trim().slice(0, 80) : cur.type;
+  const body = b.body != null ? String(b.body).slice(0, 4000) : cur.body;
+  if (!type) return res.status(400).json({ error: 'Subject is required.' });
+  await pool.query('UPDATE scheduled_messages SET type = $1, body = $2 WHERE id = $3 AND user_id = $4', [type, body, id, req.user.id]);
+  res.json({ ok: true, type, body });
 }));
 
 app.delete('/api/scheduled/:id', safe(async (req, res) => {

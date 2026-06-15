@@ -61,7 +61,7 @@
       id: item.id, to: item.to, channel: item.channel, type: item.type,
       when: whenLabel(item.date), time: timeLabel(item.time24),
       status: item.status || 'pending', error: item.error || '',
-      autoKind: item.autoKind || ''
+      autoKind: item.autoKind || '', body: item.body || ''
     };
   }
   // Badge marking an automatically-scheduled lifecycle email vs. a manual one.
@@ -71,6 +71,7 @@
     if (kind === 'drip') return '<span class="pill pill-green" style="font-size:11px;" title="Automatically scheduled new-lead follow-up">🌱 Auto · New-lead drip</span>';
     if (kind === 'postclose') return '<span class="pill pill-blue" style="font-size:11px;" title="Automatically scheduled post-close check-in">🤝 Auto · Post-close</span>';
     if (kind === 'nurture') return '<span class="pill pill-yellow" style="font-size:11px;" title="Automatically scheduled nurture check-in">💬 Auto · Nurture</span>';
+    if (kind === 'recap') return '<span class="pill pill-purple" style="font-size:11px;" title="Draft recap from a connected call — review and send">📞 Recap draft</span>';
     return '';
   }
 
@@ -86,6 +87,7 @@
     if (s === 'sent')    return '<span class="pill pill-green" style="font-size:11px;">Sent</span>';
     if (s === 'failed')  return `<span class="pill pill-red" title="${escAttr(error)}" style="font-size:11px;">Failed</span>`;
     if (s === 'sending') return '<span class="pill pill-yellow" style="font-size:11px;">Sending…</span>';
+    if (s === 'draft')   return '<span class="pill pill-gray" style="font-size:11px;">Draft</span>';
     return '';
   }
 
@@ -153,6 +155,9 @@
                 ${autoPill(s.autoKind)}
                 ${statusChip(s.status, s.error)}
                 ${(s.channel === 'Email' && s.status !== 'sent' && s.status !== 'sending') ? `
+                <button class="btn-icon" title="Review &amp; edit" data-edit-uid="${s._uid}" style="width:30px;height:30px;">
+                  <i data-lucide="pencil" style="width:13px;height:13px;color:#2255a3;pointer-events:none;"></i>
+                </button>
                 <button class="btn-icon" title="Send now" data-send-uid="${s._uid}" style="width:30px;height:30px;">
                   <i data-lucide="send" style="width:13px;height:13px;color:#138A4B;pointer-events:none;"></i>
                 </button>` : ''}
@@ -467,11 +472,58 @@
   function bindRemove() {
     // Delegated — survives #msg-body re-renders.
     document.getElementById('msg-body').addEventListener('click', (e) => {
+      const editBtn = e.target.closest('[data-edit-uid]');
+      if (editBtn) { openEditModal(editBtn.getAttribute('data-edit-uid')); return; }
       const sendBtn = e.target.closest('[data-send-uid]');
       if (sendBtn) { sendNow(sendBtn.getAttribute('data-send-uid')); return; }
       const btn = e.target.closest('[data-remove-uid]');
       if (btn) removeScheduled(btn.getAttribute('data-remove-uid'));
     });
+  }
+
+  // ----- Review / edit a draft (e.g. a post-call recap) before sending -----
+  let editingUid = null;
+  function openEditModal(uid) {
+    const item = scheduled.find(s => String(s._uid) === String(uid));
+    if (!item) return;
+    editingUid = uid;
+    document.getElementById('edit-to').textContent = item.to;
+    document.getElementById('edit-subject').value = item.type || '';
+    document.getElementById('edit-body').value = item.body || '';
+    document.getElementById('edit-msg').textContent = '';
+    document.getElementById('edit-modal').classList.remove('hidden');
+    if (window.lucide) lucide.createIcons();
+  }
+  function closeEditModal() { document.getElementById('edit-modal').classList.add('hidden'); editingUid = null; }
+  // Persist the edits; returns true on success. Optionally send immediately after.
+  async function saveEdit(thenSend) {
+    const uid = editingUid;
+    const item = scheduled.find(s => String(s._uid) === String(uid));
+    if (!item || !item.id) return;
+    const emsg = document.getElementById('edit-msg');
+    const type = document.getElementById('edit-subject').value.trim();
+    const body = document.getElementById('edit-body').value;
+    if (!type) { emsg.textContent = 'Subject is required.'; return; }
+    emsg.style.color = 'var(--text-muted)'; emsg.textContent = 'Saving…';
+    try {
+      const res = await fetch('/api/scheduled/' + item.id, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+        body: JSON.stringify({ type, body })
+      });
+      const raw = await res.text(); let b = {}; try { b = raw ? JSON.parse(raw) : {}; } catch (e) {}
+      if (!res.ok) { emsg.style.color = '#D63333'; emsg.textContent = b.error || 'Could not save.'; return; }
+      item.type = b.type; item.body = b.body;
+    } catch (e) { emsg.style.color = '#D63333'; emsg.textContent = 'Network error.'; return; }
+    closeEditModal();
+    render();
+    if (thenSend) sendNow(uid);
+  }
+  function bindEdit() {
+    document.getElementById('edit-modal-close').addEventListener('click', closeEditModal);
+    document.getElementById('edit-cancel').addEventListener('click', closeEditModal);
+    document.getElementById('edit-modal-backdrop').addEventListener('click', closeEditModal);
+    document.getElementById('edit-save').addEventListener('click', () => saveEdit(false));
+    document.getElementById('edit-send').addEventListener('click', () => saveEdit(true));
   }
 
   // ----- Mount -----
@@ -483,6 +535,7 @@
     await loadScheduled();
     bindCompose();
     bindRemove();
+    bindEdit();
     render();
     // Old Google-connect redirects (?gmail=) now land on Settings → Profile;
     // tidy the URL if someone arrives here with a stale param.

@@ -77,6 +77,41 @@
       </div>
     </div>
 
+    <!-- Review / edit message modal (used for draft recaps) -->
+    <div id="edit-modal" class="hidden" style="position:fixed;inset:0;z-index:50;">
+      <div id="edit-modal-backdrop" style="position:absolute;inset:0;background:rgba(14,14,27,.45);"></div>
+      <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:100%;max-width:560px;" class="px-4">
+        <div class="bg-white rounded-2xl p-6 shadow-2xl">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-[17px] font-bold">Review &amp; send</h3>
+            <button id="edit-modal-close" class="btn-icon" style="width:32px;height:32px;border:none;">
+              <i data-lucide="x" style="width:16px;height:16px;color:var(--text-muted);"></i>
+            </button>
+          </div>
+          <div class="flex flex-col gap-3">
+            <div>
+              <label class="text-[12px] font-semibold text-muted">To</label>
+              <div id="edit-to" class="text-[13.5px] mt-1 font-medium" style="word-break:break-word;"></div>
+            </div>
+            <div>
+              <label class="text-[12px] font-semibold text-muted">Subject</label>
+              <input id="edit-subject" maxlength="80" class="input mt-1" />
+            </div>
+            <div>
+              <label class="text-[12px] font-semibold text-muted">Message</label>
+              <textarea id="edit-body" rows="10" maxlength="4000" class="input mt-1"></textarea>
+            </div>
+            <div id="edit-msg" class="text-[12.5px] font-medium" style="color:#D63333;"></div>
+            <div class="flex items-center justify-end gap-2 mt-1">
+              <button type="button" id="edit-cancel" class="btn-secondary">Cancel</button>
+              <button type="button" id="edit-save" class="btn-secondary">Save draft</button>
+              <button type="button" id="edit-send" class="btn-primary"><i data-lucide="send" style="width:13px;height:13px;"></i> Send now</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
   </div>
 
   <script src="js/data.js"></script>

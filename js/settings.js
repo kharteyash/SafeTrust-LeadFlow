@@ -1068,7 +1068,7 @@
         </div>
 
         <h3 class="text-[15px] font-semibold mb-1">Email templates</h3>
-        <p class="text-[12.5px] text-muted mb-4">Each automatic email goes out from your connected Google account and lands in Messages as a pending email you can edit or dismiss before it sends. Personalize with <b>{{first_name}}</b>, <b>{{name}}</b>, or <b>{{state}}</b>.</p>
+        <p class="text-[12.5px] text-muted mb-4">Each automatic email goes out from your connected Google account and lands in Messages as a pending email you can edit or dismiss before it sends. Personalize with <b>{{first_name}}</b>, <b>{{name}}</b>, or <b>{{state}}</b>. In the post-call recap, <b>{{notes}}</b> is replaced with the notes you logged on the call.</p>
         <div id="auto-email-wrap" class="text-[13px] text-muted">Loading…</div>
       </div>`;
   }
@@ -1104,7 +1104,7 @@
     const tzOpts = data.timezones.map(tz => `<option value="${escapeAttr(tz)}" ${tz === s.tz ? 'selected' : ''}>${escapeHTML(tz.replace(/_/g, ' '))}</option>`).join('');
 
     // Group the editable drip / nurture / post-close steps into one card each.
-    const groupIcon = { 'New-lead drip': '🌱', '15-day nurture': '💬', 'Post-close nurture': '🤝' };
+    const groupIcon = { 'New-lead drip': '🌱', '15-day nurture': '💬', 'Post-close nurture': '🤝', 'Post-call recap': '📞' };
     const byGroup = [];
     extraDefs.forEach(d => {
       let g = byGroup.find(x => x.name === d.group);
