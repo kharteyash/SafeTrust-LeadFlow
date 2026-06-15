@@ -787,6 +787,12 @@ app.post('/api/admin/users/create', safe(async (req, res) => {
 async function emailTempPassword(fromUserId, { to, name, byName }) {
   const tempPassword = generateTempPassword();
   const hash = bcrypt.hashSync(tempPassword, 10);
+  // Only send (and claim it was emailed) when the loan officer has connected their
+  // own Gmail — that's how everything else sends, and it's what the realtor sees as
+  // the sender. With no Gmail, hand the temp password back to share manually.
+  if (!(await userHasGmail(fromUserId))) {
+    return { hash, tempPassword, emailed: false, emailError: 'No Gmail connected — connect it in Settings → Profile to email logins automatically.' };
+  }
   const appUrl = (process.env.APP_URL || '').trim().replace(/\/$/, '');
   const link = appUrl ? `${appUrl}/login.html` : 'the LeadFlow sign-in page';
   const subject = 'Your LeadFlow realtor account is ready';
@@ -824,6 +830,9 @@ app.post('/api/realtor-accounts/create', safe(async (req, res) => {
      VALUES ($1, $2, $3, 'realtor', TRUE, $4) RETURNING id`,
     [email, name, hash, req.user.id]
   );
+  // Also surface them in the All Realtors / Contacts directory (deduped by email).
+  try { await ensureContact(req.user.id, { name, email, tag: 'Realtor', relationship: 'unknown' }); }
+  catch (e) { console.error('ensureContact (realtor login):', e); }
   res.json({ ok: true, id: row.id, email, name, emailed, emailError, tempPassword });
 }));
 

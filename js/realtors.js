@@ -198,7 +198,7 @@
 
   // ----- Realtor logins (portal accounts) -----
   async function loadLogins() {
-    try { const r = await fetch('/api/realtor-accounts', { credentials: 'same-origin' }); logins = r.ok ? await r.json() : []; }
+    try { const r = await fetch('/api/realtor-accounts', { credentials: 'same-origin', cache: 'no-store' }); logins = r.ok ? await r.json() : []; }
     catch (e) { logins = []; }
   }
   function renderLogins() {
@@ -266,12 +266,13 @@
         });
         const body = await res.json().catch(() => ({}));
         if (!res.ok) { m.style.color = '#D63333'; m.textContent = body.error || 'Could not create the login.'; return; }
-        await loadLogins(); renderLogins();
+        await Promise.all([loadLogins(), load()]);   // refresh logins + the All Realtors directory
+        renderLogins(); render();
         if (body.emailed) {
           closeLoginModal();
         } else {
           m.style.color = '#B07A00';
-          m.innerHTML = `Created, but the email couldn't be sent${body.emailError ? ` (${esc(body.emailError)})` : ''}. Share this temporary password: <b>${esc(body.tempPassword)}</b>`;
+          m.innerHTML = `Created. The email couldn't be sent${body.emailError ? ` — ${esc(body.emailError)}` : ''}.<br>Share this temporary password with them: <b>${esc(body.tempPassword)}</b>`;
         }
       } catch (e) { m.style.color = '#D63333'; m.textContent = 'Network error.'; }
       finally { btn.disabled = false; btn.style.opacity = ''; }
@@ -335,7 +336,7 @@
   async function loadChat() {
     if (!chatId) return;
     try {
-      const res = await fetch('/api/realtor-accounts/' + chatId + '/chat', { credentials: 'same-origin' });
+      const res = await fetch('/api/realtor-accounts/' + chatId + '/chat', { credentials: 'same-origin', cache: 'no-store' });
       if (!res.ok) return;
       const data = await res.json();
       const msgs = data.messages || [];

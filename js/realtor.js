@@ -114,7 +114,7 @@
   }
   async function loadChat() {
     try {
-      const res = await api('/api/realtor/chat');
+      const res = await api('/api/realtor/chat', { cache: 'no-store' });
       if (!res.ok) return;
       const data = await res.json();
       const msgs = data.messages || [];
