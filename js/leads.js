@@ -766,10 +766,36 @@
     });
   }
 
+  // The loan officer's realtors, offered as a picker so they don't re-type details.
+  let formRealtors = [];
+  async function loadFormRealtors() {
+    try {
+      const res = await fetch('/api/contacts', { credentials: 'same-origin', cache: 'no-store' });
+      const all = res.ok ? await res.json() : [];
+      formRealtors = all.filter(c => c.tag === 'Realtor');
+    } catch (e) { formRealtors = []; }
+    populateRealtorPicker();
+  }
+  function populateRealtorPicker() {
+    const sel = document.getElementById('realtor-picker');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">➕ Enter a new realtor manually</option>' +
+      formRealtors.map(r => `<option value="${r.id}">${escAttr(r.name)}${r.company ? ' — ' + escAttr(r.company) : ''}</option>`).join('');
+  }
+
   function bindAddLead() {
     document.getElementById('add-lead-btn').addEventListener('click', () => openLeadModal(null));
     document.getElementById('lead-type-select').addEventListener('change', syncLeadForm);
     document.getElementById('realtor-status-select').addEventListener('change', syncLeadForm);
+    // Picking an existing realtor auto-fills the fields; "manual" clears them.
+    const picker = document.getElementById('realtor-picker');
+    if (picker) picker.addEventListener('change', (e) => {
+      const form = document.getElementById('lead-form');
+      const r = formRealtors.find(x => String(x.id) === String(e.target.value));
+      form.elements['realtor_name'].value = r ? (r.name || '') : '';
+      form.elements['realtor_email'].value = r ? (r.email || '') : '';
+      form.elements['realtor_phone'].value = r ? (r.phone || '') : '';
+    });
     document.getElementById('lead-modal-close').addEventListener('click', closeLeadModal);
     document.getElementById('lead-cancel').addEventListener('click', closeLeadModal);
     document.getElementById('lead-modal-backdrop').addEventListener('click', closeLeadModal);
@@ -1402,6 +1428,7 @@
     await loadLeads();
     await loadClosed();
     await loadAssignTargets();
+    loadFormRealtors();
     renderLeadStats();
     renderTabs();
     renderTable();
