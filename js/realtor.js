@@ -6,6 +6,18 @@
   function initials(name) { return (name || '?').trim().split(/\s+/).map(s => s[0]).slice(0, 2).join('').toUpperCase() || '?'; }
   function show(id, on) { const el = document.getElementById(id); if (el) el.classList.toggle('hidden', !on); }
   function api(url, opts) { return fetch(url, Object.assign({ credentials: 'same-origin' }, opts || {})); }
+  function escAttr(s) { return esc(s).replace(/"/g, '&quot;'); }
+  function normPhone(p) {
+    const raw = String(p || '').trim(); const had = raw.startsWith('+'); const d = raw.replace(/\D/g, '');
+    if (!d) return ''; if (had) return '+' + d; if (d.length === 10) return '+1' + d; if (d.length === 11 && d[0] === '1') return '+' + d; return '+' + d;
+  }
+  function telLink(p) { const n = normPhone(p); return n ? 'tel:' + n : ''; }
+  function smsLink(p) { const n = normPhone(p); return n ? 'sms:' + n : ''; }
+  function waLink(p) { const n = normPhone(p); return n ? 'https://wa.me/' + n.replace(/\D/g, '') : ''; }
+  function gmailCompose(to) {
+    const compose = 'https://mail.google.com/mail/?view=cm&fs=1&to=' + encodeURIComponent(to);
+    return 'https://accounts.google.com/AccountChooser?continue=' + encodeURIComponent(compose);
+  }
 
   const SECTIONS = [
     { id: 'leads',    label: 'Leads',        icon: 'user-plus' },
@@ -86,6 +98,8 @@
       bindChangePassword();
     } else if (active === 'leads') {
       renderLeads();
+    } else if (active === 'contacts') {
+      renderContacts();
     } else {
       const s = SECTIONS.find(x => x.id === active);
       view.innerHTML = placeholder(s ? s.label : 'Section', 'Tell us what you want here.');
@@ -347,6 +361,265 @@
     });
   }
 
+  // ----- All Contacts (directory of saved contacts + leads) -----
+  let rcContacts = [], rcLeads = [], rcQuery = '', rcFilter = 'all', rcPage = 1, rcEditingId = null, rcMenuTarget = null;
+  const RC_FILTERS = [{ id: 'all', label: 'All' }, { id: 'lead', label: 'Leads' }, { id: 'contact', label: 'Contacts' }];
+  const RC_PAGE_SIZE = 10;
+
+  function rcPeople() {
+    return [].concat(
+      rcContacts.map(c => ({ kind: 'contact', id: c.id, name: c.name, email: c.email || '', phone: c.phone || '', company: c.company || '', type: c.tag || 'Contact', raw: c })),
+      rcLeads.map(l => ({ kind: 'lead', id: l.id, name: l.name, email: l.email || '', phone: l.phone || '', company: '', type: 'Lead', raw: l }))
+    );
+  }
+  function rcFiltered() {
+    let list = rcPeople();
+    if (rcFilter !== 'all') list = list.filter(p => p.kind === rcFilter);
+    const t = rcQuery.trim().toLowerCase();
+    if (t) list = list.filter(p => [p.name, p.email, p.phone, p.company, p.type].some(v => String(v || '').toLowerCase().includes(t)));
+    return list.sort((a, b) => a.name.localeCompare(b.name));
+  }
+  function rcTypePill(kind) { return kind === 'lead' ? 'pill-blue' : 'pill-gray'; }
+
+  function renderContacts() {
+    const view = document.getElementById('rp-view');
+    view.innerHTML = `
+      <div class="flex items-start justify-between mb-5 flex-wrap gap-3">
+        <div>
+          <h1 class="text-[24px] font-bold tracking-tight">All Contacts</h1>
+          <p class="text-[13.5px] text-muted mt-1">Everyone you're working with — your leads and saved contacts in one place.</p>
+        </div>
+        <button id="rc-add" class="btn-primary"><i data-lucide="plus" style="width:14px;height:14px;"></i> Add contact</button>
+      </div>
+      <div class="panel">
+        <div class="p-5 pb-3 flex items-center justify-between flex-wrap gap-3">
+          <div id="rc-tabs" class="flex items-center gap-5 flex-wrap"></div>
+          <div class="relative">
+            <i data-lucide="search" style="width:14px;height:14px;color:#8A8AA0;position:absolute;left:12px;top:50%;transform:translateY(-50%);"></i>
+            <input id="rc-search" class="input pl-9" style="padding-top:7px;padding-bottom:7px;font-size:12.5px;width:240px;" placeholder="Search people…" />
+          </div>
+        </div>
+        <div class="overflow-x-auto"><table class="lf-table" id="rc-table"></table></div>
+        <div class="p-4 flex items-center justify-between border-t flex-wrap gap-3" style="border-color:var(--border);">
+          <span id="rc-summary" class="text-[12.5px] text-muted"></span>
+          <div id="rc-pager" class="flex items-center gap-1"></div>
+        </div>
+      </div>`;
+    document.getElementById('rc-add').addEventListener('click', () => openContactModal(null));
+    document.getElementById('rc-search').addEventListener('input', e => { rcQuery = e.target.value; rcPage = 1; renderContactsTable(); });
+    if (window.lucide) lucide.createIcons();
+    loadContactsData();
+  }
+  function renderRcTabs() {
+    const counts = rcPeople().reduce((m, p) => { m[p.kind] = (m[p.kind] || 0) + 1; m.all = (m.all || 0) + 1; return m; }, {});
+    const host = document.getElementById('rc-tabs');
+    if (!host) return;
+    host.innerHTML = RC_FILTERS.map(f => `
+      <div class="tab ${rcFilter === f.id ? 'active' : ''}" data-rc-filter="${f.id}">${f.label}
+        <span class="ml-1.5 text-[11px] font-semibold rounded-full px-1.5 py-[1px]" style="background:${rcFilter === f.id ? 'rgba(34,85,163,0.12)' : 'var(--chip)'};color:${rcFilter === f.id ? '#2255a3' : 'var(--text-muted)'};">${counts[f.id] || 0}</span>
+      </div>`).join('');
+    host.querySelectorAll('[data-rc-filter]').forEach(el => el.addEventListener('click', () => { rcFilter = el.dataset.rcFilter; rcPage = 1; renderContactsTable(); }));
+  }
+  async function loadContactsData() {
+    try {
+      const [c, l] = await Promise.all([api('/api/realtor/contacts', { cache: 'no-store' }), api('/api/realtor/leads', { cache: 'no-store' })]);
+      rcContacts = c.ok ? await c.json() : [];
+      rcLeads = l.ok ? await l.json() : [];
+    } catch (e) { rcContacts = []; rcLeads = []; }
+    renderContactsTable();
+  }
+  function renderContactsTable() {
+    renderRcTabs();
+    const table = document.getElementById('rc-table');
+    if (!table) return;
+    const rows = rcFiltered();
+    const total = rows.length;
+    const totalPages = Math.max(1, Math.ceil(total / RC_PAGE_SIZE));
+    if (rcPage > totalPages) rcPage = totalPages;
+    const start = (rcPage - 1) * RC_PAGE_SIZE;
+    const pageRows = rows.slice(start, start + RC_PAGE_SIZE);
+    if (!rcPeople().length) {
+      table.innerHTML = `<tbody><tr><td><div class="text-center py-14">
+        <div class="mx-auto mb-3 stat-icon" style="background:var(--surface-3);width:46px;height:46px;border-radius:12px;"><i data-lucide="contact" style="width:20px;height:20px;color:#8A8AA0;"></i></div>
+        <div class="text-[14px] font-semibold mb-1">No contacts yet</div>
+        <div class="text-[13px] text-muted mb-4">Add a contact, or your leads will show up here.</div>
+        <button class="btn-primary" onclick="document.getElementById('rc-add').click()"><i data-lucide="plus" style="width:14px;height:14px;"></i> Add contact</button>
+      </div></td></tr></tbody>`;
+      document.getElementById('rc-summary').textContent = '';
+      document.getElementById('rc-pager').innerHTML = '';
+      if (window.lucide) lucide.createIcons();
+      return;
+    }
+    table.innerHTML = `
+      <thead><tr><th>Name</th><th>Type</th><th>Email</th><th>Phone</th><th>Company</th><th>Action</th></tr></thead>
+      <tbody>
+        ${pageRows.length ? pageRows.map(p => {
+          const editable = p.kind === 'contact';
+          const actions = editable ? `
+            <div class="flex items-center gap-1">
+              ${(p.phone || p.email) ? `<button class="btn-secondary" data-rc-contact="${p.id}" style="padding:5px 11px;font-size:12px;display:inline-flex;align-items:center;gap:5px;"><i data-lucide="message-circle" style="width:13px;height:13px;pointer-events:none;"></i> Contact <i data-lucide="chevron-down" style="width:12px;height:12px;pointer-events:none;opacity:.7;"></i></button>` : ''}
+              <button class="btn-icon" data-rc-edit="${p.id}" title="Edit" style="width:30px;height:30px;"><i data-lucide="pencil" style="width:13px;height:13px;color:var(--text-muted);pointer-events:none;"></i></button>
+              <button class="btn-icon" data-rc-del="${p.id}" data-rc-name="${escAttr(p.name)}" title="Delete" style="width:30px;height:30px;border:none;"><i data-lucide="trash-2" style="width:14px;height:14px;color:#D63333;pointer-events:none;"></i></button>
+            </div>` : `<button class="btn-secondary" data-rc-view="${p.kind}:${p.id}" style="padding:5px 11px;font-size:12px;">View</button>`;
+          return `
+            <tr>
+              <td><div class="flex items-center gap-2"><div class="avatar avatar-sm">${initials(p.name)}</div>
+                <span class="font-semibold text-[13px]" data-rc-view="${p.kind}:${p.id}" style="cursor:pointer;color:var(--accent);">${esc(p.name)}</span></div></td>
+              <td><span class="pill ${rcTypePill(p.kind)}">${esc(p.type)}</span></td>
+              <td class="text-muted">${esc(p.email) || '—'}</td>
+              <td>${esc(p.phone) || '—'}</td>
+              <td class="text-muted">${esc(p.company) || '—'}</td>
+              <td>${actions}</td>
+            </tr>`;
+        }).join('') : `<tr><td colspan="6" class="text-center py-8 text-muted">No one matches that search.</td></tr>`}
+      </tbody>`;
+    // Footer.
+    document.getElementById('rc-summary').textContent = total === 0 ? 'No people to show' : `Showing ${start + 1} to ${start + pageRows.length} of ${total}`;
+    const pager = document.getElementById('rc-pager');
+    if (total <= RC_PAGE_SIZE) { pager.innerHTML = ''; }
+    else {
+      const pages = []; for (let p = 1; p <= totalPages; p++) pages.push(p);
+      pager.innerHTML = `
+        <button class="btn-icon" data-rc-page="prev" style="width:30px;height:30px;" ${rcPage === 1 ? 'disabled' : ''}><i data-lucide="chevron-left" style="width:14px;height:14px;color:var(--text-muted);"></i></button>
+        ${pages.map(p => `<button data-rc-page="${p}" class="rounded-md text-[12.5px] font-semibold" style="width:30px;height:30px;${p === rcPage ? 'background:#2255a3;color:#FFF;' : 'background:var(--surface);color:var(--text);border:1px solid var(--border-strong);'}">${p}</button>`).join('')}
+        <button class="btn-icon" data-rc-page="next" style="width:30px;height:30px;" ${rcPage === totalPages ? 'disabled' : ''}><i data-lucide="chevron-right" style="width:14px;height:14px;color:var(--text-muted);"></i></button>`;
+      pager.querySelectorAll('[data-rc-page]').forEach(btn => btn.addEventListener('click', () => {
+        const v = btn.dataset.rcPage;
+        if (v === 'prev' && rcPage > 1) rcPage--; else if (v === 'next' && rcPage < totalPages) rcPage++; else if (!isNaN(parseInt(v, 10))) rcPage = parseInt(v, 10);
+        renderContactsTable();
+      }));
+    }
+    if (window.lucide) lucide.createIcons();
+  }
+
+  // Contact action menu (Call / Text / WhatsApp / Email)
+  function rcMenuItem(icon, label, color) {
+    return `<button class="flex items-center gap-2.5 w-full text-left rounded-md px-3 py-2 hover:bg-[#FAFAFC]" data-rc-action="${label}" style="font-size:13px;"><i data-lucide="${icon}" style="width:15px;height:15px;color:${color};pointer-events:none;"></i><span>${label}</span></button>`;
+  }
+  function openContactMenu(person, anchor) {
+    rcMenuTarget = person;
+    const menu = document.getElementById('rc-menu');
+    const items = [];
+    if (person.phone) { items.push(rcMenuItem('phone', 'Call', '#2255a3')); items.push(rcMenuItem('message-square', 'Text (SMS)', '#2255a3')); items.push(rcMenuItem('message-circle', 'WhatsApp', '#138A4B')); }
+    if (person.email) { items.push(rcMenuItem('mail', 'Email', '#2255a3')); }
+    menu.innerHTML = items.join('') || `<div class="px-3 py-2 text-[12.5px] text-muted">No phone or email on file.</div>`;
+    menu.classList.remove('hidden');
+    const r = anchor.getBoundingClientRect();
+    menu.style.left = Math.max(8, Math.min(r.left, window.innerWidth - 200)) + 'px';
+    menu.style.top = (r.bottom + 4) + 'px';
+    if (window.lucide) lucide.createIcons();
+  }
+  function closeContactMenu() { const m = document.getElementById('rc-menu'); if (m) m.classList.add('hidden'); rcMenuTarget = null; }
+  function doContactAction(action) {
+    const p = rcMenuTarget; if (!p) return;
+    let url = '';
+    if (action === 'Call') url = telLink(p.phone);
+    else if (action === 'Text (SMS)') url = smsLink(p.phone);
+    else if (action === 'WhatsApp') url = waLink(p.phone);
+    else if (action === 'Email') url = gmailCompose(p.email);
+    closeContactMenu();
+    if (url) window.open(url, action === 'WhatsApp' || action === 'Email' ? '_blank' : '_self');
+  }
+
+  // Add / edit contact modal
+  function openContactModal(contact) {
+    const form = document.getElementById('rc-form');
+    form.reset();
+    rcEditingId = contact ? contact.id : null;
+    document.getElementById('rc-modal-title').textContent = contact ? 'Edit contact' : 'Add contact';
+    document.getElementById('rc-submit').textContent = contact ? 'Save changes' : 'Add contact';
+    document.getElementById('rc-msg').textContent = '';
+    if (contact) {
+      form.elements['name'].value = contact.name || '';
+      form.elements['email'].value = contact.email || '';
+      form.elements['phone'].value = contact.phone || '';
+      form.elements['company'].value = contact.company || '';
+      form.elements['tag'].value = ['Contact', 'Buyer', 'Seller', 'Investor', 'Lender', 'Vendor', 'Other'].includes(contact.tag) ? contact.tag : 'Contact';
+    }
+    document.getElementById('rc-modal').classList.remove('hidden');
+    form.elements['name'].focus();
+  }
+  function closeContactModal() { document.getElementById('rc-modal').classList.add('hidden'); rcEditingId = null; }
+  async function submitContact(e) {
+    e.preventDefault();
+    const form = document.getElementById('rc-form');
+    const data = Object.fromEntries(new FormData(form));
+    const msg = document.getElementById('rc-msg');
+    if (!data.name.trim()) { msg.style.color = '#D63333'; msg.textContent = 'A name is required.'; return; }
+    const btn = document.getElementById('rc-submit');
+    btn.disabled = true; btn.style.opacity = '0.7';
+    try {
+      const res = await api(rcEditingId ? '/api/realtor/contacts/' + rcEditingId : '/api/realtor/contacts', {
+        method: rcEditingId ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data)
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) { msg.style.color = '#D63333'; msg.textContent = body.error || 'Could not save the contact.'; return; }
+      if (rcEditingId) { const i = rcContacts.findIndex(x => String(x.id) === String(rcEditingId)); if (i >= 0) rcContacts[i] = body; }
+      else rcContacts.push(body);
+      closeContactModal();
+      renderContactsTable();
+    } catch (e2) { msg.style.color = '#D63333'; msg.textContent = 'Network error.'; }
+    finally { btn.disabled = false; btn.style.opacity = ''; }
+  }
+
+  // Detail modal
+  function openContactDetail(kind, id) {
+    const p = rcPeople().find(x => x.kind === kind && String(x.id) === String(id));
+    if (!p) return;
+    document.getElementById('rc-detail-title').textContent = p.name || 'Details';
+    const r = p.raw || {};
+    const row = (label, val) => val ? `<div class="flex justify-between gap-4 py-2" style="border-bottom:1px solid var(--border-soft);"><span class="text-[12.5px] text-muted">${esc(label)}</span><span class="text-[13px] font-medium text-right" style="word-break:break-word;">${esc(val)}</span></div>` : '';
+    let rows = '';
+    rows += row('Type', p.type);
+    rows += row('Email', p.email);
+    rows += row('Phone', p.phone);
+    rows += row('Company', p.company);
+    if (kind === 'lead') {
+      rows += row('Looking to', r.intent); rows += row('Timeline', r.timeline); rows += row('Budget', r.budget);
+      rows += row('Property type', r.propertyType); rows += row('Area', r.area); rows += row('Financing', r.financing);
+      rows += row('Credit score', r.creditScore); rows += row('Assets', r.assets); rows += row('Notes', r.notes);
+    }
+    document.getElementById('rc-detail-body').innerHTML = rows || '<div class="text-[13px] text-muted py-2">No details.</div>';
+    document.getElementById('rc-detail').classList.remove('hidden');
+    if (window.lucide) lucide.createIcons();
+  }
+  function closeContactDetail() { document.getElementById('rc-detail').classList.add('hidden'); }
+
+  function bindContacts() {
+    document.getElementById('rc-close').addEventListener('click', closeContactModal);
+    document.getElementById('rc-cancel').addEventListener('click', closeContactModal);
+    document.getElementById('rc-backdrop').addEventListener('click', closeContactModal);
+    document.getElementById('rc-form').addEventListener('submit', submitContact);
+    document.getElementById('rc-detail-close').addEventListener('click', closeContactDetail);
+    document.getElementById('rc-detail-backdrop').addEventListener('click', closeContactDetail);
+    document.getElementById('rc-menu').addEventListener('click', (e) => {
+      const a = e.target.closest('[data-rc-action]'); if (a) doContactAction(a.getAttribute('data-rc-action'));
+    });
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('#rc-menu') && !e.target.closest('[data-rc-contact]')) closeContactMenu();
+    });
+    // Delegated table actions (table re-renders, so listen on the persistent view).
+    document.getElementById('rp-view').addEventListener('click', async (e) => {
+      const cBtn = e.target.closest('[data-rc-contact]');
+      if (cBtn) { const p = rcPeople().find(x => x.kind === 'contact' && String(x.id) === cBtn.getAttribute('data-rc-contact')); if (p) openContactMenu(p, cBtn); return; }
+      const view = e.target.closest('[data-rc-view]');
+      if (view) { const [k, id] = view.getAttribute('data-rc-view').split(':'); openContactDetail(k, id); return; }
+      const edit = e.target.closest('[data-rc-edit]');
+      if (edit) { const c = rcContacts.find(x => String(x.id) === edit.getAttribute('data-rc-edit')); if (c) openContactModal(c); return; }
+      const del = e.target.closest('[data-rc-del]');
+      if (del) {
+        const id = del.getAttribute('data-rc-del'); const name = del.getAttribute('data-rc-name') || 'this contact';
+        if (!window.confirm(`Delete ${name}?`)) return;
+        try {
+          const res = await api('/api/realtor/contacts/' + id, { method: 'DELETE' });
+          if (!res.ok && res.status !== 404) { window.alert('Could not delete the contact.'); return; }
+          rcContacts = rcContacts.filter(x => String(x.id) !== String(id));
+          renderContactsTable();
+        } catch (err) { window.alert('Network error.'); }
+      }
+    });
+  }
+
   // ----- Chat with the loan officer (top-bar modal) -----
   let chatCount = -1, unseen = 0, chatStarted = false;
   function updateChatBadge() {
@@ -469,7 +742,7 @@
   }
 
   document.addEventListener('DOMContentLoaded', async function () {
-    bindNav(); bindTheme(); bindUserMenu(); bindLeads();
+    bindNav(); bindTheme(); bindUserMenu(); bindLeads(); bindContacts();
     let res;
     try { res = await api('/api/me', { cache: 'no-store' }); } catch (e) { window.location.href = '/login.html'; return; }
     if (!res.ok) { window.location.href = '/login.html'; return; }

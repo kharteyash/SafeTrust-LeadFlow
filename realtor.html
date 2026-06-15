@@ -171,6 +171,75 @@
     </div>
   </div>
 
+  <!-- Contact action menu (Call / Text / WhatsApp / Email) -->
+  <div id="rc-menu" class="hidden" style="position:fixed;z-index:60;min-width:190px;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 28px var(--shadow);padding:6px;"></div>
+
+  <!-- Add / edit contact -->
+  <div id="rc-modal" class="hidden" style="position:fixed;inset:0;z-index:57;">
+    <div id="rc-backdrop" style="position:absolute;inset:0;background:rgba(14,14,27,.45);"></div>
+    <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:100%;max-width:460px;" class="px-4">
+      <div class="bg-white rounded-2xl p-6 shadow-2xl">
+        <div class="flex items-center justify-between mb-4">
+          <h3 id="rc-modal-title" class="text-[17px] font-bold">Add contact</h3>
+          <button id="rc-close" class="btn-icon" style="width:32px;height:32px;border:none;"><i data-lucide="x" style="width:16px;height:16px;color:var(--text-muted);"></i></button>
+        </div>
+        <form id="rc-form" class="flex flex-col gap-3">
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="text-[12px] font-semibold text-muted">Name</label>
+              <input name="name" required maxlength="120" class="input mt-1" placeholder="Contact's name" />
+            </div>
+            <div>
+              <label class="text-[12px] font-semibold text-muted">Type</label>
+              <select name="tag" class="input mt-1" style="cursor:pointer;">
+                <option>Contact</option>
+                <option>Buyer</option>
+                <option>Seller</option>
+                <option>Investor</option>
+                <option>Lender</option>
+                <option>Vendor</option>
+                <option>Other</option>
+              </select>
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="text-[12px] font-semibold text-muted">Email</label>
+              <input name="email" type="email" maxlength="160" class="input mt-1" placeholder="name@email.com" />
+            </div>
+            <div>
+              <label class="text-[12px] font-semibold text-muted">Phone</label>
+              <input name="phone" maxlength="40" class="input mt-1" placeholder="(555) 123-4567" />
+            </div>
+          </div>
+          <div>
+            <label class="text-[12px] font-semibold text-muted">Company</label>
+            <input name="company" maxlength="120" class="input mt-1" placeholder="Company / brokerage" />
+          </div>
+          <div id="rc-msg" class="text-[12.5px] font-medium" style="color:#D63333;"></div>
+          <div class="flex items-center justify-end gap-2 mt-1">
+            <button type="button" id="rc-cancel" class="btn-secondary">Cancel</button>
+            <button type="submit" id="rc-submit" class="btn-primary">Add contact</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Contact / lead detail -->
+  <div id="rc-detail" class="hidden" style="position:fixed;inset:0;z-index:57;">
+    <div id="rc-detail-backdrop" style="position:absolute;inset:0;background:rgba(14,14,27,.45);"></div>
+    <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:100%;max-width:460px;" class="px-4">
+      <div class="bg-white rounded-2xl p-6 shadow-2xl" style="max-height:85vh;overflow-y:auto;">
+        <div class="flex items-center justify-between mb-3">
+          <h3 id="rc-detail-title" class="text-[17px] font-bold">Details</h3>
+          <button id="rc-detail-close" class="btn-icon" style="width:32px;height:32px;border:none;"><i data-lucide="x" style="width:16px;height:16px;color:var(--text-muted);"></i></button>
+        </div>
+        <div id="rc-detail-body"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- Chat with the loan officer -->
   <div id="rp-chat-modal" class="hidden" style="position:fixed;inset:0;z-index:56;">
     <div id="rp-chat-backdrop" style="position:absolute;inset:0;background:rgba(14,14,27,.45);"></div>
@@ -189,6 +258,6 @@
     </div>
   </div>
 
-  <script src="js/realtor.js?v=20260616c"></script>
+  <script src="js/realtor.js?v=20260616d"></script>
 </body>
 </html>

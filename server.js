@@ -245,6 +245,19 @@ const SCHEMA = `
   ALTER TABLE realtor_leads ADD COLUMN IF NOT EXISTS credit_score TEXT;
   ALTER TABLE realtor_leads ADD COLUMN IF NOT EXISTS assets TEXT;
 
+  -- A realtor's own saved contacts (their address book, separate from leads).
+  CREATE TABLE IF NOT EXISTS realtor_contacts (
+    id         SERIAL PRIMARY KEY,
+    realtor_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name       TEXT NOT NULL,
+    email      TEXT,
+    phone      TEXT,
+    company    TEXT,
+    tag        TEXT,
+    created_at TIMESTAMPTZ DEFAULT now()
+  );
+  CREATE INDEX IF NOT EXISTS realtor_contacts_owner ON realtor_contacts (realtor_id, id);
+
   CREATE TABLE IF NOT EXISTS google_accounts (
     user_id       INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     email         TEXT,
@@ -1072,6 +1085,57 @@ app.post('/api/realtor/leads/import', safe(async (req, res) => {
     imported++;
   }
   res.json({ ok: true, imported, skipped });
+}));
+
+// ----- Realtor's own contacts (address book) -----
+function realtorContactRowToJson(r) {
+  return { id: r.id, name: r.name, email: r.email || '', phone: r.phone || '', company: r.company || '', tag: r.tag || 'Contact' };
+}
+app.get('/api/realtor/contacts', safe(async (req, res) => {
+  if (!req.user || req.user.role !== 'realtor') return res.status(403).json({ error: 'Realtors only.' });
+  const rows = await q('SELECT * FROM realtor_contacts WHERE realtor_id = $1 ORDER BY lower(name)', [req.user.id]);
+  res.json(rows.map(realtorContactRowToJson));
+}));
+app.post('/api/realtor/contacts', safe(async (req, res) => {
+  if (!req.user || req.user.role !== 'realtor') return res.status(403).json({ error: 'Realtors only.' });
+  const b = req.body || {};
+  const name = String(b.name || '').trim().slice(0, 120);
+  if (!name) return res.status(400).json({ error: 'A name is required.' });
+  const row = await one(
+    `INSERT INTO realtor_contacts (realtor_id, name, email, phone, company, tag)
+     VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+    [req.user.id, name, String(b.email || '').trim().slice(0, 160), String(b.phone || '').trim().slice(0, 40),
+     String(b.company || '').trim().slice(0, 120), (String(b.tag || '').trim().slice(0, 40) || 'Contact')]
+  );
+  res.json(realtorContactRowToJson(row));
+}));
+app.patch('/api/realtor/contacts/:id', safe(async (req, res) => {
+  if (!req.user || req.user.role !== 'realtor') return res.status(403).json({ error: 'Realtors only.' });
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id.' });
+  const cur = await one('SELECT * FROM realtor_contacts WHERE id = $1 AND realtor_id = $2', [id, req.user.id]);
+  if (!cur) return res.status(404).json({ error: 'Contact not found.' });
+  const b = req.body || {};
+  const name = b.name != null ? String(b.name).trim().slice(0, 120) : cur.name;
+  if (!name) return res.status(400).json({ error: 'A name is required.' });
+  const upd = await one(
+    `UPDATE realtor_contacts SET name=$1, email=$2, phone=$3, company=$4, tag=$5 WHERE id=$6 AND realtor_id=$7 RETURNING *`,
+    [name,
+     b.email != null ? String(b.email).trim().slice(0, 160) : (cur.email || ''),
+     b.phone != null ? String(b.phone).trim().slice(0, 40) : (cur.phone || ''),
+     b.company != null ? String(b.company).trim().slice(0, 120) : (cur.company || ''),
+     b.tag != null ? (String(b.tag).trim().slice(0, 40) || 'Contact') : (cur.tag || 'Contact'),
+     id, req.user.id]
+  );
+  res.json(realtorContactRowToJson(upd));
+}));
+app.delete('/api/realtor/contacts/:id', safe(async (req, res) => {
+  if (!req.user || req.user.role !== 'realtor') return res.status(403).json({ error: 'Realtors only.' });
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id.' });
+  const r = await pool.query('DELETE FROM realtor_contacts WHERE id = $1 AND realtor_id = $2', [id, req.user.id]);
+  if (r.rowCount === 0) return res.status(404).json({ error: 'Contact not found.' });
+  res.json({ ok: true });
 }));
 
 // Admin: delete a user account entirely. The admin can't delete themselves or
