@@ -102,6 +102,8 @@
       renderContacts();
     } else if (active === 'calls') {
       renderCalls();
+    } else if (active === 'clients') {
+      renderClients();
     } else {
       const s = SECTIONS.find(x => x.id === active);
       view.innerHTML = placeholder(s ? s.label : 'Section', 'Tell us what you want here.');
@@ -189,9 +191,12 @@
             <td>${esc(l.creditScore) || '<span class="text-soft">—</span>'}</td>
             <td class="text-muted">${esc(l.assets) || '—'}</td>
             <td style="text-align:right;">
-              <button class="btn-icon" data-del-lead="${l.id}" data-lead-name="${esc(l.name)}" title="Delete lead" style="width:30px;height:30px;border:none;">
-                <i data-lucide="trash-2" style="width:14px;height:14px;color:#D63333;pointer-events:none;"></i>
-              </button>
+              <div class="flex items-center gap-1 justify-end">
+                <button class="btn-secondary" data-close-lead="${l.id}" data-lead-name="${escAttr(l.name)}" data-lead-phone="${escAttr(l.phone || '')}" title="Mark as a past client" style="padding:5px 10px;font-size:12px;">Close</button>
+                <button class="btn-icon" data-del-lead="${l.id}" data-lead-name="${esc(l.name)}" title="Delete lead" style="width:30px;height:30px;border:none;">
+                  <i data-lucide="trash-2" style="width:14px;height:14px;color:#D63333;pointer-events:none;"></i>
+                </button>
+              </div>
             </td>
           </tr>`).join('') : `<tr><td colspan="10" class="text-center py-8 text-muted">No leads match that search.</td></tr>`}
       </tbody>`;
@@ -288,6 +293,50 @@
     URL.revokeObjectURL(url);
   }
 
+  // Close a lead → past client
+  let rxTarget = null;
+  function todayStr() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
+  function openCloseModal(target) {
+    rxTarget = target;
+    document.getElementById('rx-who').textContent = target.name + (target.phone ? ` · ${target.phone}` : '');
+    document.getElementById('rx-deal').value = '';
+    document.getElementById('rx-date').value = todayStr();
+    document.getElementById('rx-address').value = '';
+    document.getElementById('rx-price').value = '';
+    document.getElementById('rx-notes').value = '';
+    document.getElementById('rx-msg').textContent = '';
+    document.getElementById('rx-modal').classList.remove('hidden');
+  }
+  function closeCloseModal() { document.getElementById('rx-modal').classList.add('hidden'); rxTarget = null; }
+  async function saveClose() {
+    if (!rxTarget) return;
+    const msg = document.getElementById('rx-msg');
+    const btn = document.getElementById('rx-save');
+    btn.disabled = true; btn.style.opacity = '0.7';
+    try {
+      const payload = {
+        dealType: document.getElementById('rx-deal').value,
+        closedDate: document.getElementById('rx-date').value,
+        address: document.getElementById('rx-address').value,
+        price: document.getElementById('rx-price').value,
+        notes: document.getElementById('rx-notes').value
+      };
+      const res = await api('/api/realtor/leads/' + rxTarget.id + '/close', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) { msg.style.color = '#D63333'; msg.textContent = body.error || 'Could not close the lead.'; return; }
+      rlLeads = rlLeads.filter(l => String(l.id) !== String(rxTarget.id));
+      closeCloseModal();
+      renderLeadsTable();
+    } catch (e) { msg.style.color = '#D63333'; msg.textContent = 'Network error.'; }
+    finally { btn.disabled = false; btn.style.opacity = ''; }
+  }
+  function bindClose() {
+    document.getElementById('rx-close').addEventListener('click', closeCloseModal);
+    document.getElementById('rx-cancel').addEventListener('click', closeCloseModal);
+    document.getElementById('rx-backdrop').addEventListener('click', closeCloseModal);
+    document.getElementById('rx-save').addEventListener('click', saveClose);
+  }
+
   function bindLeads() {
     document.getElementById('rl-close').addEventListener('click', closeLeadModal);
     document.getElementById('rl-cancel').addEventListener('click', closeLeadModal);
@@ -302,6 +351,8 @@
     document.getElementById('rp-view').addEventListener('click', async (e) => {
       const view = e.target.closest('[data-rl-view]');
       if (view) { openLeadDetail(view.getAttribute('data-rl-view')); return; }
+      const closeBtn = e.target.closest('[data-close-lead]');
+      if (closeBtn) { openCloseModal({ id: closeBtn.getAttribute('data-close-lead'), name: closeBtn.getAttribute('data-lead-name'), phone: closeBtn.getAttribute('data-lead-phone') || '' }); return; }
       const del = e.target.closest('[data-del-lead]');
       if (!del) return;
       const id = del.getAttribute('data-del-lead');
@@ -365,15 +416,16 @@
     });
   }
 
-  // ----- All Contacts (directory of saved contacts + leads) -----
-  let rcContacts = [], rcLeads = [], rcQuery = '', rcFilter = 'all', rcPage = 1, rcEditingId = null, rcMenuTarget = null;
-  const RC_FILTERS = [{ id: 'all', label: 'All' }, { id: 'lead', label: 'Leads' }, { id: 'contact', label: 'Contacts' }];
+  // ----- All Contacts (directory of saved contacts + leads + past clients) -----
+  let rcContacts = [], rcLeads = [], rcClients = [], rcQuery = '', rcFilter = 'all', rcPage = 1, rcEditingId = null, rcMenuTarget = null;
+  const RC_FILTERS = [{ id: 'all', label: 'All' }, { id: 'lead', label: 'Leads' }, { id: 'contact', label: 'Contacts' }, { id: 'client', label: 'Clients' }];
   const RC_PAGE_SIZE = 10;
 
   function rcPeople() {
     return [].concat(
       rcContacts.map(c => ({ kind: 'contact', id: c.id, name: c.name, email: c.email || '', phone: c.phone || '', company: c.company || '', type: c.tag || 'Contact', raw: c })),
-      rcLeads.map(l => ({ kind: 'lead', id: l.id, name: l.name, email: l.email || '', phone: l.phone || '', company: '', type: 'Lead', raw: l }))
+      rcLeads.map(l => ({ kind: 'lead', id: l.id, name: l.name, email: l.email || '', phone: l.phone || '', company: '', type: 'Lead', raw: l })),
+      rcClients.map(c => ({ kind: 'client', id: c.id, name: c.name, email: c.email || '', phone: c.phone || '', company: '', type: 'Past client', raw: c }))
     );
   }
   function rcFiltered() {
@@ -383,7 +435,7 @@
     if (t) list = list.filter(p => [p.name, p.email, p.phone, p.company, p.type].some(v => String(v || '').toLowerCase().includes(t)));
     return list.sort((a, b) => a.name.localeCompare(b.name));
   }
-  function rcTypePill(kind) { return kind === 'lead' ? 'pill-blue' : 'pill-gray'; }
+  function rcTypePill(kind) { return kind === 'lead' ? 'pill-blue' : kind === 'client' ? 'pill-green' : 'pill-gray'; }
 
   function renderContacts() {
     const view = document.getElementById('rp-view');
@@ -426,10 +478,15 @@
   }
   async function loadContactsData() {
     try {
-      const [c, l] = await Promise.all([api('/api/realtor/contacts', { cache: 'no-store' }), api('/api/realtor/leads', { cache: 'no-store' })]);
+      const [c, l, cl] = await Promise.all([
+        api('/api/realtor/contacts', { cache: 'no-store' }),
+        api('/api/realtor/leads', { cache: 'no-store' }),
+        api('/api/realtor/clients', { cache: 'no-store' })
+      ]);
       rcContacts = c.ok ? await c.json() : [];
       rcLeads = l.ok ? await l.json() : [];
-    } catch (e) { rcContacts = []; rcLeads = []; }
+      rcClients = cl.ok ? await cl.json() : [];
+    } catch (e) { rcContacts = []; rcLeads = []; rcClients = []; }
     renderContactsTable();
   }
   function renderContactsTable() {
@@ -596,6 +653,10 @@
       rows += detailRow('Looking to', r.intent); rows += detailRow('Timeline', r.timeline); rows += detailRow('Budget', r.budget);
       rows += detailRow('Property type', r.propertyType); rows += detailRow('Area', r.area); rows += detailRow('Financing', r.financing);
       rows += detailRow('Credit score', r.creditScore); rows += detailRow('Assets', r.assets); rows += detailRow('Notes', r.notes);
+    } else if (p.kind === 'client') {
+      rows += detailRow('Deal', r.dealType); rows += detailRow('Property', r.address); rows += detailRow('Sale price', r.price);
+      rows += detailRow('Closed', r.closedDate); rows += detailRow('Looking to', r.intent); rows += detailRow('Budget', r.budget);
+      rows += detailRow('Property type', r.propertyType); rows += detailRow('Area', r.area); rows += detailRow('Notes', r.notes);
     }
     const editBtn = p.kind === 'contact'
       ? `<div class="mt-4 flex justify-end"><button id="rc-detail-edit" class="btn-secondary" style="font-size:12.5px;"><i data-lucide="pencil" style="width:13px;height:13px;"></i> Edit</button></div>` : '';
@@ -649,6 +710,121 @@
           if (!res.ok && res.status !== 404) { window.alert('Could not delete the contact.'); return; }
           rcContacts = rcContacts.filter(x => String(x.id) !== String(id));
           renderContactsTable();
+        } catch (err) { window.alert('Network error.'); }
+      }
+    });
+  }
+
+  // ----- Past Clients (closed leads) -----
+  let pcClients = [], pcQuery = '', pcPage = 1;
+  const PC_PAGE_SIZE = 10;
+  function pcFiltered() {
+    const t = pcQuery.trim().toLowerCase();
+    let list = pcClients;
+    if (t) list = list.filter(c => [c.name, c.email, c.phone, c.address, c.area, c.dealType].some(v => String(v || '').toLowerCase().includes(t)));
+    return list;
+  }
+  function renderClients() {
+    const view = document.getElementById('rp-view');
+    view.innerHTML = `
+      <div class="mb-5">
+        <h1 class="text-[24px] font-bold tracking-tight">Past Clients</h1>
+        <p class="text-[13.5px] text-muted mt-1">Leads you've closed. Close a lead from the Leads section and it lands here.</p>
+      </div>
+      <div class="panel">
+        <div class="p-5 pb-3 flex items-center justify-between flex-wrap gap-3">
+          <h3 class="text-[15px] font-semibold">All past clients <span id="pc-count" class="text-muted font-normal"></span></h3>
+          <div class="relative">
+            <i data-lucide="search" style="width:14px;height:14px;color:#8A8AA0;position:absolute;left:12px;top:50%;transform:translateY(-50%);"></i>
+            <input id="pc-search" class="input pl-9" style="padding-top:7px;padding-bottom:7px;font-size:12.5px;width:240px;" placeholder="Search clients…" />
+          </div>
+        </div>
+        <div class="overflow-x-auto"><table class="lf-table" id="pc-table"></table></div>
+        <div class="p-4 flex items-center justify-between border-t flex-wrap gap-3" style="border-color:var(--border);">
+          <span id="pc-summary" class="text-[12.5px] text-muted"></span>
+          <div id="pc-pager" class="flex items-center gap-1"></div>
+        </div>
+      </div>`;
+    document.getElementById('pc-search').addEventListener('input', e => { pcQuery = e.target.value; pcPage = 1; renderClientsTable(); });
+    if (window.lucide) lucide.createIcons();
+    loadClients();
+  }
+  async function loadClients() {
+    try { const r = await api('/api/realtor/clients', { cache: 'no-store' }); pcClients = r.ok ? await r.json() : []; }
+    catch (e) { pcClients = []; }
+    renderClientsTable();
+  }
+  function renderClientsTable() {
+    const table = document.getElementById('pc-table'); if (!table) return;
+    const countEl = document.getElementById('pc-count'); if (countEl) countEl.textContent = pcClients.length ? `(${pcClients.length})` : '';
+    if (!pcClients.length) {
+      table.innerHTML = `<tbody><tr><td><div class="text-center py-14">
+        <div class="mx-auto mb-3 stat-icon" style="background:var(--surface-3);width:46px;height:46px;border-radius:12px;"><i data-lucide="user-check" style="width:20px;height:20px;color:#8A8AA0;"></i></div>
+        <div class="text-[14px] font-semibold mb-1">No past clients yet</div>
+        <div class="text-[13px] text-muted">When you close a lead, it shows up here.</div>
+      </div></td></tr></tbody>`;
+      document.getElementById('pc-summary').textContent = '';
+      document.getElementById('pc-pager').innerHTML = '';
+      if (window.lucide) lucide.createIcons();
+      return;
+    }
+    const rows = pcFiltered();
+    const total = rows.length;
+    const totalPages = Math.max(1, Math.ceil(total / PC_PAGE_SIZE));
+    if (pcPage > totalPages) pcPage = totalPages;
+    const start = (pcPage - 1) * PC_PAGE_SIZE;
+    const pageRows = rows.slice(start, start + PC_PAGE_SIZE);
+    const dealPill = (d) => d === 'Bought' ? 'pill-green' : d === 'Sold' ? 'pill-blue' : d === 'Both' ? 'pill-purple' : 'pill-gray';
+    table.innerHTML = `
+      <thead><tr><th>Name</th><th>Deal</th><th>Property</th><th>Price</th><th>Closed</th><th>Contact</th><th></th></tr></thead>
+      <tbody>
+        ${pageRows.length ? pageRows.map(c => `
+          <tr>
+            <td><span class="font-semibold text-[13px]" data-pc-view="${c.id}" style="cursor:pointer;color:var(--accent);">${esc(c.name)}</span></td>
+            <td>${c.dealType ? `<span class="pill ${dealPill(c.dealType)}">${esc(c.dealType)}</span>` : '<span class="text-soft">—</span>'}</td>
+            <td class="text-muted">${esc(c.address) || '—'}</td>
+            <td>${esc(c.price) || '<span class="text-soft">—</span>'}</td>
+            <td class="text-muted">${esc(c.closedDate) || '—'}</td>
+            <td class="text-muted">${[c.phone, c.email].filter(Boolean).map(esc).join('<br>') || '—'}</td>
+            <td style="text-align:right;">
+              <button class="btn-icon" data-pc-del="${c.id}" data-pc-name="${escAttr(c.name)}" title="Remove" style="width:30px;height:30px;border:none;"><i data-lucide="trash-2" style="width:14px;height:14px;color:#D63333;pointer-events:none;"></i></button>
+            </td>
+          </tr>`).join('') : `<tr><td colspan="7" class="text-center py-8 text-muted">No clients match that search.</td></tr>`}
+      </tbody>`;
+    document.getElementById('pc-summary').textContent = total === 0 ? 'No clients to show' : `Showing ${start + 1} to ${start + pageRows.length} of ${total}`;
+    const pager = document.getElementById('pc-pager');
+    if (total <= PC_PAGE_SIZE) { pager.innerHTML = ''; }
+    else {
+      const pages = []; for (let p = 1; p <= totalPages; p++) pages.push(p);
+      pager.innerHTML = `
+        <button class="btn-icon" data-pc-page="prev" style="width:30px;height:30px;" ${pcPage === 1 ? 'disabled' : ''}><i data-lucide="chevron-left" style="width:14px;height:14px;color:var(--text-muted);"></i></button>
+        ${pages.map(p => `<button data-pc-page="${p}" class="rounded-md text-[12.5px] font-semibold" style="width:30px;height:30px;${p === pcPage ? 'background:#2255a3;color:#FFF;' : 'background:var(--surface);color:var(--text);border:1px solid var(--border-strong);'}">${p}</button>`).join('')}
+        <button class="btn-icon" data-pc-page="next" style="width:30px;height:30px;" ${pcPage === totalPages ? 'disabled' : ''}><i data-lucide="chevron-right" style="width:14px;height:14px;color:var(--text-muted);"></i></button>`;
+      pager.querySelectorAll('[data-pc-page]').forEach(btn => btn.addEventListener('click', () => {
+        const v = btn.dataset.pcPage;
+        if (v === 'prev' && pcPage > 1) pcPage--; else if (v === 'next' && pcPage < totalPages) pcPage++; else if (!isNaN(parseInt(v, 10))) pcPage = parseInt(v, 10);
+        renderClientsTable();
+      }));
+    }
+    if (window.lucide) lucide.createIcons();
+  }
+  function openClientDetail(id) {
+    const c = pcClients.find(x => String(x.id) === String(id));
+    if (c) renderPersonDetail({ kind: 'client', name: c.name, email: c.email || '', phone: c.phone || '', company: '', type: 'Past client', raw: c });
+  }
+  function bindClients() {
+    document.getElementById('rp-view').addEventListener('click', async (e) => {
+      const view = e.target.closest('[data-pc-view]');
+      if (view) { openClientDetail(view.getAttribute('data-pc-view')); return; }
+      const del = e.target.closest('[data-pc-del]');
+      if (del) {
+        const id = del.getAttribute('data-pc-del'); const name = del.getAttribute('data-pc-name') || 'this client';
+        if (!window.confirm(`Remove ${name} from past clients?`)) return;
+        try {
+          const res = await api('/api/realtor/clients/' + id, { method: 'DELETE' });
+          if (!res.ok && res.status !== 404) { window.alert('Could not remove the client.'); return; }
+          pcClients = pcClients.filter(x => String(x.id) !== String(id));
+          renderClientsTable();
         } catch (err) { window.alert('Network error.'); }
       }
     });
@@ -895,7 +1071,7 @@
   }
 
   document.addEventListener('DOMContentLoaded', async function () {
-    bindNav(); bindTheme(); bindUserMenu(); bindLeads(); bindContacts(); bindCalls();
+    bindNav(); bindTheme(); bindUserMenu(); bindLeads(); bindClose(); bindContacts(); bindCalls(); bindClients();
     let res;
     try { res = await api('/api/me', { cache: 'no-store' }); } catch (e) { window.location.href = '/login.html'; return; }
     if (!res.ok) { window.location.href = '/login.html'; return; }

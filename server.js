@@ -271,6 +271,26 @@ const SCHEMA = `
   );
   CREATE INDEX IF NOT EXISTS realtor_calls_owner ON realtor_calls (realtor_id, id);
 
+  -- A realtor's past clients (closed leads): carries the lead info + the deal.
+  CREATE TABLE IF NOT EXISTS realtor_clients (
+    id            SERIAL PRIMARY KEY,
+    realtor_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name          TEXT NOT NULL,
+    phone         TEXT,
+    email         TEXT,
+    intent        TEXT,
+    budget        TEXT,
+    property_type TEXT,
+    area          TEXT,
+    deal_type     TEXT,        -- Bought | Sold | Both
+    address       TEXT,
+    price         TEXT,
+    closed_date   TEXT,        -- YYYY-MM-DD
+    notes         TEXT,
+    created_at    TIMESTAMPTZ DEFAULT now()
+  );
+  CREATE INDEX IF NOT EXISTS realtor_clients_owner ON realtor_clients (realtor_id, id);
+
   CREATE TABLE IF NOT EXISTS google_accounts (
     user_id       INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     email         TEXT,
@@ -1214,6 +1234,53 @@ app.post('/api/realtor/calls', safe(async (req, res) => {
     [req.user.id, leadId, name, String(b.phone || '').trim().slice(0, 40), b.outcome, String(b.notes || '').trim().slice(0, 2000)]
   );
   res.json({ id: row.id, leadId: row.lead_id, name: row.name, phone: row.phone || '', outcome: row.outcome, notes: row.notes || '', loggedAt: row.logged_at });
+}));
+
+// ----- Realtor past clients (closed leads) -----
+function realtorClientRowToJson(r) {
+  return {
+    id: r.id, name: r.name, phone: r.phone || '', email: r.email || '',
+    intent: r.intent || '', budget: r.budget || '', propertyType: r.property_type || '', area: r.area || '',
+    dealType: r.deal_type || '', address: r.address || '', price: r.price || '',
+    closedDate: r.closed_date || '', notes: r.notes || '', created: r.created_at
+  };
+}
+const REALTOR_DEAL_TYPES = ['Bought', 'Sold', 'Both'];
+
+// Close a lead: capture the deal, move it into past clients, delete the lead.
+app.post('/api/realtor/leads/:id/close', safe(async (req, res) => {
+  if (!req.user || req.user.role !== 'realtor') return res.status(403).json({ error: 'Realtors only.' });
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id.' });
+  const lead = await one('SELECT * FROM realtor_leads WHERE id = $1 AND realtor_id = $2', [id, req.user.id]);
+  if (!lead) return res.status(404).json({ error: 'Lead not found.' });
+  const b = req.body || {};
+  const s = (v, n) => String(v == null ? '' : v).trim().slice(0, n);
+  const dealType = REALTOR_DEAL_TYPES.includes(s(b.dealType, 20)) ? s(b.dealType, 20) : '';
+  const closedDate = /^\d{4}-\d{2}-\d{2}$/.test(s(b.closedDate, 10)) ? s(b.closedDate, 10) : serverToday();
+  const row = await one(
+    `INSERT INTO realtor_clients (realtor_id, name, phone, email, intent, budget, property_type, area, deal_type, address, price, closed_date, notes)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
+    [req.user.id, lead.name, lead.phone, lead.email, lead.intent, lead.budget, lead.property_type, lead.area,
+     dealType, s(b.address, 200), s(b.price, 60), closedDate, s(b.notes, 2000) || lead.notes || '']
+  );
+  await pool.query('DELETE FROM realtor_leads WHERE id = $1 AND realtor_id = $2', [id, req.user.id]);
+  res.json(realtorClientRowToJson(row));
+}));
+
+app.get('/api/realtor/clients', safe(async (req, res) => {
+  if (!req.user || req.user.role !== 'realtor') return res.status(403).json({ error: 'Realtors only.' });
+  const rows = await q('SELECT * FROM realtor_clients WHERE realtor_id = $1 ORDER BY id DESC', [req.user.id]);
+  res.json(rows.map(realtorClientRowToJson));
+}));
+
+app.delete('/api/realtor/clients/:id', safe(async (req, res) => {
+  if (!req.user || req.user.role !== 'realtor') return res.status(403).json({ error: 'Realtors only.' });
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id.' });
+  const r = await pool.query('DELETE FROM realtor_clients WHERE id = $1 AND realtor_id = $2', [id, req.user.id]);
+  if (r.rowCount === 0) return res.status(404).json({ error: 'Client not found.' });
+  res.json({ ok: true });
 }));
 
 // Admin: delete a user account entirely. The admin can't delete themselves or

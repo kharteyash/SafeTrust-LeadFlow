@@ -240,6 +240,54 @@
     </div>
   </div>
 
+  <!-- Close a lead → past client -->
+  <div id="rx-modal" class="hidden" style="position:fixed;inset:0;z-index:57;">
+    <div id="rx-backdrop" style="position:absolute;inset:0;background:rgba(14,14,27,.45);"></div>
+    <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:100%;max-width:460px;" class="px-4">
+      <div class="bg-white rounded-2xl p-6 shadow-2xl" style="max-height:88vh;overflow-y:auto;">
+        <div class="flex items-center justify-between mb-1">
+          <h3 class="text-[17px] font-bold">Close lead</h3>
+          <button id="rx-close" class="btn-icon" style="width:32px;height:32px;border:none;"><i data-lucide="x" style="width:16px;height:16px;color:var(--text-muted);"></i></button>
+        </div>
+        <p id="rx-who" class="text-[12.5px] text-muted mb-4"></p>
+        <div class="flex flex-col gap-3">
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="text-[12px] font-semibold text-muted">Deal</label>
+              <select id="rx-deal" class="input mt-1" style="cursor:pointer;">
+                <option value="">Select…</option>
+                <option>Bought</option>
+                <option>Sold</option>
+                <option>Both</option>
+              </select>
+            </div>
+            <div>
+              <label class="text-[12px] font-semibold text-muted">Closed date</label>
+              <input id="rx-date" type="date" class="input mt-1" style="cursor:pointer;" />
+            </div>
+          </div>
+          <div>
+            <label class="text-[12px] font-semibold text-muted">Property address</label>
+            <input id="rx-address" maxlength="200" class="input mt-1" placeholder="123 Main St, City" />
+          </div>
+          <div>
+            <label class="text-[12px] font-semibold text-muted">Sale price</label>
+            <input id="rx-price" maxlength="60" class="input mt-1" placeholder="e.g. $450,000" />
+          </div>
+          <div>
+            <label class="text-[12px] font-semibold text-muted">Notes</label>
+            <textarea id="rx-notes" rows="2" maxlength="2000" class="input mt-1" placeholder="Anything to remember about this client…"></textarea>
+          </div>
+          <div id="rx-msg" class="text-[12.5px] font-medium" style="color:#D63333;"></div>
+          <div class="flex items-center justify-end gap-2 mt-1">
+            <button type="button" id="rx-cancel" class="btn-secondary">Cancel</button>
+            <button type="button" id="rx-save" class="btn-primary">Close lead</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Log a call -->
   <div id="rk-modal" class="hidden" style="position:fixed;inset:0;z-index:57;">
     <div id="rk-backdrop" style="position:absolute;inset:0;background:rgba(14,14,27,.45);"></div>
@@ -292,6 +340,6 @@
     </div>
   </div>
 
-  <script src="js/realtor.js?v=20260616g"></script>
+  <script src="js/realtor.js?v=20260616h"></script>
 </body>
 </html>
