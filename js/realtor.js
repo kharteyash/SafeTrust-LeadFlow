@@ -25,6 +25,7 @@
     { id: 'clients',  label: 'Past Clients', icon: 'user-check' },
     { id: 'contacts', label: 'All Contacts', icon: 'contact' },
     { id: 'calls',    label: 'Calls',        icon: 'phone' },
+    { id: 'tasks',    label: 'Follow-ups',   icon: 'list-checks' },
     { id: 'settings', label: 'Settings',     icon: 'settings' }
   ];
 
@@ -112,6 +113,8 @@
       renderContacts();
     } else if (active === 'calls') {
       renderCalls();
+    } else if (active === 'tasks') {
+      renderTasks();
     } else if (active === 'clients') {
       renderClients();
     } else {
@@ -145,6 +148,7 @@
       : tone === 'blue' ? 'background:#E7EEFB;color:#2255a3;'
       : tone === 'purple' ? 'background:#F0E9FB;color:#7A43C9;'
       : tone === 'red' ? 'background:#FBE9E9;color:#D63333;'
+      : tone === 'yellow' ? 'background:#FBF4E2;color:#9A7B12;'
       : 'background:var(--chip);color:var(--text-muted);';
   }
   function statCard(icon, label, value, tone) {
@@ -183,7 +187,27 @@
     const queue = homeData.queue || [];
     const shared = homeData.shared || [];
     const activity = homeData.activity || [];
+    const tasksToday = homeData.tasksToday || [];
     const priPillH = (p) => p === 'High' ? 'pill-red' : p === 'Medium' ? 'pill-yellow' : 'pill-gray';
+
+    const followCard = tasksToday.length ? `
+      <div class="panel">
+        <div class="p-5 pb-2 flex items-center justify-between">
+          <h3 class="text-[15px] font-semibold">Follow-ups due</h3>
+          <a href="#tasks" class="text-[12.5px] font-semibold" style="color:var(--accent);">View all</a>
+        </div>
+        <div class="px-5 pb-4">
+          ${tasksToday.map(t => `
+            <div class="flex items-center gap-3 py-2.5" style="border-bottom:1px solid var(--border-soft);">
+              <button data-home-done="${t.id}" title="Mark done" style="width:20px;height:20px;border-radius:6px;border:1.5px solid var(--border-strong);background:transparent;flex-shrink:0;cursor:pointer;"></button>
+              <div class="min-w-0 flex-1">
+                <div class="text-[13px] font-medium truncate">${esc(t.title)}</div>
+                <div class="text-[11.5px] truncate">${t.leadName ? esc(t.leadName) + ' · ' : ''}<span style="${t.overdue ? 'color:#D63333;font-weight:600;' : 'color:var(--text-muted);'}">${t.overdue ? 'Overdue' : 'Today'}</span></div>
+              </div>
+              <span class="pill ${priPillH(t.priority)}" style="font-size:10.5px;">${esc(t.priority)}</span>
+            </div>`).join('')}
+        </div>
+      </div>` : '';
 
     const callItems = queue.length ? queue.map(p => `
       <div class="flex items-center justify-between gap-3 py-2.5" style="border-bottom:1px solid var(--border-soft);">
@@ -231,11 +255,12 @@
       <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
         ${statCard('user-plus', 'Active leads', s.activeLeads || 0, 'blue')}
         ${statCard('phone', 'To call today', s.callsToday || 0, 'red')}
-        ${statCard('user-check', 'Past clients', s.pastClients || 0, 'green')}
+        ${statCard('list-checks', 'Follow-ups due', s.tasksDue || 0, 'yellow')}
         ${statCard('message-circle', 'Unread messages', s.unreadMessages || 0, 'purple')}
       </div>
       <div class="grid grid-cols-12 gap-5">
         <div class="col-span-12 lg:col-span-7 flex flex-col gap-5">
+          ${followCard}
           <div class="panel">
             <div class="p-5 pb-2 flex items-center justify-between">
               <h3 class="text-[15px] font-semibold">Call today</h3>
@@ -263,6 +288,24 @@
     markHomeSeen();
     homeBadge = 0;
     renderNav();
+  }
+  function bindHome() {
+    document.getElementById('rp-view').addEventListener('click', async (e) => {
+      const d = e.target.closest('[data-home-done]');
+      if (!d || active !== 'home') return;
+      const id = d.getAttribute('data-home-done');
+      d.disabled = true;
+      try {
+        const res = await api('/api/realtor/tasks/' + id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'done' }) });
+        if (res.ok) {
+          // keep the local tasks cache in sync if it's loaded
+          const i = rtTasks.findIndex(x => String(x.id) === String(id));
+          if (i >= 0) { try { rtTasks[i] = await res.clone().json(); } catch (e2) {} }
+          await loadHome();
+          if (active === 'home') renderHome();
+        }
+      } catch (err) {}
+    });
   }
 
   // ----- Leads section -----
@@ -835,7 +878,18 @@
     }
     const editBtn = p.kind === 'contact'
       ? `<div class="mt-4 flex justify-end"><button id="rc-detail-edit" class="btn-secondary" style="font-size:12.5px;"><i data-lucide="pencil" style="width:13px;height:13px;"></i> Edit</button></div>` : '';
-    document.getElementById('rc-detail-body').innerHTML = (rows || '<div class="text-[13px] text-muted py-2">No details.</div>') + editBtn;
+    const leadId = p.kind === 'lead' && p.raw ? p.raw.id : null;
+    const leadExtra = leadId ? `
+      <div class="mt-5 flex items-center justify-between">
+        <h4 class="text-[13px] font-semibold">Activity & notes</h4>
+        <button id="rl-detail-followup" class="btn-secondary" style="font-size:12px;padding:5px 10px;"><i data-lucide="bell-plus" style="width:13px;height:13px;"></i> Add follow-up</button>
+      </div>
+      <div class="flex items-center gap-2 mt-2">
+        <input id="rl-note-input" class="input" style="flex:1;" placeholder="Add a note from your call…" maxlength="2000" autocomplete="off" />
+        <button id="rl-note-add" class="btn-primary" style="padding:8px 12px;"><i data-lucide="plus" style="width:14px;height:14px;"></i></button>
+      </div>
+      <div id="rl-timeline" class="mt-3"><div class="text-[12.5px] text-muted py-2">Loading…</div></div>` : '';
+    document.getElementById('rc-detail-body').innerHTML = (rows || '<div class="text-[13px] text-muted py-2">No details.</div>') + editBtn + leadExtra;
     document.getElementById('rc-detail').classList.remove('hidden');
     if (window.lucide) lucide.createIcons();
     const eb = document.getElementById('rc-detail-edit');
@@ -843,6 +897,67 @@
       closeContactDetail();
       const c = rcContacts.find(x => String(x.id) === String(p.id));
       if (c) openContactModal(c);
+    });
+    if (leadId) wireLeadTimeline(leadId, p.name);
+  }
+
+  // Lead activity timeline (notes + logged calls) inside the detail modal.
+  function timelineItemHtml(it) {
+    const isNote = it.kind === 'note';
+    const icon = isNote ? 'sticky-note' : 'phone';
+    const tone = isNote ? 'blue' : 'gray';
+    const head = isNote ? 'Note' : ('Call' + (it.outcome ? ' · ' + esc(it.outcome) : ''));
+    const del = isNote ? `<button class="btn-icon" data-rl-note-del="${it.id}" title="Delete note" style="width:24px;height:24px;border:none;"><i data-lucide="x" style="width:13px;height:13px;color:var(--text-muted);pointer-events:none;"></i></button>` : '';
+    return `
+      <div class="flex items-start gap-2.5 py-2" style="border-bottom:1px solid var(--border-soft);">
+        <div class="rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5" style="width:26px;height:26px;${toneStyle(tone)}"><i data-lucide="${icon}" style="width:13px;height:13px;"></i></div>
+        <div class="min-w-0 flex-1">
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-[12px] font-semibold">${head}</span>
+            <span class="text-[11px] text-soft">${esc(rkTimeAgo(it.at))}</span>
+          </div>
+          ${it.body ? `<div class="text-[12.5px] mt-0.5" style="word-break:break-word;">${esc(it.body)}</div>` : ''}
+        </div>
+        ${del}
+      </div>`;
+  }
+  async function loadLeadTimeline(leadId) {
+    const host = document.getElementById('rl-timeline'); if (!host) return;
+    try {
+      const res = await api('/api/realtor/leads/' + leadId + '/timeline', { cache: 'no-store' });
+      const data = res.ok ? await res.json() : { items: [] };
+      const items = data.items || [];
+      host.innerHTML = items.length ? items.map(timelineItemHtml).join('')
+        : `<div class="text-[12.5px] text-muted py-2">No notes or calls yet. Add a note above.</div>`;
+      if (window.lucide) lucide.createIcons();
+    } catch (e) { host.innerHTML = `<div class="text-[12.5px] text-muted py-2">Could not load activity.</div>`; }
+  }
+  function wireLeadTimeline(leadId, leadName) {
+    loadLeadTimeline(leadId);
+    const fu = document.getElementById('rl-detail-followup');
+    if (fu) fu.addEventListener('click', () => openTaskModal(null, { id: leadId, name: leadName }));
+    const input = document.getElementById('rl-note-input');
+    const addBtn = document.getElementById('rl-note-add');
+    const add = async () => {
+      const body = (input.value || '').trim();
+      if (!body) return;
+      addBtn.disabled = true; addBtn.style.opacity = '0.7';
+      try {
+        const res = await api('/api/realtor/leads/' + leadId + '/notes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ body }) });
+        if (res.ok) { input.value = ''; await loadLeadTimeline(leadId); }
+      } catch (e) {}
+      finally { addBtn.disabled = false; addBtn.style.opacity = ''; }
+    };
+    if (addBtn) addBtn.addEventListener('click', add);
+    if (input) input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); add(); } });
+    const host = document.getElementById('rl-timeline');
+    if (host) host.addEventListener('click', async (e) => {
+      const d = e.target.closest('[data-rl-note-del]'); if (!d) return;
+      const noteId = d.getAttribute('data-rl-note-del');
+      try {
+        const res = await api('/api/realtor/leads/' + leadId + '/notes/' + noteId, { method: 'DELETE' });
+        if (res.ok || res.status === 404) loadLeadTimeline(leadId);
+      } catch (err) {}
     });
   }
   function openContactDetail(kind, id) {
@@ -1228,6 +1343,7 @@
       if (!res.ok) { msg.style.color = '#D63333'; msg.textContent = body.error || 'Could not log the call.'; return; }
       closeLogCall();
       await loadCalls();   // refresh queue (callee drops off) + history
+      if (active === 'home') { await loadHome(); renderHome(); }   // keep the dashboard's "Call today" fresh
     } catch (e) { msg.style.color = '#D63333'; msg.textContent = 'Network error.'; }
     finally { btn.disabled = false; btn.style.opacity = ''; }
   }
@@ -1245,6 +1361,176 @@
     document.getElementById('rp-view').addEventListener('click', (e) => {
       const b = e.target.closest('[data-rk-log]');
       if (b) openLogCall({ leadId: parseInt(b.getAttribute('data-rk-log'), 10) || null, name: b.getAttribute('data-rk-name'), phone: b.getAttribute('data-rk-phone') || '' });
+    });
+  }
+
+  // ----- Follow-ups (personal tasks) -----
+  let rtTasks = [], rtEditingId = null, rtLeadCtx = null;
+  function rtPriPill(p) { return p === 'High' ? 'pill-red' : p === 'Low' ? 'pill-gray' : 'pill-yellow'; }
+  function rtDateLabel(due) {
+    if (!due) return '';
+    const today = todayStr();
+    if (due < today) return 'Overdue';
+    if (due === today) return 'Today';
+    const d = new Date(due + 'T00:00:00');
+    return isNaN(d.getTime()) ? due : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  }
+  function rtBucket(t) {
+    if (t.status === 'done') return 'done';
+    const today = todayStr();
+    if (!t.due) return 'someday';
+    if (t.due < today) return 'overdue';
+    if (t.due === today) return 'today';
+    return 'upcoming';
+  }
+  function renderTasks() {
+    const view = document.getElementById('rp-view');
+    view.innerHTML = `
+      <div class="flex items-start justify-between mb-5 flex-wrap gap-3">
+        <div>
+          <h1 class="text-[24px] font-bold tracking-tight">Follow-ups</h1>
+          <p class="text-[13.5px] text-muted mt-1">Your personal reminders — call-backs, paperwork, anything you don't want to forget.</p>
+        </div>
+        <button id="rt-add" class="btn-primary"><i data-lucide="plus" style="width:14px;height:14px;"></i> Add follow-up</button>
+      </div>
+      <div id="rt-list"></div>`;
+    document.getElementById('rt-add').addEventListener('click', () => openTaskModal(null, null));
+    if (window.lucide) lucide.createIcons();
+    loadTasks();
+  }
+  async function loadTasks() {
+    try { const r = await api('/api/realtor/tasks', { cache: 'no-store' }); rtTasks = r.ok ? await r.json() : []; }
+    catch (e) { rtTasks = []; }
+    renderTaskList();
+  }
+  function taskRow(t) {
+    const done = t.status === 'done';
+    const dl = rtDateLabel(t.due);
+    const overdue = !done && t.due && t.due < todayStr();
+    return `
+      <div class="flex items-center gap-3 px-4 py-3" style="border-bottom:1px solid var(--border-soft);">
+        <button class="flex-shrink-0" data-rt-toggle="${t.id}" title="${done ? 'Mark as not done' : 'Mark done'}" style="width:20px;height:20px;border-radius:6px;border:1.5px solid ${done ? '#138A4B' : 'var(--border-strong)'};background:${done ? '#138A4B' : 'transparent'};display:flex;align-items:center;justify-content:center;cursor:pointer;">
+          ${done ? '<i data-lucide="check" style="width:13px;height:13px;color:#fff;pointer-events:none;"></i>' : ''}
+        </button>
+        <div class="min-w-0 flex-1">
+          <div class="text-[13.5px] font-medium ${done ? 'line-through' : ''}" style="${done ? 'color:var(--text-muted);' : ''}word-break:break-word;">${esc(t.title)}</div>
+          <div class="flex items-center gap-2 mt-0.5">
+            ${t.leadName ? `<span class="text-[11.5px] text-muted">${esc(t.leadName)}</span>` : ''}
+            ${dl ? `<span class="text-[11.5px] ${overdue ? 'font-semibold' : 'text-muted'}" style="${overdue ? 'color:#D63333;' : ''}">${esc(dl)}</span>` : ''}
+          </div>
+        </div>
+        <span class="pill ${rtPriPill(t.priority)}" style="font-size:10.5px;">${esc(t.priority)}</span>
+        <div class="flex items-center gap-1 flex-shrink-0">
+          <button class="btn-icon" data-rt-edit="${t.id}" title="Edit" style="width:30px;height:30px;"><i data-lucide="pencil" style="width:13px;height:13px;color:var(--text-muted);pointer-events:none;"></i></button>
+          <button class="btn-icon" data-rt-del="${t.id}" data-rt-title="${escAttr(t.title)}" title="Delete" style="width:30px;height:30px;border:none;"><i data-lucide="trash-2" style="width:14px;height:14px;color:#D63333;pointer-events:none;"></i></button>
+        </div>
+      </div>`;
+  }
+  function renderTaskList() {
+    const host = document.getElementById('rt-list'); if (!host) return;
+    if (!rtTasks.length) {
+      host.innerHTML = `<div class="panel p-10 text-center">
+        <div class="mx-auto mb-3 stat-icon" style="background:var(--surface-3);width:48px;height:48px;border-radius:12px;"><i data-lucide="list-checks" style="width:22px;height:22px;color:#8A8AA0;"></i></div>
+        <div class="text-[14px] font-semibold mb-1">No follow-ups yet</div>
+        <div class="text-[13px] text-muted mb-4">Add a reminder to call someone back or chase down paperwork.</div>
+        <button class="btn-primary" onclick="document.getElementById('rt-add').click()"><i data-lucide="plus" style="width:14px;height:14px;"></i> Add follow-up</button>
+      </div>`;
+      if (window.lucide) lucide.createIcons();
+      return;
+    }
+    const groups = [
+      { id: 'overdue', label: 'Overdue', tone: 'red' },
+      { id: 'today', label: 'Today', tone: 'blue' },
+      { id: 'upcoming', label: 'Upcoming', tone: 'gray' },
+      { id: 'someday', label: 'No date', tone: 'gray' },
+      { id: 'done', label: 'Completed', tone: 'green' }
+    ];
+    const byBucket = {};
+    rtTasks.forEach(t => { const b = rtBucket(t); (byBucket[b] = byBucket[b] || []).push(t); });
+    host.innerHTML = groups.filter(g => (byBucket[g.id] || []).length).map(g => `
+      <div class="panel mb-4">
+        <div class="px-4 py-3 flex items-center gap-2" style="border-bottom:1px solid var(--border);">
+          <span class="text-[13px] font-semibold">${g.label}</span>
+          <span class="pill" style="${toneStyle(g.tone)}font-size:10.5px;">${byBucket[g.id].length}</span>
+        </div>
+        ${byBucket[g.id].map(taskRow).join('')}
+      </div>`).join('');
+    if (window.lucide) lucide.createIcons();
+  }
+  function openTaskModal(task, leadCtx) {
+    const form = document.getElementById('rt-form');
+    form.reset();
+    rtEditingId = (task && task.id) ? task.id : null;
+    rtLeadCtx = leadCtx || (task && task.leadId ? { id: task.leadId, name: task.leadName } : null);
+    document.getElementById('rt-modal-title').textContent = rtEditingId ? 'Edit follow-up' : 'Add a follow-up';
+    document.getElementById('rt-submit').textContent = rtEditingId ? 'Save changes' : 'Add follow-up';
+    document.getElementById('rt-who').textContent = rtLeadCtx && rtLeadCtx.name
+      ? `For ${rtLeadCtx.name}` : 'Set a reminder so nothing slips.';
+    if (task) {
+      form.elements['title'].value = task.title || '';
+      form.elements['due'].value = task.due || '';
+      form.elements['priority'].value = ['High', 'Medium', 'Low'].includes(task.priority) ? task.priority : 'Medium';
+    }
+    document.getElementById('rt-msg').textContent = '';
+    document.getElementById('rt-modal').classList.remove('hidden');
+    form.elements['title'].focus();
+  }
+  function closeTaskModal() { document.getElementById('rt-modal').classList.add('hidden'); rtEditingId = null; rtLeadCtx = null; }
+  async function submitTask(e) {
+    e.preventDefault();
+    const form = document.getElementById('rt-form');
+    const data = Object.fromEntries(new FormData(form));
+    const msg = document.getElementById('rt-msg');
+    if (!String(data.title || '').trim()) { msg.textContent = 'A task is required.'; return; }
+    const payload = { title: data.title, due: data.due, priority: data.priority };
+    if (rtLeadCtx && rtLeadCtx.id) payload.leadId = parseInt(rtLeadCtx.id, 10) || null;
+    const btn = document.getElementById('rt-submit');
+    btn.disabled = true; btn.style.opacity = '0.7';
+    try {
+      const res = await api(rtEditingId ? '/api/realtor/tasks/' + rtEditingId : '/api/realtor/tasks', {
+        method: rtEditingId ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) { msg.textContent = body.error || 'Could not save the follow-up.'; return; }
+      if (rtEditingId) { const i = rtTasks.findIndex(t => String(t.id) === String(rtEditingId)); if (i >= 0) rtTasks[i] = body; }
+      else rtTasks.unshift(body);
+      closeTaskModal();
+      if (active === 'tasks') renderTaskList();
+    } catch (e2) { msg.textContent = 'Network error.'; }
+    finally { btn.disabled = false; btn.style.opacity = ''; }
+  }
+  async function toggleTask(id) {
+    const t = rtTasks.find(x => String(x.id) === String(id)); if (!t) return;
+    const next = t.status === 'done' ? 'todo' : 'done';
+    try {
+      const res = await api('/api/realtor/tasks/' + id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: next }) });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) return;
+      const i = rtTasks.findIndex(x => String(x.id) === String(id)); if (i >= 0) rtTasks[i] = body;
+      renderTaskList();
+    } catch (e) {}
+  }
+  function bindTasks() {
+    document.getElementById('rt-close').addEventListener('click', closeTaskModal);
+    document.getElementById('rt-cancel').addEventListener('click', closeTaskModal);
+    document.getElementById('rt-backdrop').addEventListener('click', closeTaskModal);
+    document.getElementById('rt-form').addEventListener('submit', submitTask);
+    document.getElementById('rp-view').addEventListener('click', async (e) => {
+      const tg = e.target.closest('[data-rt-toggle]');
+      if (tg) { toggleTask(tg.getAttribute('data-rt-toggle')); return; }
+      const ed = e.target.closest('[data-rt-edit]');
+      if (ed) { const t = rtTasks.find(x => String(x.id) === ed.getAttribute('data-rt-edit')); if (t) openTaskModal(t, null); return; }
+      const dl = e.target.closest('[data-rt-del]');
+      if (dl) {
+        const id = dl.getAttribute('data-rt-del'); const title = dl.getAttribute('data-rt-title') || 'this follow-up';
+        if (!window.confirm(`Delete “${title}”?`)) return;
+        try {
+          const res = await api('/api/realtor/tasks/' + id, { method: 'DELETE' });
+          if (!res.ok && res.status !== 404) { window.alert('Could not delete the follow-up.'); return; }
+          rtTasks = rtTasks.filter(x => String(x.id) !== String(id));
+          renderTaskList();
+        } catch (err) { window.alert('Network error.'); }
+      }
     });
   }
 
@@ -1395,7 +1681,7 @@
   }
 
   document.addEventListener('DOMContentLoaded', async function () {
-    bindNav(); bindTheme(); bindUserMenu(); bindLeads(); bindClose(); bindContacts(); bindCalls(); bindClients();
+    bindNav(); bindTheme(); bindUserMenu(); bindLeads(); bindClose(); bindContacts(); bindCalls(); bindClients(); bindTasks(); bindHome();
     let res;
     try { res = await api('/api/me', { cache: 'no-store' }); } catch (e) { window.location.href = '/login.html'; return; }
     if (!res.ok) { window.location.href = '/login.html'; return; }

@@ -293,6 +293,31 @@ const SCHEMA = `
   CREATE INDEX IF NOT EXISTS realtor_clients_owner ON realtor_clients (realtor_id, id);
   ALTER TABLE realtor_clients ADD COLUMN IF NOT EXISTS zipcode TEXT;
 
+  -- A realtor's personal follow-up tasks ("Call back Tuesday"). Optionally tied
+  -- to one of their own leads so the task shows in that lead's timeline.
+  CREATE TABLE IF NOT EXISTS realtor_tasks (
+    id           SERIAL PRIMARY KEY,
+    realtor_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    lead_id      INTEGER REFERENCES realtor_leads(id) ON DELETE SET NULL,
+    title        TEXT NOT NULL,
+    due_date     TEXT,                 -- YYYY-MM-DD
+    priority     TEXT DEFAULT 'Medium',-- High | Medium | Low
+    status       TEXT DEFAULT 'todo',  -- todo | done
+    created_at   TIMESTAMPTZ DEFAULT now(),
+    completed_at TIMESTAMPTZ
+  );
+  CREATE INDEX IF NOT EXISTS realtor_tasks_owner ON realtor_tasks (realtor_id, id);
+
+  -- Append-only, timestamped notes on a realtor's lead (the activity timeline).
+  CREATE TABLE IF NOT EXISTS realtor_lead_notes (
+    id         SERIAL PRIMARY KEY,
+    realtor_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    lead_id    INTEGER NOT NULL REFERENCES realtor_leads(id) ON DELETE CASCADE,
+    body       TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT now()
+  );
+  CREATE INDEX IF NOT EXISTS realtor_lead_notes_lead ON realtor_lead_notes (lead_id, id);
+
   CREATE TABLE IF NOT EXISTS google_accounts (
     user_id       INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     email         TEXT,
@@ -1013,6 +1038,18 @@ app.get('/api/realtor/home', safe(async (req, res) => {
     unreadMessages = u ? u.n : 0;
   }
 
+  // Follow-ups due today or overdue (open tasks).
+  const today = serverToday();
+  const dueRows = await q(`
+    SELECT t.*, l.name AS lead_name
+    FROM realtor_tasks t LEFT JOIN realtor_leads l ON l.id = t.lead_id
+    WHERE t.realtor_id = $1 AND t.status = 'todo' AND t.due_date IS NOT NULL AND t.due_date <= $2
+    ORDER BY t.due_date, t.id DESC LIMIT 8`, [rid, today]);
+  const tasksToday = dueRows.map(r => ({
+    id: r.id, title: r.title, due: r.due_date || '', priority: r.priority || 'Medium',
+    leadId: r.lead_id || null, leadName: r.lead_name || '', overdue: !!(r.due_date && r.due_date < today)
+  }));
+
   // Who to call today — same rule as the call queue.
   const callLeads = await q(`
     SELECT * FROM realtor_leads l
@@ -1075,9 +1112,10 @@ app.get('/api/realtor/home', safe(async (req, res) => {
   activity.sort((a, b) => new Date(b.at) - new Date(a.at));
 
   res.json({
-    stats: { activeLeads, pastClients, callsToday: fullQueue.length, unreadMessages },
+    stats: { activeLeads, pastClients, callsToday: fullQueue.length, unreadMessages, tasksDue: tasksToday.length },
     queue: fullQueue.slice(0, 6),
     shared,
+    tasksToday,
     activity: activity.slice(0, 15)
   });
 }));
@@ -1233,6 +1271,132 @@ app.post('/api/realtor/leads/import', safe(async (req, res) => {
     imported++;
   }
   res.json({ ok: true, imported, skipped });
+}));
+
+// ----- Realtor follow-up tasks -----
+const REALTOR_TASK_PRIORITIES = ['High', 'Medium', 'Low'];
+function realtorTaskRowToJson(r) {
+  return {
+    id: r.id, leadId: r.lead_id || null, leadName: r.lead_name || '',
+    title: r.title, due: r.due_date || '', priority: r.priority || 'Medium',
+    status: r.status || 'todo', created: r.created_at, completedAt: r.completed_at || null
+  };
+}
+function cleanRealtorTask(b) {
+  const s = (v, n) => String(v == null ? '' : v).trim().slice(0, n);
+  const due = s(b.due, 10);
+  return {
+    title: s(b.title, 200),
+    due: /^\d{4}-\d{2}-\d{2}$/.test(due) ? due : '',
+    priority: REALTOR_TASK_PRIORITIES.includes(s(b.priority, 10)) ? s(b.priority, 10) : 'Medium',
+    leadId: Number.isInteger(b.leadId) ? b.leadId : null
+  };
+}
+// Verify a lead id belongs to this realtor (so tasks can only link own leads).
+async function ownRealtorLead(realtorId, leadId) {
+  if (!leadId) return null;
+  const r = await one('SELECT id FROM realtor_leads WHERE id = $1 AND realtor_id = $2', [leadId, realtorId]);
+  return r ? r.id : null;
+}
+
+app.get('/api/realtor/tasks', safe(async (req, res) => {
+  if (!req.user || req.user.role !== 'realtor') return res.status(403).json({ error: 'Realtors only.' });
+  const rows = await q(`
+    SELECT t.*, l.name AS lead_name
+    FROM realtor_tasks t LEFT JOIN realtor_leads l ON l.id = t.lead_id
+    WHERE t.realtor_id = $1
+    ORDER BY (t.status = 'done'), (t.due_date IS NULL), t.due_date, t.id DESC`, [req.user.id]);
+  res.json(rows.map(realtorTaskRowToJson));
+}));
+
+app.post('/api/realtor/tasks', safe(async (req, res) => {
+  if (!req.user || req.user.role !== 'realtor') return res.status(403).json({ error: 'Realtors only.' });
+  const f = cleanRealtorTask(req.body || {});
+  if (!f.title) return res.status(400).json({ error: 'A task is required.' });
+  const leadId = await ownRealtorLead(req.user.id, f.leadId);
+  const row = await one(
+    `INSERT INTO realtor_tasks (realtor_id, lead_id, title, due_date, priority)
+     VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+    [req.user.id, leadId, f.title, f.due || null, f.priority]
+  );
+  const withName = await one(`SELECT t.*, l.name AS lead_name FROM realtor_tasks t LEFT JOIN realtor_leads l ON l.id = t.lead_id WHERE t.id = $1`, [row.id]);
+  res.json(realtorTaskRowToJson(withName));
+}));
+
+app.patch('/api/realtor/tasks/:id', safe(async (req, res) => {
+  if (!req.user || req.user.role !== 'realtor') return res.status(403).json({ error: 'Realtors only.' });
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id.' });
+  const cur = await one('SELECT * FROM realtor_tasks WHERE id = $1 AND realtor_id = $2', [id, req.user.id]);
+  if (!cur) return res.status(404).json({ error: 'Task not found.' });
+  const b = req.body || {};
+  // Toggle complete, or edit fields.
+  let status = cur.status, completedAt = cur.completed_at;
+  if (b.status === 'done' || b.status === 'todo') {
+    status = b.status;
+    completedAt = b.status === 'done' ? new Date() : null;
+  }
+  const title = b.title != null ? String(b.title).trim().slice(0, 200) : cur.title;
+  if (!title) return res.status(400).json({ error: 'A task is required.' });
+  const dueRaw = b.due != null ? String(b.due).trim().slice(0, 10) : cur.due_date;
+  const due = (dueRaw && /^\d{4}-\d{2}-\d{2}$/.test(dueRaw)) ? dueRaw : (b.due === '' ? null : cur.due_date);
+  const priority = REALTOR_TASK_PRIORITIES.includes(String(b.priority || '')) ? b.priority : cur.priority;
+  let leadId = cur.lead_id;
+  if (b.leadId !== undefined) leadId = await ownRealtorLead(req.user.id, Number.isInteger(b.leadId) ? b.leadId : null);
+  await pool.query(
+    `UPDATE realtor_tasks SET title=$1, due_date=$2, priority=$3, status=$4, completed_at=$5, lead_id=$6 WHERE id=$7 AND realtor_id=$8`,
+    [title, due, priority, status, completedAt, leadId, id, req.user.id]
+  );
+  const row = await one(`SELECT t.*, l.name AS lead_name FROM realtor_tasks t LEFT JOIN realtor_leads l ON l.id = t.lead_id WHERE t.id = $1`, [id]);
+  res.json(realtorTaskRowToJson(row));
+}));
+
+app.delete('/api/realtor/tasks/:id', safe(async (req, res) => {
+  if (!req.user || req.user.role !== 'realtor') return res.status(403).json({ error: 'Realtors only.' });
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id.' });
+  const r = await pool.query('DELETE FROM realtor_tasks WHERE id = $1 AND realtor_id = $2', [id, req.user.id]);
+  if (r.rowCount === 0) return res.status(404).json({ error: 'Task not found.' });
+  res.json({ ok: true });
+}));
+
+// ----- Lead activity timeline: notes + logged calls, newest first -----
+app.get('/api/realtor/leads/:id/timeline', safe(async (req, res) => {
+  if (!req.user || req.user.role !== 'realtor') return res.status(403).json({ error: 'Realtors only.' });
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id.' });
+  const lead = await one('SELECT id, name FROM realtor_leads WHERE id = $1 AND realtor_id = $2', [id, req.user.id]);
+  if (!lead) return res.status(404).json({ error: 'Lead not found.' });
+  const notes = await q('SELECT id, body, created_at FROM realtor_lead_notes WHERE lead_id = $1 AND realtor_id = $2', [id, req.user.id]);
+  const calls = await q(`SELECT id, outcome, notes, logged_at FROM realtor_calls
+                         WHERE realtor_id = $1 AND (lead_id = $2 OR lower(name) = lower($3))`, [req.user.id, id, lead.name]);
+  const items = [];
+  for (const n of notes) items.push({ kind: 'note', id: n.id, body: n.body, at: n.created_at });
+  for (const c of calls) items.push({ kind: 'call', id: c.id, outcome: c.outcome, body: c.notes || '', at: c.logged_at });
+  items.sort((a, b) => new Date(b.at) - new Date(a.at));
+  res.json({ items });
+}));
+
+app.post('/api/realtor/leads/:id/notes', safe(async (req, res) => {
+  if (!req.user || req.user.role !== 'realtor') return res.status(403).json({ error: 'Realtors only.' });
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id.' });
+  const lead = await one('SELECT id FROM realtor_leads WHERE id = $1 AND realtor_id = $2', [id, req.user.id]);
+  if (!lead) return res.status(404).json({ error: 'Lead not found.' });
+  const body = String((req.body || {}).body || '').trim().slice(0, 2000);
+  if (!body) return res.status(400).json({ error: 'Note is empty.' });
+  const row = await one(`INSERT INTO realtor_lead_notes (realtor_id, lead_id, body) VALUES ($1,$2,$3) RETURNING id, body, created_at`,
+    [req.user.id, id, body]);
+  res.json({ kind: 'note', id: row.id, body: row.body, at: row.created_at });
+}));
+
+app.delete('/api/realtor/leads/:id/notes/:noteId', safe(async (req, res) => {
+  if (!req.user || req.user.role !== 'realtor') return res.status(403).json({ error: 'Realtors only.' });
+  const noteId = Number(req.params.noteId);
+  if (!Number.isInteger(noteId)) return res.status(400).json({ error: 'Invalid id.' });
+  const r = await pool.query('DELETE FROM realtor_lead_notes WHERE id = $1 AND realtor_id = $2', [noteId, req.user.id]);
+  if (r.rowCount === 0) return res.status(404).json({ error: 'Note not found.' });
+  res.json({ ok: true });
 }));
 
 // ----- Realtor's own contacts (address book) -----

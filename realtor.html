@@ -397,6 +397,45 @@
     </div>
   </div>
 
+  <!-- Add / edit a follow-up task -->
+  <div id="rt-modal" class="hidden" style="position:fixed;inset:0;z-index:57;">
+    <div id="rt-backdrop" style="position:absolute;inset:0;background:rgba(14,14,27,.45);"></div>
+    <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:100%;max-width:460px;" class="px-4">
+      <div class="bg-white rounded-2xl p-6 shadow-2xl">
+        <div class="flex items-center justify-between mb-1">
+          <h3 id="rt-modal-title" class="text-[17px] font-bold">Add a follow-up</h3>
+          <button id="rt-close" class="btn-icon" style="width:32px;height:32px;border:none;"><i data-lucide="x" style="width:16px;height:16px;color:var(--text-muted);"></i></button>
+        </div>
+        <p id="rt-who" class="text-[12.5px] text-muted mb-4">Set a reminder so nothing slips.</p>
+        <form id="rt-form" class="flex flex-col gap-3">
+          <div>
+            <label class="text-[12px] font-semibold text-muted">Task</label>
+            <input name="title" required maxlength="200" class="input mt-1" placeholder="e.g. Call back about pre-approval" />
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="text-[12px] font-semibold text-muted">Due date</label>
+              <input name="due" type="date" class="input mt-1" style="cursor:pointer;" />
+            </div>
+            <div>
+              <label class="text-[12px] font-semibold text-muted">Priority</label>
+              <select name="priority" class="input mt-1" style="cursor:pointer;">
+                <option>High</option>
+                <option selected>Medium</option>
+                <option>Low</option>
+              </select>
+            </div>
+          </div>
+          <div id="rt-msg" class="text-[12.5px] font-medium" style="color:#D63333;"></div>
+          <div class="flex items-center justify-end gap-2 mt-1">
+            <button type="button" id="rt-cancel" class="btn-secondary">Cancel</button>
+            <button type="submit" id="rt-submit" class="btn-primary">Add follow-up</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
   <!-- Chat with the loan officer -->
   <div id="rp-chat-modal" class="hidden" style="position:fixed;inset:0;z-index:56;">
     <div id="rp-chat-backdrop" style="position:absolute;inset:0;background:rgba(14,14,27,.45);"></div>
@@ -416,6 +455,6 @@
     </div>
   </div>
 
-  <script src="js/realtor.js?v=20260616n"></script>
+  <script src="js/realtor.js?v=20260616o"></script>
 </body>
 </html>
