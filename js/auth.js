@@ -3,6 +3,21 @@
   const loginForm = document.getElementById('login-form');
   const errorEl = document.getElementById('login-error');
 
+  // If already signed in, don't sit on the login form — send them into the app.
+  // This covers hitting the browser Back button onto the login page (including
+  // bfcache restores, which don't re-run the script — hence the pageshow hook).
+  // `replace` keeps the login page out of history so we don't bounce in a loop.
+  async function redirectIfAuthed() {
+    try {
+      const res = await fetch('/api/me', { credentials: 'same-origin', cache: 'no-store' });
+      if (!res.ok) return;                      // 401 → not signed in, stay here
+      const me = await res.json().catch(() => ({}));
+      window.location.replace(me.role === 'realtor' ? '/realtor.html' : '/index.html');
+    } catch (e) { /* offline / server down → leave the form up */ }
+  }
+  redirectIfAuthed();
+  window.addEventListener('pageshow', (e) => { if (e.persisted) redirectIfAuthed(); });
+
   loginForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     errorEl.textContent = '';
