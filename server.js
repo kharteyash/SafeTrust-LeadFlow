@@ -307,6 +307,8 @@ const SCHEMA = `
     completed_at TIMESTAMPTZ
   );
   CREATE INDEX IF NOT EXISTS realtor_tasks_owner ON realtor_tasks (realtor_id, id);
+  -- 'manual' or 'auto:new-lead' / 'auto:missed-call' — lets auto-rules dedupe.
+  ALTER TABLE realtor_tasks ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'manual';
 
   -- Append-only, timestamped notes on a realtor's lead (the activity timeline).
   CREATE TABLE IF NOT EXISTS realtor_lead_notes (
@@ -1026,6 +1028,7 @@ app.get('/api/realtor/home', safe(async (req, res) => {
   if (!req.user || req.user.role !== 'realtor') return res.status(403).json({ error: 'Realtors only.' });
   const rid = req.user.id;
   const ownerId = req.user.realtorOwnerId;
+  try { await ensureRealtorFollowups(rid); } catch (e) { console.error('auto follow-ups:', e); }
 
   const lc = await one(`SELECT count(*)::int AS n FROM realtor_leads WHERE realtor_id = $1`, [rid]);
   const cc = await one(`SELECT count(*)::int AS n FROM realtor_clients WHERE realtor_id = $1`, [rid]);
@@ -1279,8 +1282,51 @@ function realtorTaskRowToJson(r) {
   return {
     id: r.id, leadId: r.lead_id || null, leadName: r.lead_name || '',
     title: r.title, due: r.due_date || '', priority: r.priority || 'Medium',
-    status: r.status || 'todo', created: r.created_at, completedAt: r.completed_at || null
+    status: r.status || 'todo', created: r.created_at, completedAt: r.completed_at || null,
+    auto: !!(r.source && r.source.indexOf('auto') === 0)
   };
+}
+const REALTOR_MISS_OUTCOMES = ['Voicemail', 'No Answer', 'Missed'];
+// Auto-create follow-up tasks from a realtor's own activity. Idempotent: the
+// `source` tag + lead_id guard against duplicates, and a completed/deleted auto
+// task is never recreated for the same trigger. Respects the realtor's toggle.
+async function ensureRealtorFollowups(userId) {
+  const u = await one('SELECT auto_tasks_enabled FROM users WHERE id = $1', [userId]);
+  if (u && u.auto_tasks_enabled === false) return;
+  const today = serverToday();
+
+  // Rule 1 — new lead with a phone, no call logged yet, no new-lead task ever.
+  const newLeads = await q(`
+    SELECT l.id, l.name FROM realtor_leads l
+    WHERE l.realtor_id = $1 AND l.phone IS NOT NULL AND btrim(l.phone) <> ''
+      AND NOT EXISTS (SELECT 1 FROM realtor_calls c WHERE c.realtor_id = $1 AND (c.lead_id = l.id OR lower(c.name) = lower(l.name)))
+      AND NOT EXISTS (SELECT 1 FROM realtor_tasks t WHERE t.realtor_id = $1 AND t.lead_id = l.id AND t.source = 'auto:new-lead')
+    ORDER BY l.id DESC LIMIT 200`, [userId]);
+  for (const l of newLeads) {
+    await pool.query(
+      `INSERT INTO realtor_tasks (realtor_id, lead_id, title, due_date, priority, source)
+       VALUES ($1,$2,$3,$4,'High','auto:new-lead')`,
+      [userId, l.id, `Call ${l.name} — new lead`, today]);
+  }
+
+  // Rule 2 — the most recent call for a lead was a miss; one retry per miss.
+  const latest = await q(`
+    SELECT DISTINCT ON (l.id) l.id, l.name, c.outcome, c.logged_at
+    FROM realtor_leads l
+    JOIN realtor_calls c ON c.realtor_id = $1 AND (c.lead_id = l.id OR lower(c.name) = lower(l.name))
+    WHERE l.realtor_id = $1
+    ORDER BY l.id, c.logged_at DESC`, [userId]);
+  for (const m of latest) {
+    if (REALTOR_MISS_OUTCOMES.indexOf(m.outcome) < 0) continue;
+    const already = await one(
+      `SELECT 1 FROM realtor_tasks WHERE realtor_id = $1 AND lead_id = $2 AND source = 'auto:missed-call' AND created_at > $3`,
+      [userId, m.id, m.logged_at]);
+    if (already) continue;
+    await pool.query(
+      `INSERT INTO realtor_tasks (realtor_id, lead_id, title, due_date, priority, source)
+       VALUES ($1,$2,$3,$4,'Medium','auto:missed-call')`,
+      [userId, m.id, `Try ${m.name} again — ${String(m.outcome).toLowerCase()}`, addDaysStr(today, 2)]);
+  }
 }
 function cleanRealtorTask(b) {
   const s = (v, n) => String(v == null ? '' : v).trim().slice(0, n);
@@ -1301,6 +1347,7 @@ async function ownRealtorLead(realtorId, leadId) {
 
 app.get('/api/realtor/tasks', safe(async (req, res) => {
   if (!req.user || req.user.role !== 'realtor') return res.status(403).json({ error: 'Realtors only.' });
+  try { await ensureRealtorFollowups(req.user.id); } catch (e) { console.error('auto follow-ups:', e); }
   const rows = await q(`
     SELECT t.*, l.name AS lead_name
     FROM realtor_tasks t LEFT JOIN realtor_leads l ON l.id = t.lead_id
@@ -1358,6 +1405,18 @@ app.delete('/api/realtor/tasks/:id', safe(async (req, res) => {
   const r = await pool.query('DELETE FROM realtor_tasks WHERE id = $1 AND realtor_id = $2', [id, req.user.id]);
   if (r.rowCount === 0) return res.status(404).json({ error: 'Task not found.' });
   res.json({ ok: true });
+}));
+
+// Realtor preferences (currently just the automatic-follow-ups toggle).
+app.get('/api/realtor/prefs', safe(async (req, res) => {
+  if (!req.user || req.user.role !== 'realtor') return res.status(403).json({ error: 'Realtors only.' });
+  res.json({ autoFollowups: req.user.autoTasks !== false });
+}));
+app.put('/api/realtor/prefs', safe(async (req, res) => {
+  if (!req.user || req.user.role !== 'realtor') return res.status(403).json({ error: 'Realtors only.' });
+  const on = !!(req.body || {}).autoFollowups;
+  await pool.query('UPDATE users SET auto_tasks_enabled = $1 WHERE id = $2', [on, req.user.id]);
+  res.json({ autoFollowups: on });
 }));
 
 // ----- Lead activity timeline: notes + logged calls, newest first -----

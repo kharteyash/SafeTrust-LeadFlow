@@ -78,6 +78,18 @@
         <p class="text-[13.5px] text-muted mt-1">Manage your account.</p>
       </div>
       ${tempBanner}
+      <div class="panel p-6 max-w-[520px] mb-5">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <h3 class="text-[15px] font-semibold mb-1">Automatic follow-ups</h3>
+            <p class="text-[12.5px] text-muted">When on, we'll add follow-up reminders for you — a call task for every new lead, and a retry when a call goes to voicemail or no-answer. You can edit or delete any of them.</p>
+          </div>
+          <button id="rp-auto-toggle" role="switch" aria-checked="false" class="flex-shrink-0" style="position:relative;width:44px;height:26px;border-radius:13px;border:none;background:var(--border-strong);cursor:pointer;transition:background .15s;">
+            <span id="rp-auto-knob" style="position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);transition:left .15s;"></span>
+          </button>
+        </div>
+        <div id="rp-auto-msg" class="text-[12px] font-medium mt-2"></div>
+      </div>
       <div class="panel p-6 max-w-[520px]">
         <h3 class="text-[15px] font-semibold mb-1">Change password</h3>
         <p class="text-[12.5px] text-muted mb-4">Update the password you use to sign in.</p>
@@ -107,6 +119,7 @@
     } else if (active === 'settings') {
       view.innerHTML = renderSettings();
       bindChangePassword();
+      bindAutoToggle();
     } else if (active === 'leads') {
       renderLeads();
     } else if (active === 'contacts') {
@@ -627,6 +640,35 @@
         if (me) me.mustChangePassword = false;   // clear the temporary-password banner
       } catch (e) { msg.textContent = 'Network error.'; }
       finally { btn.disabled = false; btn.style.opacity = ''; }
+    });
+  }
+
+  // ----- Automatic follow-ups toggle (in Settings) -----
+  async function bindAutoToggle() {
+    const btn = document.getElementById('rp-auto-toggle');
+    if (!btn) return;
+    const knob = document.getElementById('rp-auto-knob');
+    const msg = document.getElementById('rp-auto-msg');
+    let on = !(me && me.autoTasks === false);
+    function paint() {
+      btn.setAttribute('aria-checked', on ? 'true' : 'false');
+      btn.style.background = on ? '#2255a3' : 'var(--border-strong)';
+      knob.style.left = on ? '21px' : '3px';
+    }
+    paint();
+    try { const r = await api('/api/realtor/prefs', { cache: 'no-store' }); if (r.ok) { const d = await r.json(); on = !!d.autoFollowups; paint(); } } catch (e) {}
+    btn.addEventListener('click', async () => {
+      const next = !on;
+      btn.disabled = true;
+      try {
+        const r = await api('/api/realtor/prefs', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ autoFollowups: next }) });
+        const d = await r.json().catch(() => ({}));
+        if (r.ok) {
+          on = !!d.autoFollowups; if (me) me.autoTasks = on; paint();
+          msg.style.color = '#138A4B'; msg.textContent = on ? 'Automatic follow-ups are on.' : 'Automatic follow-ups are off — existing ones are kept.';
+        } else { msg.style.color = '#D63333'; msg.textContent = d.error || 'Could not save.'; }
+      } catch (e) { msg.style.color = '#D63333'; msg.textContent = 'Network error.'; }
+      finally { btn.disabled = false; }
     });
   }
 
@@ -1413,7 +1455,7 @@
           ${done ? '<i data-lucide="check" style="width:13px;height:13px;color:#fff;pointer-events:none;"></i>' : ''}
         </button>
         <div class="min-w-0 flex-1">
-          <div class="text-[13.5px] font-medium ${done ? 'line-through' : ''}" style="${done ? 'color:var(--text-muted);' : ''}word-break:break-word;">${esc(t.title)}</div>
+          <div class="text-[13.5px] font-medium ${done ? 'line-through' : ''}" style="${done ? 'color:var(--text-muted);' : ''}word-break:break-word;">${esc(t.title)}${t.auto ? ` <span class="pill" style="${toneStyle('yellow')}font-size:9.5px;vertical-align:middle;">Auto</span>` : ''}</div>
           <div class="flex items-center gap-2 mt-0.5">
             ${t.leadName ? `<span class="text-[11.5px] text-muted">${esc(t.leadName)}</span>` : ''}
             ${dl ? `<span class="text-[11.5px] ${overdue ? 'font-semibold' : 'text-muted'}" style="${overdue ? 'color:#D63333;' : ''}">${esc(dl)}</span>` : ''}
