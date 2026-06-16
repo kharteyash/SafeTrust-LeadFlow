@@ -51,7 +51,7 @@
     const start = (page - 1) * pageSize;
     const pageRows = rows.slice(start, start + pageSize);
     table.innerHTML = `
-      <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Company</th><th>Relationship</th></tr></thead>
+      <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Company</th><th>Relationship</th><th>Actions</th></tr></thead>
       <tbody>
         ${pageRows.length ? pageRows.map(p => `
           <tr data-view="${p.id}" style="cursor:pointer;">
@@ -65,7 +65,17 @@
             <td>${esc(p.phone)}</td>
             <td class="text-muted">${esc(p.company)}</td>
             <td><span class="pill ${LF.People.typePill('realtor')}">${esc(LF.People.relLabel((p.raw.relationship) || 'unknown'))}</span></td>
-          </tr>`).join('') : `<tr><td colspan="5" class="text-center py-8 text-muted">No realtors match that search.</td></tr>`}
+            <td>
+              <div class="flex items-center gap-1">
+                <button class="btn-icon" data-edit-realtor="${p.id}" title="Edit" style="width:30px;height:30px;">
+                  <i data-lucide="pencil" style="width:13px;height:13px;color:var(--text-muted);pointer-events:none;"></i>
+                </button>
+                <button class="btn-icon" data-del-realtor="${p.id}" data-realtor-name="${escAttr(p.name)}" title="Delete" style="width:30px;height:30px;border:none;">
+                  <i data-lucide="trash-2" style="width:14px;height:14px;color:#D63333;pointer-events:none;"></i>
+                </button>
+              </div>
+            </td>
+          </tr>`).join('') : `<tr><td colspan="6" class="text-center py-8 text-muted">No realtors match that search.</td></tr>`}
       </tbody>`;
     renderFooter(rows.length, start, pageRows.length);
     if (window.lucide) lucide.createIcons();
@@ -124,14 +134,9 @@
         <button id="person-give-login" class="btn-secondary" style="padding:6px 12px;font-size:12.5px;"><i data-lucide="key-round" style="width:13px;height:13px;"></i> Create portal login</button>
       </div>`;
     }
-    const editRow = `<div class="flex justify-end mb-2">
-      <button id="person-edit" class="btn-secondary" style="padding:6px 12px;font-size:12.5px;"><i data-lucide="pencil" style="width:13px;height:13px;"></i> Edit details</button>
-    </div>`;
-    document.getElementById('person-body').innerHTML = editRow + LF.People.detailBodyHTML(p) + loginBlock;
+    document.getElementById('person-body').innerHTML = LF.People.detailBodyHTML(p) + loginBlock;
     document.getElementById('person-modal').classList.remove('hidden');
     if (window.lucide) lucide.createIcons();
-    const editBtn = document.getElementById('person-edit');
-    if (editBtn) editBtn.addEventListener('click', () => { closeModal(); openEditModal(p); });
     const giveBtn = document.getElementById('person-give-login');
     if (giveBtn) giveBtn.addEventListener('click', () => {
       closeModal();
@@ -179,7 +184,26 @@
       rpp.value = String(pageSize);
       rpp.addEventListener('change', e => { pageSize = parseInt(e.target.value, 10) || 10; page = 1; render(); });
     }
-    document.getElementById('realtors-table').addEventListener('click', e => {
+    document.getElementById('realtors-table').addEventListener('click', async e => {
+      const editBtn = e.target.closest('[data-edit-realtor]');
+      if (editBtn) {
+        const p = realtors.find(x => String(x.id) === editBtn.getAttribute('data-edit-realtor'));
+        if (p) openEditModal(p);
+        return;
+      }
+      const delBtn = e.target.closest('[data-del-realtor]');
+      if (delBtn) {
+        const id = delBtn.getAttribute('data-del-realtor');
+        const name = delBtn.getAttribute('data-realtor-name') || 'this realtor';
+        if (!window.confirm(`Delete ${name}? This removes them from your realtors list.`)) return;
+        try {
+          const res = await fetch('/api/contacts/' + id, { method: 'DELETE', credentials: 'same-origin' });
+          if (!res.ok && res.status !== 404) { window.alert('Could not delete the realtor.'); return; }
+          realtors = realtors.filter(x => String(x.id) !== String(id));
+          render();
+        } catch (err) { window.alert('Network error.'); }
+        return;
+      }
       const row = e.target.closest('[data-view]');
       if (!row) return;
       const p = realtors.find(x => String(x.id) === row.getAttribute('data-view'));

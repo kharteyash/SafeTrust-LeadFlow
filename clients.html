@@ -76,6 +76,27 @@
       </div>
     </div>
 
+    <!-- Edit closed record modal -->
+    <div id="closed-edit-modal" class="hidden" style="position:fixed;inset:0;z-index:52;">
+      <div id="closed-edit-backdrop" style="position:absolute;inset:0;background:rgba(14,14,27,.45);"></div>
+      <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:100%;max-width:520px;" class="px-4">
+        <div class="bg-white rounded-2xl p-6 shadow-2xl" style="max-height:85vh;display:flex;flex-direction:column;">
+          <div class="flex items-center justify-between mb-3 flex-shrink-0">
+            <h3 class="text-[17px] font-bold">Edit client</h3>
+            <button id="closed-edit-close" class="btn-icon" style="width:32px;height:32px;border:none;">
+              <i data-lucide="x" style="width:16px;height:16px;color:var(--text-muted);"></i>
+            </button>
+          </div>
+          <form id="closed-edit-form" class="overflow-y-auto flex flex-col gap-3" style="min-height:0;"></form>
+          <div id="closed-edit-msg" class="text-[12.5px] font-medium mt-2" style="color:#D63333;"></div>
+          <div class="flex items-center justify-end gap-2 mt-3 flex-shrink-0">
+            <button type="button" id="closed-edit-cancel" class="btn-secondary">Cancel</button>
+            <button type="button" id="closed-edit-save" class="btn-primary">Save changes</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Log call modal -->
     <div id="closed-call-modal" class="hidden" style="position:fixed;inset:0;z-index:55;">
       <div id="closed-call-backdrop" style="position:absolute;inset:0;background:rgba(14,14,27,.45);"></div>

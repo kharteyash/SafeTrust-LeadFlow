@@ -170,9 +170,14 @@
               return `<td class="text-muted">${esc(val) || '<span class="text-soft">—</span>'}</td>`;
             }).join('')}
             <td>
-              <button class="btn-icon" title="Remove" data-del="${r.id}" style="width:30px;height:30px;border:none;">
-                <i data-lucide="trash-2" style="width:14px;height:14px;color:#D63333;pointer-events:none;"></i>
-              </button>
+              <div class="flex items-center gap-1">
+                <button class="btn-icon" title="Edit" data-edit="${r.id}" style="width:30px;height:30px;">
+                  <i data-lucide="pencil" style="width:13px;height:13px;color:var(--text-muted);pointer-events:none;"></i>
+                </button>
+                <button class="btn-icon" title="Remove" data-del="${r.id}" style="width:30px;height:30px;border:none;">
+                  <i data-lucide="trash-2" style="width:14px;height:14px;color:#D63333;pointer-events:none;"></i>
+                </button>
+              </div>
             </td>
           </tr>`).join('')}
       </tbody>`;
@@ -269,6 +274,52 @@
   }
   function closeDetail() { document.getElementById('closed-detail-modal').classList.add('hidden'); }
 
+  // ----- Edit a closed record (all imported fields) -----
+  let editingClosedId = null, editingClosedKeys = [];
+  function openEditClosed(rec) {
+    editingClosedId = rec.id;
+    const data = rec.data || {};
+    editingClosedKeys = Object.keys(data);
+    const form = document.getElementById('closed-edit-form');
+    form.innerHTML = editingClosedKeys.length
+      ? editingClosedKeys.map((k, i) => `
+        <div>
+          <label class="text-[12px] font-semibold text-muted">${esc(k)}</label>
+          <input data-edit-key="${i}" class="input mt-1" value="${escAttr(data[k])}" maxlength="2000" />
+        </div>`).join('')
+      : '<div class="text-[13px] text-muted">No fields to edit.</div>';
+    document.getElementById('closed-edit-msg').textContent = '';
+    document.getElementById('closed-edit-modal').classList.remove('hidden');
+    const first = form.querySelector('input');
+    if (first) first.focus();
+  }
+  function closeEditClosed() { document.getElementById('closed-edit-modal').classList.add('hidden'); editingClosedId = null; editingClosedKeys = []; }
+  async function saveEditClosed() {
+    if (!editingClosedId) return;
+    const form = document.getElementById('closed-edit-form');
+    const data = {};
+    editingClosedKeys.forEach((k, i) => {
+      const input = form.querySelector(`[data-edit-key="${i}"]`);
+      data[k] = input ? input.value : '';
+    });
+    const msg = document.getElementById('closed-edit-msg');
+    const btn = document.getElementById('closed-edit-save');
+    btn.disabled = true; btn.style.opacity = '0.7';
+    try {
+      const res = await fetch('/api/closed/' + editingClosedId, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+        body: JSON.stringify({ data })
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) { msg.textContent = body.error || `Could not save (HTTP ${res.status}).`; return; }
+      const i = closed.findIndex(r => String(r.id) === String(editingClosedId));
+      if (i >= 0) closed[i] = { id: body.id, data: body.data };
+      closeEditClosed();
+      render();
+    } catch (e) { msg.textContent = 'Network error. Is the server running?'; }
+    finally { btn.disabled = false; btn.style.opacity = ''; }
+  }
+
   function setMsg(text, ok) {
     const el = document.getElementById('closed-msg');
     el.style.color = ok ? '#138A4B' : '#D63333';
@@ -336,6 +387,12 @@
         if (rec) openDetail(rec);
         return;
       }
+      const edit = e.target.closest('[data-edit]');
+      if (edit) {
+        const rec = closed.find(r => String(r.id) === edit.getAttribute('data-edit'));
+        if (rec) openEditClosed(rec);
+        return;
+      }
       const del = e.target.closest('[data-del]');
       if (!del) return;
       const id = del.getAttribute('data-del');
@@ -347,6 +404,12 @@
       closed = closed.filter(r => String(r.id) !== String(id));
       render();
     });
+
+    // Edit modal controls.
+    document.getElementById('closed-edit-close').addEventListener('click', closeEditClosed);
+    document.getElementById('closed-edit-cancel').addEventListener('click', closeEditClosed);
+    document.getElementById('closed-edit-backdrop').addEventListener('click', closeEditClosed);
+    document.getElementById('closed-edit-save').addEventListener('click', saveEditClosed);
 
     // Detail modal controls + call/email actions.
     document.getElementById('closed-detail-close').addEventListener('click', closeDetail);

@@ -3998,6 +3998,28 @@ app.delete('/api/closed/:id', safe(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// Edit a closed record's fields (the imported CSV columns).
+app.patch('/api/closed/:id', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id.' });
+  const data = (req.body || {}).data;
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return res.status(400).json({ error: 'No data to save.' });
+  const cur = await one('SELECT id FROM closed_leads WHERE id = $1 AND user_id = $2', [id, req.user.id]);
+  if (!cur) return res.status(404).json({ error: 'Record not found.' });
+  const clean = {};
+  for (const k of Object.keys(data)) clean[String(k)] = String(data[k] == null ? '' : data[k]).trim();
+  const key = closedDedupeKey(clean);
+  try {
+    await pool.query('UPDATE closed_leads SET data = $1, dedupe_key = $2 WHERE id = $3 AND user_id = $4',
+      [JSON.stringify(clean), key, id, req.user.id]);
+  } catch (e) {
+    if (e && e.code === '23505') return res.status(409).json({ error: 'Another closed record already has these details.' });
+    throw e;
+  }
+  res.json({ id, data: clean });
+}));
+
 // Delete several closed records at once (scoped to the user's own).
 app.post('/api/closed/bulk-delete', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
