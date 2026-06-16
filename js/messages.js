@@ -527,9 +527,6 @@
   }
 
   // ----- Mount -----
-  function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
-  function escAttr(s) { return esc(s).replace(/"/g, '&quot;'); }
-
   document.addEventListener('DOMContentLoaded', async function () {
     await LF.renderLayout({ active: 'messages' });
     await loadScheduled();

@@ -331,14 +331,6 @@ html.dark .settings-tab.active { background: rgba(84,122,178,.22); color: #acbdd
 .text-muted { color: var(--text-muted); }
 .text-soft { color: var(--text-soft); }
 .divider { border-top: 1px solid var(--border); }
-.up-pill {
-  color: #138A4B; font-size: 12px; font-weight: 600;
-  display: inline-flex; align-items: center; gap: 2px;
-}
-.down-pill {
-  color: #D63333; font-size: 12px; font-weight: 600;
-  display: inline-flex; align-items: center; gap: 2px;
-}
 
 /* ---------- Dark-mode overrides for inline Tailwind arbitrary colors ----------
    CSS can't read inline style values, but it can match elements whose class

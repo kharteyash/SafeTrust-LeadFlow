@@ -710,12 +710,6 @@ LF.refreshUserDisplay = function (user) {
   if (nameEl) nameEl.textContent = LF_DATA.user.name;
   LF.applyAvatar(document.getElementById('lf-user-avatar'), LF_DATA.user);
 };
-LF.scorePill = (score) => {
-  if (score >= 80) return 'pill-green';
-  if (score >= 60) return 'pill-yellow';
-  return 'pill-red';
-};
-
 // ----- Lead score shown as a 1–5 star rating (1 = lowest) -----
 LF.scoreStars = (score) => Math.min(5, Math.max(1, Math.ceil((Number(score) || 0) / 20)));
 // Renders five stars (filled up to the rating) + the "n/5" number. When a lead

@@ -1344,9 +1344,13 @@ async function ensureRealtorFollowups(userId) {
     const pri = scoreRealtorLead(l).priority;
 
     // Rule 3 — hot lead going cold (High readiness, quiet 7+ days). Recurs weekly.
+    // A qualifying hot lead is handled by this rule only, so we `continue` even
+    // when the weekly window means no new task is created (prevents it also
+    // matching rule 4 and getting a second follow-up the same day).
     if (phone && pri === 'High' && quietDays >= 7) {
       const at = autoAt(l.id, 'auto:cold');
-      if (!at || daysSince(at) >= 7) { await insert(l.id, `Follow up with ${l.name} — hot lead going quiet`, today, 'High', 'auto:cold'); continue; }
+      if (!at || daysSince(at) >= 7) await insert(l.id, `Follow up with ${l.name} — hot lead going quiet`, today, 'High', 'auto:cold');
+      continue;
     }
 
     // Rule 4 — urgent timeline check-in (ASAP / 1-3mo, quiet 10+ days). Recurs ~2 weeks.
@@ -2896,7 +2900,9 @@ app.post('/api/scheduled', safe(async (req, res) => {
   if (!recipient || !recipient.trim()) return res.status(400).json({ error: 'Recipient is required.' });
   if (!type || !type.trim())           return res.status(400).json({ error: 'Message type is required.' });
   if (!date || !time)                  return res.status(400).json({ error: 'Date and time are required.' });
-  if (!['Email', 'SMS'].includes(channel)) return res.status(400).json({ error: 'Channel must be Email or SMS.' });
+  // Email only — there is no SMS backend, so an 'SMS' row would sit pending
+  // forever (the dispatcher and "Send now" both handle Email only).
+  if (channel !== 'Email') return res.status(400).json({ error: 'Only email messages can be scheduled.' });
   // sendAt is the precise UTC instant computed client-side from local date+time.
   const sendAtDate = sendAt ? new Date(sendAt) : null;
   const sendAtVal = (sendAtDate && !isNaN(sendAtDate.getTime())) ? sendAtDate.toISOString() : null;
@@ -4030,8 +4036,6 @@ app.post('/api/closed/bulk-delete', safe(async (req, res) => {
 }));
 
 // ----- Contacts -----
-const CONTACT_TAGS = ['Buyer', 'Seller', 'Investor', 'Other'];
-
 // Relationship only applies to Realtor contacts; keep it to the known values.
 function normalizeRelationship(v, tag) {
   if (tag !== 'Realtor') return '';
