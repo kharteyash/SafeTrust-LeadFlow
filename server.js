@@ -1290,42 +1290,71 @@ const REALTOR_MISS_OUTCOMES = ['Voicemail', 'No Answer', 'Missed'];
 // Auto-create follow-up tasks from a realtor's own activity. Idempotent: the
 // `source` tag + lead_id guard against duplicates, and a completed/deleted auto
 // task is never recreated for the same trigger. Respects the realtor's toggle.
+// One pass over the realtor's leads, each lead matched to at most one rule:
+//   1 new-lead    — has a phone, never called            -> once per lead
+//   2 missed-call — most recent call was a miss           -> once per miss
+//   3 cold        — High-readiness, quiet 7+ days         -> recurs weekly
+//   4 timeline    — ASAP/1-3mo timeline, quiet 10+ days   -> recurs ~2 weeks
 async function ensureRealtorFollowups(userId) {
   const u = await one('SELECT auto_tasks_enabled FROM users WHERE id = $1', [userId]);
   if (u && u.auto_tasks_enabled === false) return;
   const today = serverToday();
 
-  // Rule 1 — new lead with a phone, no call logged yet, no new-lead task ever.
-  const newLeads = await q(`
-    SELECT l.id, l.name FROM realtor_leads l
-    WHERE l.realtor_id = $1 AND l.phone IS NOT NULL AND btrim(l.phone) <> ''
-      AND NOT EXISTS (SELECT 1 FROM realtor_calls c WHERE c.realtor_id = $1 AND (c.lead_id = l.id OR lower(c.name) = lower(l.name)))
-      AND NOT EXISTS (SELECT 1 FROM realtor_tasks t WHERE t.realtor_id = $1 AND t.lead_id = l.id AND t.source = 'auto:new-lead')
-    ORDER BY l.id DESC LIMIT 200`, [userId]);
-  for (const l of newLeads) {
-    await pool.query(
-      `INSERT INTO realtor_tasks (realtor_id, lead_id, title, due_date, priority, source)
-       VALUES ($1,$2,$3,$4,'High','auto:new-lead')`,
-      [userId, l.id, `Call ${l.name} — new lead`, today]);
-  }
+  const leads = await q('SELECT * FROM realtor_leads WHERE realtor_id = $1', [userId]);
+  if (!leads.length) return;
 
-  // Rule 2 — the most recent call for a lead was a miss; one retry per miss.
-  const latest = await q(`
-    SELECT DISTINCT ON (l.id) l.id, l.name, c.outcome, c.logged_at
-    FROM realtor_leads l
-    JOIN realtor_calls c ON c.realtor_id = $1 AND (c.lead_id = l.id OR lower(c.name) = lower(l.name))
-    WHERE l.realtor_id = $1
-    ORDER BY l.id, c.logged_at DESC`, [userId]);
-  for (const m of latest) {
-    if (REALTOR_MISS_OUTCOMES.indexOf(m.outcome) < 0) continue;
-    const already = await one(
-      `SELECT 1 FROM realtor_tasks WHERE realtor_id = $1 AND lead_id = $2 AND source = 'auto:missed-call' AND created_at > $3`,
-      [userId, m.id, m.logged_at]);
-    if (already) continue;
-    await pool.query(
-      `INSERT INTO realtor_tasks (realtor_id, lead_id, title, due_date, priority, source)
-       VALUES ($1,$2,$3,$4,'Medium','auto:missed-call')`,
-      [userId, m.id, `Try ${m.name} again — ${String(m.outcome).toLowerCase()}`, addDaysStr(today, 2)]);
+  // Calls (newest first) and latest note per lead — to gauge last activity.
+  const calls = await q('SELECT lead_id, name, outcome, logged_at FROM realtor_calls WHERE realtor_id = $1 ORDER BY logged_at DESC', [userId]);
+  const noteRows = await q('SELECT lead_id, MAX(created_at) AS at FROM realtor_lead_notes WHERE realtor_id = $1 GROUP BY lead_id', [userId]);
+  const noteAt = {}; noteRows.forEach(n => { noteAt[n.lead_id] = n.at; });
+  const latestCallFor = (l) => calls.find(c => c.lead_id === l.id || (c.name && l.name && c.name.toLowerCase() === l.name.toLowerCase())) || null;
+
+  // Existing auto tasks (latest per lead+source) to dedupe / window the recurring rules.
+  const autoRows = await q(`SELECT lead_id, source, MAX(created_at) AS at FROM realtor_tasks
+                            WHERE realtor_id = $1 AND source LIKE 'auto:%' AND lead_id IS NOT NULL
+                            GROUP BY lead_id, source`, [userId]);
+  const lastAuto = {}; autoRows.forEach(r => { lastAuto[r.lead_id + '|' + r.source] = r.at; });
+  const autoAt = (leadId, source) => lastAuto[leadId + '|' + source];
+  const daysSince = (d) => d ? (Date.now() - new Date(d).getTime()) / 864e5 : Infinity;
+
+  const insert = (leadId, title, due, priority, source) => pool.query(
+    `INSERT INTO realtor_tasks (realtor_id, lead_id, title, due_date, priority, source) VALUES ($1,$2,$3,$4,$5,$6)`,
+    [userId, leadId, title, due, priority, source]);
+
+  for (const l of leads) {
+    const phone = String(l.phone || '').trim();
+    const lc = latestCallFor(l);
+
+    // Rule 1 — brand-new lead, never called.
+    if (phone && !lc) {
+      if (!autoAt(l.id, 'auto:new-lead')) await insert(l.id, `Call ${l.name} — new lead`, today, 'High', 'auto:new-lead');
+      continue;
+    }
+
+    // Rule 2 — most recent call was a miss; one retry per miss event.
+    if (lc && REALTOR_MISS_OUTCOMES.indexOf(lc.outcome) >= 0) {
+      const at = autoAt(l.id, 'auto:missed-call');
+      if (!at || new Date(at) <= new Date(lc.logged_at))
+        await insert(l.id, `Try ${l.name} again — ${String(lc.outcome).toLowerCase()}`, addDaysStr(today, 2), 'Medium', 'auto:missed-call');
+      continue;
+    }
+
+    // For contacted leads, gauge how long they've been quiet.
+    const quietDays = Math.min(daysSince(lc ? lc.logged_at : null), daysSince(noteAt[l.id]));
+    const pri = scoreRealtorLead(l).priority;
+
+    // Rule 3 — hot lead going cold (High readiness, quiet 7+ days). Recurs weekly.
+    if (phone && pri === 'High' && quietDays >= 7) {
+      const at = autoAt(l.id, 'auto:cold');
+      if (!at || daysSince(at) >= 7) { await insert(l.id, `Follow up with ${l.name} — hot lead going quiet`, today, 'High', 'auto:cold'); continue; }
+    }
+
+    // Rule 4 — urgent timeline check-in (ASAP / 1-3mo, quiet 10+ days). Recurs ~2 weeks.
+    const tl = String(l.timeline || '').toLowerCase();
+    if (phone && (tl.includes('asap') || tl.includes('1-3')) && quietDays >= 10) {
+      const at = autoAt(l.id, 'auto:timeline');
+      if (!at || daysSince(at) >= 14) await insert(l.id, `Check in with ${l.name} — ${l.timeline} timeline`, today, 'Medium', 'auto:timeline');
+    }
   }
 }
 function cleanRealtorTask(b) {
