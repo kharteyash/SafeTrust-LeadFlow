@@ -1678,6 +1678,28 @@
     setInterval(loadChat, 5000);
   }
 
+  // ----- Sidebar (collapsible; closed by default, choice remembered) -----
+  function setSidebar(open) {
+    const sb = document.getElementById('rp-sidebar');
+    if (!sb) return;
+    sb.style.display = open ? '' : 'none';   // '' reverts to the .flex from the class
+    try { localStorage.setItem('rp-sidebar-open', open ? '1' : '0'); } catch (e) {}
+  }
+  function applyStoredSidebar() {
+    let open = false;   // default closed
+    try { open = localStorage.getItem('rp-sidebar-open') === '1'; } catch (e) {}
+    setSidebar(open);
+  }
+  function bindSidebar() {
+    const menuBtn = document.getElementById('rp-menu-btn');
+    if (menuBtn) menuBtn.addEventListener('click', () => {
+      const sb = document.getElementById('rp-sidebar');
+      setSidebar(!sb || sb.style.display === 'none');   // toggle
+    });
+    const closeBtn = document.getElementById('rp-sidebar-close');
+    if (closeBtn) closeBtn.addEventListener('click', () => setSidebar(false));
+  }
+
   // ----- Boot -----
   function bindTheme() {
     document.getElementById('rp-theme').addEventListener('click', function () {
@@ -1701,6 +1723,7 @@
   async function enterPortal() {
     show('rp-loading', false);
     show('rp-shell', true);
+    applyStoredSidebar();   // closed by default; honors the realtor's last choice
     // Fill the user chrome.
     document.getElementById('rp-user-name').textContent = me.name || '';
     document.getElementById('rp-user-email').textContent = me.email || '';
@@ -1723,7 +1746,7 @@
   }
 
   document.addEventListener('DOMContentLoaded', async function () {
-    bindNav(); bindTheme(); bindUserMenu(); bindLeads(); bindClose(); bindContacts(); bindCalls(); bindClients(); bindTasks(); bindHome();
+    bindNav(); bindTheme(); bindUserMenu(); bindSidebar(); bindLeads(); bindClose(); bindContacts(); bindCalls(); bindClients(); bindTasks(); bindHome();
     let res;
     try { res = await api('/api/me', { cache: 'no-store' }); } catch (e) { window.location.href = '/login.html'; return; }
     if (!res.ok) { window.location.href = '/login.html'; return; }
