@@ -986,6 +986,102 @@ app.get('/api/realtor/portal', safe(async (req, res) => {
   });
 }));
 
+// Readable status for a loan-officer lead the realtor is attached to. The LO
+// pipeline has no explicit stage column, so infer it from what the LO tracks.
+function sharedLeadStatus(r) {
+  if (r.preapproved) return { label: 'Pre-approved', tone: 'green' };
+  const tl = String(r.timeline || '').toLowerCase();
+  if (tl.includes('asap') || tl.includes('1-3') || tl.includes('30')) return { label: 'Active', tone: 'blue' };
+  return { label: 'In progress', tone: 'gray' };
+}
+
+// Realtor home/dashboard: stats, today's call list, shared-lead status, and an
+// activity feed aggregated from existing data (no separate event-log table).
+app.get('/api/realtor/home', safe(async (req, res) => {
+  if (!req.user || req.user.role !== 'realtor') return res.status(403).json({ error: 'Realtors only.' });
+  const rid = req.user.id;
+  const ownerId = req.user.realtorOwnerId;
+
+  const lc = await one(`SELECT count(*)::int AS n FROM realtor_leads WHERE realtor_id = $1`, [rid]);
+  const cc = await one(`SELECT count(*)::int AS n FROM realtor_clients WHERE realtor_id = $1`, [rid]);
+  const activeLeads = lc ? lc.n : 0;
+  const pastClients = cc ? cc.n : 0;
+  let unreadMessages = 0;
+  if (ownerId) {
+    const u = await one(`SELECT count(*)::int AS n FROM realtor_messages
+                         WHERE officer_id = $1 AND realtor_id = $2 AND sender = 'officer' AND read_by_realtor = FALSE`, [ownerId, rid]);
+    unreadMessages = u ? u.n : 0;
+  }
+
+  // Who to call today — same rule as the call queue.
+  const callLeads = await q(`
+    SELECT * FROM realtor_leads l
+    WHERE l.realtor_id = $1 AND l.phone IS NOT NULL AND btrim(l.phone) <> ''
+      AND NOT EXISTS (
+        SELECT 1 FROM realtor_calls c
+        WHERE c.realtor_id = $1 AND (c.lead_id = l.id OR lower(c.name) = lower(l.name))
+          AND c.logged_at > now() - interval '2 days')
+    ORDER BY id DESC`, [rid]);
+  const fullQueue = callLeads.map(l => {
+    const s = scoreRealtorLead(l);
+    return { leadId: l.id, name: l.name, phone: l.phone || '', priority: s.priority, reason: s.reason, score: s.score };
+  }).sort((a, b) => b.score - a.score);
+
+  // Shared leads from the loan officer, each with a readable status.
+  let shared = [];
+  if (ownerId) {
+    const rows = await q(`
+      SELECT name, email, phone, timeline, preapproved, lead_type, state, created_at
+      FROM leads
+      WHERE user_id = $1 AND lower(btrim(coalesce(realtor_email, ''))) = lower($2)
+      ORDER BY id DESC`, [ownerId, req.user.email]);
+    shared = rows.map(r => {
+      const st = sharedLeadStatus(r);
+      return {
+        name: r.name, email: r.email || '', phone: r.phone || '', timeline: r.timeline || '',
+        leadType: r.lead_type || 'Purchase', state: r.state || '', preapproved: !!r.preapproved,
+        status: st.label, statusTone: st.tone, created: r.created_at
+      };
+    });
+  }
+
+  // Activity feed — recent events pulled from existing tables.
+  const activity = [];
+  let offName = 'Your loan officer';
+  if (ownerId) {
+    const off = await one(`SELECT name FROM users WHERE id = $1`, [ownerId]);
+    if (off && off.name) offName = off.name.split(/\s+/)[0];
+  }
+  for (const r of shared) {
+    if (r.created && (Date.now() - new Date(r.created).getTime()) < 21 * 864e5)
+      activity.push({ icon: 'user-plus', tone: 'blue', text: `${offName} shared a new lead — ${r.name}`, at: r.created });
+  }
+  if (ownerId) {
+    const msgs = await q(`SELECT body, created_at FROM realtor_messages
+                          WHERE officer_id = $1 AND realtor_id = $2 AND sender = 'officer'
+                            AND created_at > now() - interval '21 days' ORDER BY id DESC LIMIT 6`, [ownerId, rid]);
+    for (const m of msgs) {
+      const body = String(m.body || '');
+      activity.push({ icon: 'message-circle', tone: 'purple', text: `${offName}: “${body.slice(0, 60)}${body.length > 60 ? '…' : ''}”`, at: m.created_at });
+    }
+  }
+  const calls = await q(`SELECT name, outcome, logged_at FROM realtor_calls
+                         WHERE realtor_id = $1 AND logged_at > now() - interval '21 days' ORDER BY id DESC LIMIT 6`, [rid]);
+  for (const c of calls) activity.push({ icon: 'phone', tone: 'gray', text: `You logged a call with ${c.name} — ${c.outcome}`, at: c.logged_at });
+  const closed = await q(`SELECT name, created_at FROM realtor_clients
+                          WHERE realtor_id = $1 AND created_at > now() - interval '21 days' ORDER BY id DESC LIMIT 6`, [rid]);
+  for (const c of closed) activity.push({ icon: 'party-popper', tone: 'green', text: `You closed ${c.name} 🎉`, at: c.created_at });
+
+  activity.sort((a, b) => new Date(b.at) - new Date(a.at));
+
+  res.json({
+    stats: { activeLeads, pastClients, callsToday: fullQueue.length, unreadMessages },
+    queue: fullQueue.slice(0, 6),
+    shared,
+    activity: activity.slice(0, 15)
+  });
+}));
+
 // ----- Loan officer <-> realtor chat -----
 function chatRowToJson(r, mine) {
   return { id: r.id, sender: r.sender, mine: r.sender === mine, body: r.body, at: r.created_at };

@@ -20,6 +20,7 @@
   }
 
   const SECTIONS = [
+    { id: 'home',     label: 'Home',         icon: 'layout-dashboard' },
     { id: 'leads',    label: 'Leads',        icon: 'user-plus' },
     { id: 'clients',  label: 'Past Clients', icon: 'user-check' },
     { id: 'contacts', label: 'All Contacts', icon: 'contact' },
@@ -28,15 +29,22 @@
   ];
 
   let me = null;
-  let active = 'leads';
+  let active = 'home';
+  let homeBadge = 0;
 
   // ----- Sidebar + routing -----
   function renderNav() {
-    document.getElementById('rp-nav').innerHTML = SECTIONS.map(s => `
+    document.getElementById('rp-nav').innerHTML = SECTIONS.map(s => {
+      const badge = (s.id === 'home' && homeBadge > 0)
+        ? `<span class="ml-auto bg-[#E64B4B] text-white text-[10px] font-bold rounded-full flex items-center justify-center" style="min-width:18px;height:18px;padding:0 5px;">${homeBadge > 9 ? '9+' : homeBadge}</span>`
+        : '';
+      return `
       <a href="#${s.id}" class="nav-item ${active === s.id ? 'active' : ''}" data-section="${s.id}" title="${s.label}">
         <i data-lucide="${s.icon}"></i>
         <span class="nav-label">${s.label}</span>
-      </a>`).join('');
+        ${badge}
+      </a>`;
+    }).join('');
     if (window.lucide) lucide.createIcons();
   }
 
@@ -93,7 +101,9 @@
 
   function renderView() {
     const view = document.getElementById('rp-view');
-    if (active === 'settings') {
+    if (active === 'home') {
+      renderHome();
+    } else if (active === 'settings') {
       view.innerHTML = renderSettings();
       bindChangePassword();
     } else if (active === 'leads') {
@@ -109,6 +119,150 @@
       view.innerHTML = placeholder(s ? s.label : 'Section', 'Tell us what you want here.');
     }
     if (window.lucide) lucide.createIcons();
+  }
+
+  // ----- Home / dashboard -----
+  let homeData = null;
+  function homeSeenKey() { return 'rp-home-seen-' + (me && me.id ? me.id : 'x'); }
+  function lastSeenHome() { try { return +localStorage.getItem(homeSeenKey()) || 0; } catch (e) { return 0; } }
+  function markHomeSeen() { try { localStorage.setItem(homeSeenKey(), String(Date.now())); } catch (e) {} }
+  function computeHomeBadge(d) {
+    if (!d) return 0;
+    const seen = lastSeenHome();
+    const fresh = (d.activity || []).filter(a => new Date(a.at).getTime() > seen).length;
+    return fresh + (d.stats ? (d.stats.unreadMessages || 0) : 0);
+  }
+  async function loadHome() {
+    try {
+      const res = await api('/api/realtor/home', { cache: 'no-store' });
+      homeData = res.ok ? await res.json() : null;
+    } catch (e) { homeData = null; }
+    homeBadge = computeHomeBadge(homeData);
+    return homeData;
+  }
+  function toneStyle(tone) {
+    return tone === 'green' ? 'background:#E7F6EC;color:#138A4B;'
+      : tone === 'blue' ? 'background:#E7EEFB;color:#2255a3;'
+      : tone === 'purple' ? 'background:#F0E9FB;color:#7A43C9;'
+      : tone === 'red' ? 'background:#FBE9E9;color:#D63333;'
+      : 'background:var(--chip);color:var(--text-muted);';
+  }
+  function statCard(icon, label, value, tone) {
+    return `
+      <div class="panel p-4 flex items-center gap-3">
+        <div class="rounded-xl flex items-center justify-center flex-shrink-0" style="width:42px;height:42px;${toneStyle(tone)}">
+          <i data-lucide="${icon}" style="width:19px;height:19px;"></i>
+        </div>
+        <div class="leading-tight">
+          <div class="text-[22px] font-bold">${value}</div>
+          <div class="text-[12px] text-muted">${esc(label)}</div>
+        </div>
+      </div>`;
+  }
+  function timeAgo(at) {
+    const t = new Date(at).getTime(); if (isNaN(t)) return '';
+    const s = Math.floor((Date.now() - t) / 1000);
+    if (s < 60) return 'just now';
+    const m = Math.floor(s / 60); if (m < 60) return m + 'm ago';
+    const h = Math.floor(m / 60); if (h < 24) return h + 'h ago';
+    const d = Math.floor(h / 24); if (d < 7) return d + 'd ago';
+    return new Date(at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  }
+  function renderHome() {
+    const view = document.getElementById('rp-view');
+    const first = (me && me.name ? me.name.split(/\s+/)[0] : '') || 'there';
+    if (!homeData) {
+      view.innerHTML = `
+        <div class="mb-5"><h1 class="text-[24px] font-bold tracking-tight">Welcome back, ${esc(first)}</h1>
+          <p class="text-[13.5px] text-muted mt-1">Here's what's happening with your book of business.</p></div>
+        <div class="text-[13px] text-muted py-10 text-center">Loading…</div>`;
+      loadHome().then(() => { if (active === 'home') renderHome(); });
+      return;
+    }
+    const s = homeData.stats || {};
+    const queue = homeData.queue || [];
+    const shared = homeData.shared || [];
+    const activity = homeData.activity || [];
+    const priPillH = (p) => p === 'High' ? 'pill-red' : p === 'Medium' ? 'pill-yellow' : 'pill-gray';
+
+    const callItems = queue.length ? queue.map(p => `
+      <div class="flex items-center justify-between gap-3 py-2.5" style="border-bottom:1px solid var(--border-soft);">
+        <div class="min-w-0">
+          <div class="flex items-center gap-2">
+            <span class="font-semibold text-[13px] truncate">${esc(p.name)}</span>
+            <span class="pill ${priPillH(p.priority)}" style="font-size:10.5px;">${esc(p.priority)}</span>
+          </div>
+          <div class="text-[11.5px] text-muted truncate">${esc(p.reason)}</div>
+        </div>
+        <div class="flex items-center gap-1 flex-shrink-0">
+          ${telLink(p.phone) ? `<a href="${escAttr(telLink(p.phone))}" data-rk-callnow="${p.leadId}" data-rk-name="${escAttr(p.name)}" data-rk-phone="${escAttr(p.phone)}" class="btn-icon" title="Call & log" style="width:30px;height:30px;"><i data-lucide="phone" style="width:13px;height:13px;color:#2255a3;pointer-events:none;"></i></a>` : ''}
+          <button class="btn-secondary" data-rk-log="${p.leadId}" data-rk-name="${escAttr(p.name)}" data-rk-phone="${escAttr(p.phone)}" style="padding:5px 10px;font-size:12px;">Log</button>
+        </div>
+      </div>`).join('') : `<div class="text-[13px] text-muted py-6 text-center">No one to call right now. Nicely done. 👏</div>`;
+
+    const sharedItems = shared.length ? shared.slice(0, 8).map(l => `
+      <div class="flex items-center justify-between gap-3 py-2.5" style="border-bottom:1px solid var(--border-soft);">
+        <div class="min-w-0">
+          <div class="font-semibold text-[13px] truncate">${esc(l.name)}</div>
+          <div class="text-[11.5px] text-muted truncate">${[l.leadType, l.timeline, l.state].filter(Boolean).map(esc).join(' · ') || 'Shared lead'}</div>
+        </div>
+        <div class="flex items-center gap-1.5 flex-shrink-0">
+          <span class="pill" style="${toneStyle(l.statusTone)}font-size:10.5px;">${esc(l.status)}</span>
+          ${telLink(l.phone) ? `<a href="${escAttr(telLink(l.phone))}" class="btn-icon" title="Call" style="width:30px;height:30px;"><i data-lucide="phone" style="width:13px;height:13px;color:#2255a3;pointer-events:none;"></i></a>` : ''}
+        </div>
+      </div>`).join('') : `<div class="text-[13px] text-muted py-6 text-center">No shared leads yet. When your loan officer attaches you to a lead, it shows up here.</div>`;
+
+    const feedItems = activity.length ? activity.map(a => `
+      <div class="flex items-start gap-3 py-2.5" style="border-bottom:1px solid var(--border-soft);">
+        <div class="rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5" style="width:30px;height:30px;${toneStyle(a.tone)}">
+          <i data-lucide="${esc(a.icon)}" style="width:15px;height:15px;"></i>
+        </div>
+        <div class="min-w-0">
+          <div class="text-[12.5px]" style="word-break:break-word;">${esc(a.text)}</div>
+          <div class="text-[11px] text-soft mt-0.5">${esc(timeAgo(a.at))}</div>
+        </div>
+      </div>`).join('') : `<div class="text-[13px] text-muted py-6 text-center">No recent activity yet.</div>`;
+
+    view.innerHTML = `
+      <div class="mb-5">
+        <h1 class="text-[24px] font-bold tracking-tight">Welcome back, ${esc(first)}</h1>
+        <p class="text-[13.5px] text-muted mt-1">Here's what's happening with your book of business.</p>
+      </div>
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
+        ${statCard('user-plus', 'Active leads', s.activeLeads || 0, 'blue')}
+        ${statCard('phone', 'To call today', s.callsToday || 0, 'red')}
+        ${statCard('user-check', 'Past clients', s.pastClients || 0, 'green')}
+        ${statCard('message-circle', 'Unread messages', s.unreadMessages || 0, 'purple')}
+      </div>
+      <div class="grid grid-cols-12 gap-5">
+        <div class="col-span-12 lg:col-span-7 flex flex-col gap-5">
+          <div class="panel">
+            <div class="p-5 pb-2 flex items-center justify-between">
+              <h3 class="text-[15px] font-semibold">Call today</h3>
+              <a href="#calls" class="text-[12.5px] font-semibold" style="color:var(--accent);">View all</a>
+            </div>
+            <div class="px-5 pb-4">${callItems}</div>
+          </div>
+          <div class="panel">
+            <div class="p-5 pb-2 flex items-center justify-between">
+              <h3 class="text-[15px] font-semibold">Leads shared with you</h3>
+              <span class="text-[12px] text-muted">${shared.length || 0}</span>
+            </div>
+            <div class="px-5 pb-4">${sharedItems}</div>
+          </div>
+        </div>
+        <div class="col-span-12 lg:col-span-5">
+          <div class="panel">
+            <div class="p-5 pb-2"><h3 class="text-[15px] font-semibold">Recent activity</h3></div>
+            <div class="px-5 pb-4">${feedItems}</div>
+          </div>
+        </div>
+      </div>`;
+    if (window.lucide) lucide.createIcons();
+    // Visiting Home clears the "new" badge.
+    markHomeSeen();
+    homeBadge = 0;
+    renderNav();
   }
 
   // ----- Leads section -----
@@ -385,7 +539,7 @@
   }
 
   function setSection(id) {
-    if (!SECTIONS.some(s => s.id === id)) id = 'leads';
+    if (!SECTIONS.some(s => s.id === id)) id = 'home';
     active = id;
     renderNav();
     renderView();
@@ -399,7 +553,7 @@
       const id = a.getAttribute('data-section');
       if (location.hash !== '#' + id) location.hash = '#' + id; else setSection(id);
     });
-    window.addEventListener('hashchange', () => setSection((location.hash || '').replace('#', '') || 'leads'));
+    window.addEventListener('hashchange', () => setSection((location.hash || '').replace('#', '') || 'home'));
   }
 
   // ----- Change password (in Settings) -----
@@ -1225,7 +1379,7 @@
     document.getElementById('rp-avatar').textContent = initials(me.name);
     document.getElementById('rp-theme').innerHTML = `<i data-lucide="${document.documentElement.classList.contains('dark') ? 'sun' : 'moon'}" style="width:16px;height:16px;color:var(--text-muted);"></i>`;
     renderNav();
-    setSection((location.hash || '').replace('#', '') || 'leads');
+    setSection((location.hash || '').replace('#', '') || 'home');
     if (window.lucide) lucide.createIcons();
     // Chat: officer name + unread badge.
     try {
@@ -1235,6 +1389,9 @@
         startChat(d.officer ? d.officer.name : '');
       } else { startChat(''); }
     } catch (e) { startChat(''); }
+    // Home badge: load once for the sidebar, then refresh while away from Home.
+    if (active !== 'home') { await loadHome(); renderNav(); }
+    setInterval(() => { if (active !== 'home') loadHome().then(() => renderNav()); }, 60000);
   }
 
   document.addEventListener('DOMContentLoaded', async function () {
