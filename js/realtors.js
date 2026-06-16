@@ -124,9 +124,14 @@
         <button id="person-give-login" class="btn-secondary" style="padding:6px 12px;font-size:12.5px;"><i data-lucide="key-round" style="width:13px;height:13px;"></i> Create portal login</button>
       </div>`;
     }
-    document.getElementById('person-body').innerHTML = LF.People.detailBodyHTML(p) + loginBlock;
+    const editRow = `<div class="flex justify-end mb-2">
+      <button id="person-edit" class="btn-secondary" style="padding:6px 12px;font-size:12.5px;"><i data-lucide="pencil" style="width:13px;height:13px;"></i> Edit details</button>
+    </div>`;
+    document.getElementById('person-body').innerHTML = editRow + LF.People.detailBodyHTML(p) + loginBlock;
     document.getElementById('person-modal').classList.remove('hidden');
     if (window.lucide) lucide.createIcons();
+    const editBtn = document.getElementById('person-edit');
+    if (editBtn) editBtn.addEventListener('click', () => { closeModal(); openEditModal(p); });
     const giveBtn = document.getElementById('person-give-login');
     if (giveBtn) giveBtn.addEventListener('click', () => {
       closeModal();
@@ -135,16 +140,37 @@
   }
   function closeModal() { document.getElementById('person-modal').classList.add('hidden'); }
 
-  // ----- Add realtor -----
+  // ----- Add / edit realtor -----
+  let editingId = null;
   function openAddModal() {
     const form = document.getElementById('realtor-form');
     form.reset();
+    editingId = null;
     form.elements['relationship'].value = 'established';
+    document.getElementById('realtor-modal-title').textContent = 'Add realtor';
+    document.getElementById('realtor-submit').textContent = 'Add realtor';
     document.getElementById('realtor-form-msg').textContent = '';
     document.getElementById('realtor-modal').classList.remove('hidden');
     form.elements['name'].focus();
   }
-  function closeAddModal() { document.getElementById('realtor-modal').classList.add('hidden'); }
+  function openEditModal(p) {
+    const form = document.getElementById('realtor-form');
+    form.reset();
+    editingId = p.id;
+    const c = p.raw || {};
+    form.elements['name'].value = c.name || '';
+    form.elements['email'].value = c.email || '';
+    form.elements['phone'].value = c.phone || '';
+    form.elements['company'].value = c.company || '';
+    form.elements['relationship'].value = ['established', 'developing', 'dormant', 'past'].includes(c.relationship) ? c.relationship : 'established';
+    if (form.elements['birthday']) form.elements['birthday'].value = c.birthday || '';
+    document.getElementById('realtor-modal-title').textContent = 'Edit realtor';
+    document.getElementById('realtor-submit').textContent = 'Save changes';
+    document.getElementById('realtor-form-msg').textContent = '';
+    document.getElementById('realtor-modal').classList.remove('hidden');
+    form.elements['name'].focus();
+  }
+  function closeAddModal() { document.getElementById('realtor-modal').classList.add('hidden'); editingId = null; }
 
   function bind() {
     document.getElementById('realtor-search').addEventListener('input', e => { query = e.target.value; page = 1; render(); });
@@ -177,8 +203,8 @@
       const btn = document.getElementById('realtor-submit');
       btn.disabled = true; btn.style.opacity = '0.7';
       try {
-        const res = await fetch('/api/contacts', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+        const res = await fetch(editingId ? '/api/contacts/' + editingId : '/api/contacts', {
+          method: editingId ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
           body: JSON.stringify({
             name: data.name, email: data.email || '', phone: data.phone || '',
             company: data.company || '', tag: 'Realtor', relationship: data.relationship || 'established',
@@ -187,7 +213,12 @@
         });
         const raw = await res.text(); let body = {}; try { body = raw ? JSON.parse(raw) : {}; } catch (err) {}
         if (!res.ok) { msg.textContent = body.error || `Request failed (HTTP ${res.status}).`; return; }
-        realtors.push(LF.People.fromContact(body));
+        if (editingId) {
+          const i = realtors.findIndex(x => String(x.id) === String(editingId));
+          if (i >= 0) realtors[i] = LF.People.fromContact(body);
+        } else {
+          realtors.push(LF.People.fromContact(body));
+        }
         realtors.sort((a, b) => a.name.localeCompare(b.name));
         closeAddModal();
         render();
