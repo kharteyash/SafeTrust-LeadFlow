@@ -71,6 +71,14 @@ const formatPhone = (raw) => {
   if (d.length === 10) return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
   return s;
 };
+// Closed-lead rows store free-form CSV columns; format any phone-like field.
+const PHONE_KEY_RE = /phone|mobile|\bcell\b|\btel\b/i;
+function formatPhonesInData(data) {
+  if (!data || typeof data !== 'object') return data;
+  const out = {};
+  for (const k of Object.keys(data)) out[k] = PHONE_KEY_RE.test(k) ? formatPhone(data[k]) : data[k];
+  return out;
+}
 // Master automation switches. Tasks default ON; automatic emails default OFF
 // (opt-in). When a user flips one in Settings, the matching generators no-op.
 async function autoEnabled(userId, kind) {
@@ -3816,11 +3824,12 @@ app.post('/api/leads/:id/close', safe(async (req, res) => {
     'Lead Notes': lead.notes || '',
     'Closed Date': serverToday()
   };
-  const key = closedDedupeKey(data);
+  const fdata = formatPhonesInData(data);
+  const key = closedDedupeKey(fdata);
   await pool.query(
     `INSERT INTO closed_leads (user_id, data, dedupe_key) VALUES ($1, $2, $3)
      ON CONFLICT (user_id, dedupe_key) DO UPDATE SET data = EXCLUDED.data`,
-    [req.user.id, JSON.stringify(data), key]
+    [req.user.id, JSON.stringify(fdata), key]
   );
   await pool.query('DELETE FROM leads WHERE id = $1 AND user_id = $2', [id, req.user.id]);
   res.json({ ok: true });
@@ -3996,7 +4005,7 @@ function closedDedupeKey(row) {
 app.get('/api/closed', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
   const rows = await q('SELECT id, data FROM closed_leads WHERE user_id = $1 ORDER BY id DESC', [req.user.id]);
-  res.json(rows.map(r => ({ id: r.id, data: r.data })));
+  res.json(rows.map(r => ({ id: r.id, data: formatPhonesInData(r.data) })));
 }));
 
 app.post('/api/closed/import', safe(async (req, res) => {
@@ -4010,7 +4019,8 @@ app.post('/api/closed/import', safe(async (req, res) => {
     if (!row || typeof row !== 'object' || Array.isArray(row)) continue;
     const vals = Object.values(row).map(v => String(v == null ? '' : v).trim());
     if (vals.every(v => v === '')) continue; // blank row
-    const key = closedDedupeKey(row);
+    const frow = formatPhonesInData(row);
+    const key = closedDedupeKey(frow);
     // Upsert: insert new rows; update existing ones whose data changed; leave
     // identical rows untouched. (xmax = 0) marks a fresh insert vs. an update.
     const r = await pool.query(
@@ -4018,7 +4028,7 @@ app.post('/api/closed/import', safe(async (req, res) => {
        ON CONFLICT (user_id, dedupe_key) DO UPDATE SET data = EXCLUDED.data
          WHERE closed_leads.data::text IS DISTINCT FROM EXCLUDED.data::text
        RETURNING (xmax = 0) AS inserted`,
-      [req.user.id, JSON.stringify(row), key]
+      [req.user.id, JSON.stringify(frow), key]
     );
     if (r.rowCount === 0) unchanged++;
     else if (r.rows[0].inserted) imported++;
@@ -4048,15 +4058,16 @@ app.patch('/api/closed/:id', safe(async (req, res) => {
   if (!cur) return res.status(404).json({ error: 'Record not found.' });
   const clean = {};
   for (const k of Object.keys(data)) clean[String(k)] = String(data[k] == null ? '' : data[k]).trim();
-  const key = closedDedupeKey(clean);
+  const fclean = formatPhonesInData(clean);
+  const key = closedDedupeKey(fclean);
   try {
     await pool.query('UPDATE closed_leads SET data = $1, dedupe_key = $2 WHERE id = $3 AND user_id = $4',
-      [JSON.stringify(clean), key, id, req.user.id]);
+      [JSON.stringify(fclean), key, id, req.user.id]);
   } catch (e) {
     if (e && e.code === '23505') return res.status(409).json({ error: 'Another closed record already has these details.' });
     throw e;
   }
-  res.json({ id, data: clean });
+  res.json({ id, data: fclean });
 }));
 
 // Delete several closed records at once (scoped to the user's own).
@@ -4603,6 +4614,28 @@ async function formatPhonesOnce() {
   console.log(`Reformatted phone numbers on ${total} row(s).`);
 }
 
+// One-time: reformat phone-like fields inside closed-lead (Past Clients) data,
+// which is free-form JSON rather than a typed column. Flag-guarded.
+async function formatClosedPhonesOnce() {
+  const done = await one("SELECT 1 AS x FROM app_flags WHERE flag = 'closed_phone_format_v1'");
+  if (done) return;
+  const rows = await q('SELECT id, data FROM closed_leads');
+  let total = 0;
+  for (const r of rows) {
+    const f = formatPhonesInData(r.data);
+    if (JSON.stringify(f) === JSON.stringify(r.data)) continue;
+    const key = closedDedupeKey(f);
+    try { await q('UPDATE closed_leads SET data = $1, dedupe_key = $2 WHERE id = $3', [JSON.stringify(f), key, r.id]); }
+    catch (e) {
+      if (e && e.code === '23505') await q('UPDATE closed_leads SET data = $1 WHERE id = $2', [JSON.stringify(f), r.id]);
+      else throw e;
+    }
+    total++;
+  }
+  await q("INSERT INTO app_flags (flag) VALUES ('closed_phone_format_v1') ON CONFLICT DO NOTHING");
+  console.log(`Reformatted phones on ${total} past-client row(s).`);
+}
+
 pool.query(SCHEMA)
   // If no admin exists yet (e.g. a database created before roles), promote the
   // earliest account to Admin so there's always a superuser.
@@ -4614,5 +4647,6 @@ pool.query(SCHEMA)
   .then(() => recomputeLeadScoresOnce())
   .then(() => disableAutoEmailsOnce())
   .then(() => formatPhonesOnce())
+  .then(() => formatClosedPhonesOnce())
   .then(() => app.listen(PORT, () => console.log(`LeadFlow running on port ${PORT}`)))
   .catch(err => { console.error('Database init failed:', err); process.exit(1); });
