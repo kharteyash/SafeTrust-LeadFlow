@@ -218,7 +218,7 @@
                   <option value="Refinance">Refinance</option>
                 </select>
               </div>
-              <div>
+              <div id="preapproved-field">
                 <label class="text-[12px] font-semibold text-muted">Preapproved?</label>
                 <div class="flex items-center gap-4 mt-2.5">
                   <label class="flex items-center gap-1.5 text-[13px] cursor-pointer"><input type="radio" name="preapproved" value="yes" style="accent-color:#2255a3;" /> Yes</label>
@@ -240,7 +240,8 @@
             <div id="purchase-section">
               <label class="text-[12px] font-semibold text-muted">Realtor</label>
               <select name="realtor_status" id="realtor-status-select" class="input mt-1" style="cursor:pointer;">
-                <option value="has">Has a realtor</option>
+                <option value="has_safetrust">Has a realtor (with SafeTrust)</option>
+                <option value="has_external">Has a realtor (not with us)</option>
                 <option value="unavailable">Not available</option>
                 <option value="none">None (no realtor)</option>
               </select>

@@ -476,8 +476,11 @@
     const type = form.elements['lead_type'].value;
     document.getElementById('refi-section').style.display = type === 'Refinance' ? '' : 'none';
     document.getElementById('purchase-section').style.display = type === 'Purchase' ? '' : 'none';
+    // Pre-approval doesn't apply to a refinance — hide it there.
+    document.getElementById('preapproved-field').style.display = type === 'Refinance' ? 'none' : '';
     const rs = form.elements['realtor_status'].value;
-    document.getElementById('realtor-fields').style.display = (type === 'Purchase' && rs === 'has') ? '' : 'none';
+    // Capture the realtor's details for either "has a realtor" option.
+    document.getElementById('realtor-fields').style.display = (type === 'Purchase' && rs.indexOf('has') === 0) ? '' : 'none';
   }
   function openLeadModal(lead) {
     editingLeadUid = lead ? lead._uid : null;
@@ -495,7 +498,8 @@
       form.elements['notes'].value = lead.notes || '';
       form.elements['lead_type'].value = lead.leadType || 'Purchase';
       form.elements['refi_type'].value = lead.refiType || 'Rate & Term';
-      form.elements['realtor_status'].value = lead.realtorStatus || 'none';
+      // Map any legacy 'has' value onto the new "with SafeTrust" option.
+      form.elements['realtor_status'].value = lead.realtorStatus === 'has' ? 'has_safetrust' : (lead.realtorStatus || 'none');
       form.elements['realtor_name'].value = lead.realtorName || '';
       form.elements['realtor_email'].value = lead.realtorEmail || '';
       form.elements['realtor_phone'].value = lead.realtorPhone || '';
@@ -519,7 +523,12 @@
 
   // ----- Lead details (read-only view, opened by clicking the name) -----
   let detailViewUid = null;
-  function realtorLabel(s) { return s === 'has' ? 'Has a realtor' : s === 'unavailable' ? 'Not available' : 'None'; }
+  function realtorLabel(s) {
+    return s === 'has_safetrust' ? 'Has a realtor (with SafeTrust)'
+      : s === 'has_external' ? 'Has a realtor (not with us)'
+      : s === 'has' ? 'Has a realtor'
+      : s === 'unavailable' ? 'Not available' : 'None';
+  }
   function leadInitials(name) { return (name || '?').trim().split(/\s+/).map(s => s[0]).slice(0, 2).join('').toUpperCase() || '?'; }
   function detailRow(label, value) {
     return `<div class="flex justify-between gap-4 py-2" style="border-bottom:1px solid var(--border-soft);">
@@ -544,13 +553,14 @@
          </span>`
       : LF.scoreStarsHTML(lead, 14);
     rows.push(detailRow('Lead score', scoreCell));
-    rows.push(detailRow('Preapproved', lead.preapproved ? 'Yes' : 'No'));
+    // Pre-approval doesn't apply to refinances.
+    if (type !== 'Refinance') rows.push(detailRow('Preapproved', lead.preapproved ? 'Yes' : 'No'));
     rows.push(detailRow('Lead type', esc(type)));
     if (type === 'Refinance') {
       rows.push(detailRow('Refinance type', esc(lead.refiType) || '—'));
     } else {
       rows.push(detailRow('Realtor', realtorLabel(lead.realtorStatus)));
-      if (lead.realtorStatus === 'has') {
+      if (String(lead.realtorStatus || '').indexOf('has') === 0) {
         rows.push(detailRow('Realtor name', esc(lead.realtorName) || '—'));
         rows.push(detailRow('Realtor email', esc(lead.realtorEmail) || '—'));
         const rTel = lead.realtorPhone ? LF.telLink(lead.realtorPhone) : '';

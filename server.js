@@ -357,6 +357,12 @@ const SCHEMA = `
   ALTER TABLE leads ADD COLUMN IF NOT EXISTS lead_type TEXT;
   ALTER TABLE leads ADD COLUMN IF NOT EXISTS refi_type TEXT;
   ALTER TABLE leads ADD COLUMN IF NOT EXISTS realtor_status TEXT;
+  -- The old single 'has' option is now split into with-SafeTrust / not-with-us.
+  -- Treat existing attached realtors as the ones we work with (self-guarding:
+  -- once migrated there are no 'has' rows left, so this is a no-op afterward).
+  UPDATE leads SET realtor_status = 'has_safetrust' WHERE realtor_status = 'has';
+  -- Pre-approval no longer applies to refinances — clear it on existing ones.
+  UPDATE leads SET preapproved = false WHERE lead_type = 'Refinance' AND preapproved = true;
   ALTER TABLE leads ADD COLUMN IF NOT EXISTS realtor_name TEXT;
   ALTER TABLE leads ADD COLUMN IF NOT EXISTS realtor_email TEXT;
   ALTER TABLE leads ADD COLUMN IF NOT EXISTS realtor_phone TEXT;
@@ -2276,7 +2282,7 @@ function audienceWhere(key, isAdmin) {
 // lead's state is carried for {{state}}. Admin reaches every lead's realtor.
 async function realtorRecipients(user) {
   const isAdmin = user.role === 'admin';
-  const cond = ["realtor_status = 'has'", 'realtor_email IS NOT NULL', "btrim(realtor_email) <> ''"];
+  const cond = ["realtor_status LIKE 'has%'", 'realtor_email IS NOT NULL', "btrim(realtor_email) <> ''"];
   if (!isAdmin) cond.push('user_id = $1');
   return q(`SELECT DISTINCT ON (lower(realtor_email)) realtor_name AS name, realtor_email AS email, state
             FROM leads WHERE ${cond.join(' AND ')} ORDER BY lower(realtor_email), id DESC`,
@@ -3222,7 +3228,10 @@ const normalizeBirthday = (v) => {
 };
 const LEAD_TYPES = ['Purchase', 'Refinance'];
 const REFI_TYPES = ['Rate & Term', 'Cash Out'];
-const REALTOR_STATUSES = ['has', 'unavailable', 'none'];
+// 'has_safetrust' = realtor we work with; 'has_external' = realtor not with us.
+// (Legacy 'has' rows are migrated to 'has_safetrust' on startup.)
+const REALTOR_STATUSES = ['has_safetrust', 'has_external', 'unavailable', 'none'];
+const hasRealtor = (s) => String(s || '').indexOf('has') === 0;
 
 // Weighted 0–100 model (shown to users as a 1–5 star rating). Each factor
 // contributes a capped share, and the parts sum to 100 only for an ideal lead —
@@ -3247,20 +3256,27 @@ function leadScoreParts(timeline, phone, leadType, refiType, preapproved, realto
     loanValue = `Refinance — ${refiType || 'Rate & Term'}`;
     loanTip = refiType === 'Cash Out' ? '' : 'Cash-out refinances score highest.';
   } else {
-    loanPoints = realtorStatus === 'has' ? 20 : 10;
-    loanValue = realtorStatus === 'has' ? 'Purchase — realtor attached' : 'Purchase — no realtor yet';
-    loanTip = realtorStatus === 'has' ? '' : 'A lead with a realtor attached scores higher.';
+    const attached = hasRealtor(realtorStatus);
+    loanPoints = attached ? 20 : 10;
+    loanValue = attached ? 'Purchase — realtor attached' : 'Purchase — no realtor yet';
+    loanTip = attached ? '' : 'A lead with a realtor attached scores higher.';
   }
 
-  return [
+  const parts = [
     { label: 'Buying intent', value: timeline || 'Unknown', points: timelinePoints, max: 45,
-      tip: timelinePoints >= 45 ? '' : 'Sooner buyers score higher — “Buying Immediately” is best.' },
-    { label: 'Pre-approved', value: preapproved ? 'Yes' : 'No', points: preapprovedPoints, max: 25,
-      tip: preapproved ? '' : 'Getting the lead pre-approved adds the most points.' },
+      tip: timelinePoints >= 45 ? '' : 'Sooner buyers score higher — “Buying Immediately” is best.' }
+  ];
+  // Pre-approval only applies to purchases — it's not a factor for refinances.
+  if (leadType !== 'Refinance') {
+    parts.push({ label: 'Pre-approved', value: preapproved ? 'Yes' : 'No', points: preapprovedPoints, max: 25,
+      tip: preapproved ? '' : 'Getting the lead pre-approved adds the most points.' });
+  }
+  parts.push(
     { label: 'Reachable by phone', value: phonePoints ? 'Yes' : 'No', points: phonePoints, max: 10,
       tip: phonePoints ? '' : 'Add a phone number so the lead is reachable.' },
     { label: 'Loan profile', value: loanValue, points: loanPoints, max: 20, tip: loanTip }
-  ];
+  );
+  return parts;
 }
 function computeLeadScore(timeline, phone, leadType, refiType, preapproved, realtorStatus) {
   const parts = leadScoreParts(timeline, phone, leadType, refiType, preapproved, realtorStatus);
@@ -3278,15 +3294,16 @@ function normalizeLeadType(b) {
   const out = { leadType, refiType: null, realtorStatus: null, realtorName: '', realtorEmail: '', realtorPhone: '' };
   if (leadType === 'Refinance') {
     out.refiType = REFI_TYPES.includes(b.refiType) ? b.refiType : 'Rate & Term';
-  } else {
     out.realtorStatus = REALTOR_STATUSES.includes(b.realtorStatus) ? b.realtorStatus : 'none';
-    if (out.realtorStatus === 'has') {
+    if (hasRealtor(out.realtorStatus)) {
       out.realtorName = String(b.realtorName || '').trim();
       out.realtorEmail = String(b.realtorEmail || '').trim();
       out.realtorPhone = String(b.realtorPhone || '').trim();
     }
   }
-  out.preapproved = b.preapproved === true || b.preapproved === 'yes' || b.preapproved === 'true';
+  // Pre-approval is a purchase concept; refinances are never flagged pre-approved.
+  out.preapproved = leadType !== 'Refinance' &&
+    (b.preapproved === true || b.preapproved === 'yes' || b.preapproved === 'true');
   return out;
 }
 function leadRowToJson(r) {
@@ -3455,7 +3472,7 @@ app.post('/api/leads', safe(async (req, res) => {
       f.preapproved, f.leadType, f.refiType, f.realtorStatus, f.realtorName, f.realtorEmail, f.realtorPhone]);
 
   // A new lead with a realtor attached → surface that realtor in Contacts.
-  if (f.realtorStatus === 'has') {
+  if (hasRealtor(f.realtorStatus)) {
     try {
       await ensureContact(req.user.id, { name: f.realtorName, email: f.realtorEmail, phone: f.realtorPhone, tag: 'Realtor', relationship: 'unknown' });
     } catch (e) { console.error('ensureContact (lead realtor):', e); }
