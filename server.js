@@ -60,6 +60,17 @@ const addDaysStr = (ymd, n) => {
   d.setDate(d.getDate() + n);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
+// Display phone numbers as (xxx) xxx-xxxx. Standard US 10-digit numbers (or
+// 11-digit starting with a 1) are reformatted; anything else (international,
+// extensions, partials) is returned trimmed but otherwise untouched.
+const formatPhone = (raw) => {
+  const s = String(raw == null ? '' : raw).trim();
+  if (!s) return '';
+  let d = s.replace(/\D/g, '');
+  if (d.length === 11 && d[0] === '1') d = d.slice(1);
+  if (d.length === 10) return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
+  return s;
+};
 // Master automation switches. Tasks default ON; automatic emails default OFF
 // (opt-in). When a user flips one in Settings, the matching generators no-op.
 async function autoEnabled(userId, kind) {
@@ -686,7 +697,7 @@ app.post('/api/profile', safe(async (req, res) => {
   const updated = await one(`
     UPDATE users SET name = $1, phone = $2, title = $3, bio = $4 WHERE id = $5
     RETURNING id, email, name, phone, title, bio
-  `, [name.trim(), (phone || '').trim(), (title || '').trim(), (bio || '').trim(), req.user.id]);
+  `, [name.trim(), formatPhone(phone), (title || '').trim(), (bio || '').trim(), req.user.id]);
 
   // Keep the lead "Owner" column in sync for this user's own leads.
   if (prev && prev.name && prev.name !== name.trim()) {
@@ -1209,7 +1220,7 @@ function cleanRealtorLead(b) {
   const oneOf = (v, list) => { const t = s(v, 40); return list.includes(t) ? t : ''; };
   return {
     name: s(b.name, 120),
-    phone: s(b.phone, 40),
+    phone: formatPhone(s(b.phone, 40)),
     email: s(b.email, 160),
     intent: oneOf(b.intent, REALTOR_LEAD_INTENTS),
     timeline: s(b.timeline, 60),
@@ -1519,7 +1530,7 @@ app.post('/api/realtor/contacts', safe(async (req, res) => {
   const row = await one(
     `INSERT INTO realtor_contacts (realtor_id, name, email, phone, company, tag)
      VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
-    [req.user.id, name, String(b.email || '').trim().slice(0, 160), String(b.phone || '').trim().slice(0, 40),
+    [req.user.id, name, String(b.email || '').trim().slice(0, 160), formatPhone(String(b.phone || '').slice(0, 40)),
      String(b.company || '').trim().slice(0, 120), (String(b.tag || '').trim().slice(0, 40) || 'Contact')]
   );
   res.json(realtorContactRowToJson(row));
@@ -1537,7 +1548,7 @@ app.patch('/api/realtor/contacts/:id', safe(async (req, res) => {
     `UPDATE realtor_contacts SET name=$1, email=$2, phone=$3, company=$4, tag=$5 WHERE id=$6 AND realtor_id=$7 RETURNING *`,
     [name,
      b.email != null ? String(b.email).trim().slice(0, 160) : (cur.email || ''),
-     b.phone != null ? String(b.phone).trim().slice(0, 40) : (cur.phone || ''),
+     b.phone != null ? formatPhone(String(b.phone).slice(0, 40)) : (cur.phone || ''),
      b.company != null ? String(b.company).trim().slice(0, 120) : (cur.company || ''),
      b.tag != null ? (String(b.tag).trim().slice(0, 40) || 'Contact') : (cur.tag || 'Contact'),
      id, req.user.id]
@@ -1621,7 +1632,7 @@ app.post('/api/realtor/calls', safe(async (req, res) => {
   const row = await one(
     `INSERT INTO realtor_calls (realtor_id, lead_id, name, phone, outcome, notes)
      VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, lead_id, name, phone, outcome, notes, logged_at`,
-    [req.user.id, leadId, name, String(b.phone || '').trim().slice(0, 40), b.outcome, String(b.notes || '').trim().slice(0, 2000)]
+    [req.user.id, leadId, name, formatPhone(String(b.phone || '').slice(0, 40)), b.outcome, String(b.notes || '').trim().slice(0, 2000)]
   );
   res.json({ id: row.id, leadId: row.lead_id, name: row.name, phone: row.phone || '', outcome: row.outcome, notes: row.notes || '', loggedAt: row.logged_at });
 }));
@@ -1639,7 +1650,7 @@ const REALTOR_DEAL_TYPES = ['Bought', 'Sold', 'Both'];
 function cleanRealtorClient(b) {
   const s = (v, n) => String(v == null ? '' : v).trim().slice(0, n);
   return {
-    name: s(b.name, 120), phone: s(b.phone, 40), email: s(b.email, 160),
+    name: s(b.name, 120), phone: formatPhone(s(b.phone, 40)), email: s(b.email, 160),
     intent: s(b.intent, 40), budget: s(b.budget, 60), propertyType: s(b.propertyType, 60), area: s(b.area, 120), zipcode: s(b.zipcode, 20),
     dealType: REALTOR_DEAL_TYPES.includes(s(b.dealType, 20)) ? s(b.dealType, 20) : '',
     address: s(b.address, 200), price: s(b.price, 60),
@@ -1723,7 +1734,7 @@ app.patch('/api/realtor/clients/:id', safe(async (req, res) => {
     `UPDATE realtor_clients SET name=$1, phone=$2, email=$3, deal_type=$4, address=$5, price=$6, closed_date=$7, notes=$8
      WHERE id=$9 AND realtor_id=$10 RETURNING *`,
     [name,
-     b.phone != null ? s(b.phone, 40) : (cur.phone || ''),
+     b.phone != null ? formatPhone(s(b.phone, 40)) : (cur.phone || ''),
      b.email != null ? s(b.email, 160) : (cur.email || ''),
      dealType,
      b.address != null ? s(b.address, 200) : (cur.address || ''),
@@ -2080,7 +2091,7 @@ app.post('/api/call-log', safe(async (req, res) => {
   const row = await one(`
     INSERT INTO call_log (user_id, name, phone, direction, duration, outcome, notes, agent, is_realtor, logged_at)
     VALUES ($1, $2, $3, 'outbound', $4, $5, $6, $7, $8, $9) RETURNING id
-  `, [req.user.id, name.trim(), (phone || '').trim(), dur, outcome, note, agent, isRealtor, loggedAt]);
+  `, [req.user.id, name.trim(), formatPhone(phone), dur, outcome, note, agent, isRealtor, loggedAt]);
 
   // Automations for a missed / voicemail / no-answer call (skipped when the user
   // has turned off automatic tasks & call queue).
@@ -2092,7 +2103,7 @@ app.post('/api/call-log', safe(async (req, res) => {
       const exists = await one(`SELECT id FROM call_queue WHERE user_id = $1 AND lower(name) = lower($2) AND call_date = $3 AND reason = $4`,
         [req.user.id, name.trim(), retryDate, RETRY_REASON]);
       if (!exists) await q(`INSERT INTO call_queue (user_id, name, phone, priority, call_time, call_date, reason)
-         VALUES ($1, $2, $3, 'Medium', '', $4, $5)`, [req.user.id, name.trim(), (phone || '').trim(), retryDate, RETRY_REASON]);
+         VALUES ($1, $2, $3, 'Medium', '', $4, $5)`, [req.user.id, name.trim(), formatPhone(phone), retryDate, RETRY_REASON]);
     } catch (e) { console.error('auto-requeue call:', e); }
     // #2: a follow-up task in 2 days (leads only — realtors get touch-base tasks).
     if (!isRealtor) {
@@ -2113,7 +2124,7 @@ app.post('/api/call-log', safe(async (req, res) => {
   }
 
   res.json({
-    id: row.id, name: name.trim(), phone: (phone || '').trim(), direction: 'outbound',
+    id: row.id, name: name.trim(), phone: formatPhone(phone), direction: 'outbound',
     duration: dur, outcome, notes: note, agent, isRealtor, date: loggedAt
   });
 }));
@@ -2210,10 +2221,10 @@ app.post('/api/call-queue', safe(async (req, res) => {
   const row = await one(`
     INSERT INTO call_queue (user_id, name, phone, priority, call_time, call_date, reason)
     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id
-  `, [req.user.id, name.trim(), (phone || '').trim(), priority, (time || '').trim(), callDate, (reason || '').trim()]);
+  `, [req.user.id, name.trim(), formatPhone(phone), priority, (time || '').trim(), callDate, (reason || '').trim()]);
 
   res.json({
-    id: row.id, name: name.trim(), phone: (phone || '').trim(),
+    id: row.id, name: name.trim(), phone: formatPhone(phone),
     priority, time: (time || '').trim(), date: callDate, reason: (reason || '').trim()
   });
 }));
@@ -3298,7 +3309,7 @@ function normalizeLeadType(b) {
     if (hasRealtor(out.realtorStatus)) {
       out.realtorName = String(b.realtorName || '').trim();
       out.realtorEmail = String(b.realtorEmail || '').trim();
-      out.realtorPhone = String(b.realtorPhone || '').trim();
+      out.realtorPhone = formatPhone(b.realtorPhone);
     }
   }
   // Pre-approval is a purchase concept; refinances are never flagged pre-approved.
@@ -3436,7 +3447,7 @@ app.get('/api/leads', safe(async (req, res) => {
 async function ensureContact(userId, c) {
   const name = String(c.name || '').trim();
   const email = String(c.email || '').trim();
-  const phone = String(c.phone || '').trim();
+  const phone = formatPhone(c.phone);
   const company = String(c.company || '').trim();
   const tag = String(c.tag || 'Other').slice(0, 40);
   const relationship = c.relationship || '';
@@ -3468,7 +3479,7 @@ app.post('/api/leads', safe(async (req, res) => {
     INSERT INTO leads (user_id, name, email, phone, timeline, score, owner, notes, state, birthday,
                        preapproved, lead_type, refi_type, realtor_status, realtor_name, realtor_email, realtor_phone)
     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING id
-  `, [req.user.id, name.trim(), email.trim(), (phone || '').trim(), timeline, score, (owner || '').trim(), (notes || '').trim(), state, birthday,
+  `, [req.user.id, name.trim(), email.trim(), formatPhone(phone), timeline, score, (owner || '').trim(), (notes || '').trim(), state, birthday,
       f.preapproved, f.leadType, f.refiType, f.realtorStatus, f.realtorName, f.realtorEmail, f.realtorPhone]);
 
   // A new lead with a realtor attached → surface that realtor in Contacts.
@@ -3486,7 +3497,7 @@ app.post('/api/leads', safe(async (req, res) => {
   }
 
   res.json(leadRowToJson({
-    id: row.id, name: name.trim(), email: email.trim(), phone: (phone || '').trim(),
+    id: row.id, name: name.trim(), email: email.trim(), phone: formatPhone(phone),
     timeline, score, owner: (owner || '').trim(), notes: (notes || '').trim(), state, birthday,
     preapproved: f.preapproved, lead_type: f.leadType, refi_type: f.refiType,
     realtor_status: f.realtorStatus, realtor_name: f.realtorName, realtor_email: f.realtorEmail, realtor_phone: f.realtorPhone
@@ -3511,7 +3522,7 @@ app.post('/api/leads/import', safe(async (req, res) => {
     const email = String(row.email || '').trim();
     const key = email.toLowerCase();
     if (email && seen.has(key)) { skipped++; continue; }       // duplicate email
-    const phone = String(row.phone || '').trim();
+    const phone = formatPhone(row.phone);
     const owner = String(row.owner || '').trim();
     const state = normalizeState(row.state);
     const timeline = LEAD_TIMELINES.includes(row.timeline) ? row.timeline : '1-3 Months';
@@ -3538,7 +3549,7 @@ app.patch('/api/leads/:id', safe(async (req, res) => {
   const b = req.body || {};
   const name     = b.name     != null ? String(b.name).trim()  : cur.name;
   const email    = b.email    != null ? String(b.email).trim() : (cur.email || '');
-  const phone    = b.phone    != null ? String(b.phone).trim() : (cur.phone || '');
+  const phone    = b.phone    != null ? formatPhone(b.phone) : (cur.phone || '');
   const timeline = b.timeline != null ? b.timeline             : cur.timeline;
   const owner    = b.owner    != null ? String(b.owner).trim() : (cur.owner || '');
   const notes    = b.notes    != null ? String(b.notes).trim() : (cur.notes || '');
@@ -3555,7 +3566,7 @@ app.patch('/api/leads/:id', safe(async (req, res) => {
     realtorStatus: b.realtorStatus != null ? b.realtorStatus : cur.realtor_status,
     realtorName:   b.realtorName   != null ? b.realtorName   : cur.realtor_name,
     realtorEmail:  b.realtorEmail  != null ? b.realtorEmail  : cur.realtor_email,
-    realtorPhone:  b.realtorPhone  != null ? b.realtorPhone  : cur.realtor_phone,
+    realtorPhone:  b.realtorPhone  != null ? formatPhone(b.realtorPhone) : cur.realtor_phone,
     preapproved:   b.preapproved   != null ? b.preapproved   : cur.preapproved
   });
   const score = computeLeadScore(timeline, phone, f.leadType, f.refiType, f.preapproved, f.realtorStatus);
@@ -4090,11 +4101,11 @@ app.post('/api/contacts', safe(async (req, res) => {
   const row = await one(`
     INSERT INTO contacts (user_id, name, email, phone, company, tag, relationship, birthday)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id
-  `, [req.user.id, name.trim(), (email || '').trim(), (phone || '').trim(), (company || '').trim(), tag, relationship, birthday]);
+  `, [req.user.id, name.trim(), (email || '').trim(), formatPhone(phone), (company || '').trim(), tag, relationship, birthday]);
 
   res.json({
     id: row.id, name: name.trim(), email: (email || '').trim(),
-    phone: (phone || '').trim(), company: (company || '').trim(), tag, relationship, birthday
+    phone: formatPhone(phone), company: (company || '').trim(), tag, relationship, birthday
   });
 }));
 
@@ -4108,7 +4119,7 @@ app.patch('/api/contacts/:id', safe(async (req, res) => {
   const b = req.body || {};
   const name    = b.name    != null ? String(b.name).trim()    : cur.name;
   const email   = b.email   != null ? String(b.email).trim()   : (cur.email || '');
-  const phone   = b.phone   != null ? String(b.phone).trim()   : (cur.phone || '');
+  const phone   = b.phone   != null ? formatPhone(b.phone)     : (cur.phone || '');
   const company = b.company != null ? String(b.company).trim() : (cur.company || '');
   const tag     = b.tag     != null ? (String(b.tag).trim().slice(0, 40) || 'Other') : (cur.tag || 'Other');
   const relationship = b.relationship != null ? normalizeRelationship(b.relationship, tag) : normalizeRelationship(cur.relationship, tag);
@@ -4564,6 +4575,34 @@ async function disableAutoEmailsOnce() {
   console.log(`Automatic emails turned off for ${r.rowCount} existing user(s) — opt-in from here.`);
 }
 
+// One-time: reformat every stored phone number to (xxx) xxx-xxxx. Table/column
+// names below are a fixed trusted list (not user input). Flag-guarded so it
+// runs once; new writes are formatted at their endpoints via formatPhone().
+async function formatPhonesOnce() {
+  const done = await one("SELECT 1 AS x FROM app_flags WHERE flag = 'phone_format_v1'");
+  if (done) return;
+  const jobs = [
+    ['users', ['phone']], ['call_log', ['phone']], ['call_queue', ['phone']],
+    ['contacts', ['phone']], ['leads', ['phone', 'realtor_phone']],
+    ['realtor_leads', ['phone']], ['realtor_contacts', ['phone']],
+    ['realtor_calls', ['phone']], ['realtor_clients', ['phone']]
+  ];
+  let total = 0;
+  for (const [table, cols] of jobs) {
+    const rows = await q(`SELECT id, ${cols.join(', ')} FROM ${table}`);
+    for (const r of rows) {
+      const sets = [], vals = [];
+      for (const c of cols) {
+        const f = formatPhone(r[c]);
+        if (f !== (r[c] || '')) { vals.push(f); sets.push(`${c} = $${vals.length}`); }
+      }
+      if (sets.length) { vals.push(r.id); await q(`UPDATE ${table} SET ${sets.join(', ')} WHERE id = $${vals.length}`, vals); total++; }
+    }
+  }
+  await q("INSERT INTO app_flags (flag) VALUES ('phone_format_v1') ON CONFLICT DO NOTHING");
+  console.log(`Reformatted phone numbers on ${total} row(s).`);
+}
+
 pool.query(SCHEMA)
   // If no admin exists yet (e.g. a database created before roles), promote the
   // earliest account to Admin so there's always a superuser.
@@ -4574,5 +4613,6 @@ pool.query(SCHEMA)
   `))
   .then(() => recomputeLeadScoresOnce())
   .then(() => disableAutoEmailsOnce())
+  .then(() => formatPhonesOnce())
   .then(() => app.listen(PORT, () => console.log(`LeadFlow running on port ${PORT}`)))
   .catch(err => { console.error('Database init failed:', err); process.exit(1); });
