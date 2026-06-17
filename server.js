@@ -4552,6 +4552,18 @@ async function recomputeLeadScoresOnce() {
   if (leads.length) console.log(`Re-scored ${leads.length} lead(s) with the new model.`);
 }
 
+// One-time: turn OFF automatic emails for every existing user so the whole
+// system becomes opt-in. Flag-guarded so it runs exactly once — anyone who
+// later switches it back on in Settings keeps it on across restarts/deploys
+// (the migration never re-disables them).
+async function disableAutoEmailsOnce() {
+  const done = await one("SELECT 1 AS x FROM app_flags WHERE flag = 'auto_emails_off_v1'");
+  if (done) return;
+  const r = await pool.query('UPDATE users SET auto_emails_enabled = FALSE WHERE auto_emails_enabled IS DISTINCT FROM FALSE');
+  await q("INSERT INTO app_flags (flag) VALUES ('auto_emails_off_v1') ON CONFLICT DO NOTHING");
+  console.log(`Automatic emails turned off for ${r.rowCount} existing user(s) — opt-in from here.`);
+}
+
 pool.query(SCHEMA)
   // If no admin exists yet (e.g. a database created before roles), promote the
   // earliest account to Admin so there's always a superuser.
@@ -4561,5 +4573,6 @@ pool.query(SCHEMA)
       AND NOT EXISTS (SELECT 1 FROM users WHERE role = 'admin')
   `))
   .then(() => recomputeLeadScoresOnce())
+  .then(() => disableAutoEmailsOnce())
   .then(() => app.listen(PORT, () => console.log(`LeadFlow running on port ${PORT}`)))
   .catch(err => { console.error('Database init failed:', err); process.exit(1); });
