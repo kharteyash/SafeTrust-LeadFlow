@@ -213,25 +213,100 @@
   }
 
   // Resize an image file to a small square-ish JPEG data URL (longest side = max).
-  function resizeImageToDataUrl(file, max) {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onerror = () => reject(new Error('read'));
-      reader.onload = () => {
-        const img = new Image();
-        img.onerror = () => reject(new Error('decode'));
-        img.onload = () => {
-          const scale = Math.min(1, max / Math.max(img.width, img.height));
-          const w = Math.max(1, Math.round(img.width * scale)), h = Math.max(1, Math.round(img.height * scale));
-          const canvas = document.createElement('canvas');
-          canvas.width = w; canvas.height = h;
-          canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-          resolve(canvas.toDataURL('image/jpeg', 0.85));
-        };
-        img.src = reader.result;
+  // ----- Profile-photo cropper -----
+  // Avatars are circular and shown with background-size:cover, so a non-square
+  // upload gets center-cropped in unpredictable ways. This lets the user pan +
+  // zoom to pick the square themselves; we export a 256x256 JPEG of that square.
+  const CROP_VPX = 280;     // on-screen crop window size (square)
+  const CROP_OUT = 256;     // exported image size (square)
+  function ensureCropModal() {
+    if (document.getElementById('crop-modal')) return;
+    const wrap = document.createElement('div');
+    wrap.innerHTML = `
+      <div id="crop-modal" class="hidden" style="position:fixed;inset:0;z-index:80;">
+        <div id="crop-backdrop" style="position:absolute;inset:0;background:rgba(14,14,27,.5);"></div>
+        <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:100%;max-width:360px;" class="px-4">
+          <div class="bg-white rounded-2xl p-5 shadow-2xl">
+            <div class="flex items-center justify-between mb-2">
+              <h3 class="text-[16px] font-bold">Crop your photo</h3>
+              <button type="button" id="crop-close" class="btn-icon" style="width:30px;height:30px;border:none;"><i data-lucide="x" style="width:16px;height:16px;color:var(--text-muted);"></i></button>
+            </div>
+            <p class="text-[12px] text-muted mb-3">Drag to reposition and use the slider to zoom. The circle is what people will see.</p>
+            <div id="crop-viewport" style="position:relative;width:${CROP_VPX}px;height:${CROP_VPX}px;margin:0 auto;overflow:hidden;border-radius:12px;background:#eef0f4;touch-action:none;cursor:grab;user-select:none;">
+              <img id="crop-img" alt="" style="position:absolute;top:0;left:0;transform-origin:0 0;pointer-events:none;-webkit-user-drag:none;max-width:none;" />
+              <div style="position:absolute;inset:0;border-radius:50%;box-shadow:0 0 0 9999px rgba(0,0,0,.38);pointer-events:none;"></div>
+            </div>
+            <div class="flex items-center gap-3 mt-4">
+              <i data-lucide="zoom-out" style="width:14px;height:14px;color:var(--text-muted);"></i>
+              <input id="crop-zoom" type="range" min="1" max="3" step="0.01" value="1" style="flex:1;accent-color:#2255a3;cursor:pointer;" />
+              <i data-lucide="zoom-in" style="width:14px;height:14px;color:var(--text-muted);"></i>
+            </div>
+            <div class="flex items-center justify-end gap-2 mt-4">
+              <button type="button" id="crop-cancel" class="btn-secondary">Cancel</button>
+              <button type="button" id="crop-save" class="btn-primary">Save photo</button>
+            </div>
+          </div>
+        </div>
+      </div>`;
+    document.body.appendChild(wrap.firstElementChild);
+  }
+  // Opens the cropper for `file`; calls onSave(dataUrl) with a square JPEG.
+  function openCropper(file, onSave) {
+    ensureCropModal();
+    const modal = document.getElementById('crop-modal');
+    const vp = document.getElementById('crop-viewport');
+    const imgEl = document.getElementById('crop-img');
+    const zoom = document.getElementById('crop-zoom');
+    let natW = 0, natH = 0, coverScale = 1, scale = 1, tx = 0, ty = 0;
+
+    function clamp() {
+      const dispW = natW * scale, dispH = natH * scale;
+      tx = Math.min(0, Math.max(CROP_VPX - dispW, tx));   // keep the window covered
+      ty = Math.min(0, Math.max(CROP_VPX - dispH, ty));
+    }
+    function apply() { imgEl.style.transform = `translate(${tx}px,${ty}px) scale(${scale})`; }
+    function close() { modal.classList.add('hidden'); }
+
+    zoom.oninput = () => {
+      const next = coverScale * parseFloat(zoom.value);
+      const cx = CROP_VPX / 2, cy = CROP_VPX / 2;           // zoom around the center
+      const ix = (cx - tx) / scale, iy = (cy - ty) / scale;
+      scale = next; tx = cx - ix * scale; ty = cy - iy * scale;
+      clamp(); apply();
+    };
+    let dragging = false, lx = 0, ly = 0;
+    vp.onpointerdown = (e) => { dragging = true; lx = e.clientX; ly = e.clientY; vp.setPointerCapture(e.pointerId); vp.style.cursor = 'grabbing'; };
+    vp.onpointermove = (e) => { if (!dragging) return; tx += e.clientX - lx; ty += e.clientY - ly; lx = e.clientX; ly = e.clientY; clamp(); apply(); };
+    vp.onpointerup = vp.onpointercancel = () => { dragging = false; vp.style.cursor = 'grab'; };
+
+    document.getElementById('crop-cancel').onclick = close;
+    document.getElementById('crop-close').onclick = close;
+    document.getElementById('crop-backdrop').onclick = close;
+    document.getElementById('crop-save').onclick = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = CROP_OUT; canvas.height = CROP_OUT;
+      const sw = CROP_VPX / scale, sh = CROP_VPX / scale;   // source square in natural px
+      canvas.getContext('2d').drawImage(imgEl, -tx / scale, -ty / scale, sw, sh, 0, 0, CROP_OUT, CROP_OUT);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+      close();
+      onSave(dataUrl);
+    };
+
+    const reader = new FileReader();
+    reader.onerror = () => { /* handled by caller's message */ };
+    reader.onload = () => {
+      imgEl.onload = () => {
+        natW = imgEl.naturalWidth; natH = imgEl.naturalHeight;
+        coverScale = CROP_VPX / Math.min(natW, natH);        // smallest side fills the window
+        scale = coverScale; zoom.value = '1';
+        tx = (CROP_VPX - natW * scale) / 2; ty = (CROP_VPX - natH * scale) / 2;   // centered
+        clamp(); apply();
+        modal.classList.remove('hidden');
+        if (window.lucide) lucide.createIcons();
       };
-      reader.readAsDataURL(file);
-    });
+      imgEl.src = reader.result;
+    };
+    reader.readAsDataURL(file);
   }
 
   function bindProfile() {
@@ -251,25 +326,26 @@
     const uploadBtn = document.getElementById('photo-upload-btn');
     const removeBtn = document.getElementById('photo-remove-btn');
     if (uploadBtn) uploadBtn.addEventListener('click', () => fileInput.click());
-    if (fileInput) fileInput.addEventListener('change', async (e) => {
+    if (fileInput) fileInput.addEventListener('change', (e) => {
       const file = e.target.files && e.target.files[0];
       fileInput.value = '';
       if (!file) return;
       if (!/^image\//.test(file.type)) { setPhotoMsg('Please choose an image file.', 'err'); return; }
-      setPhotoMsg('Processing…');
-      let dataUrl;
-      try { dataUrl = await resizeImageToDataUrl(file, 256); } catch (err) { setPhotoMsg('Could not read that image.', 'err'); return; }
-      try {
-        const res = await fetch('/api/profile/photo', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
-          body: JSON.stringify({ photo: dataUrl })
-        });
-        const body = await res.json().catch(() => ({}));
-        if (!res.ok) { setPhotoMsg(body.error || 'Upload failed.', 'err'); return; }
-        LF.setUserPhoto(dataUrl);
-        LF.applyAvatar(document.getElementById('profile-avatar'), D.user);
-        setPhotoMsg('Photo updated.', 'ok');
-      } catch (err) { setPhotoMsg('Network error. Is the server running?', 'err'); }
+      // Let the user crop to a square first, then upload the result.
+      openCropper(file, async (dataUrl) => {
+        setPhotoMsg('Uploading…');
+        try {
+          const res = await fetch('/api/profile/photo', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+            body: JSON.stringify({ photo: dataUrl })
+          });
+          const body = await res.json().catch(() => ({}));
+          if (!res.ok) { setPhotoMsg(body.error || 'Upload failed.', 'err'); return; }
+          LF.setUserPhoto(dataUrl);
+          LF.applyAvatar(document.getElementById('profile-avatar'), D.user);
+          setPhotoMsg('Photo updated.', 'ok');
+        } catch (err) { setPhotoMsg('Network error. Is the server running?', 'err'); }
+      });
     });
     if (removeBtn) removeBtn.addEventListener('click', async () => {
       if (!D.user.photo) { setPhotoMsg('No photo to remove.', 'err'); return; }
