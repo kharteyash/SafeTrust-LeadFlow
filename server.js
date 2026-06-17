@@ -60,12 +60,13 @@ const addDaysStr = (ymd, n) => {
   d.setDate(d.getDate() + n);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
-// Master automation switches (both default ON). `kind` is 'emails' or 'tasks'.
-// When a user turns one off in Settings, the matching generators no-op for them.
+// Master automation switches. Tasks default ON; automatic emails default OFF
+// (opt-in). When a user flips one in Settings, the matching generators no-op.
 async function autoEnabled(userId, kind) {
   const col = kind === 'emails' ? 'auto_emails_enabled' : 'auto_tasks_enabled';
   const r = await one(`SELECT ${col} AS v FROM users WHERE id = $1`, [userId]);
-  return !r || r.v !== false;     // NULL / missing user → treated as ON
+  if (kind === 'emails') return !!r && r.v === true;   // unset/NULL → OFF (opt-in)
+  return !r || r.v !== false;                          // tasks: unset/NULL → ON
 }
 
 // Create a task only if an open (not-done) one with the same title doesn't already
@@ -107,10 +108,14 @@ const SCHEMA = `
   -- Daily digest email: on by default; last_digest_at gates one send per day.
   ALTER TABLE users ADD COLUMN IF NOT EXISTS digest_enabled BOOLEAN DEFAULT TRUE;
   ALTER TABLE users ADD COLUMN IF NOT EXISTS last_digest_at DATE;
-  -- Master switches for the automation engine (both on by default). When off,
-  -- no new automatic emails / tasks+call-queue items are scheduled for the user.
-  ALTER TABLE users ADD COLUMN IF NOT EXISTS auto_emails_enabled BOOLEAN DEFAULT TRUE;
+  -- Master switches for the automation engine. Tasks/call-queue default ON;
+  -- automatic emails default OFF (opt-in) so nothing is emailed until the user
+  -- turns it on in Settings.
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS auto_emails_enabled BOOLEAN DEFAULT FALSE;
   ALTER TABLE users ADD COLUMN IF NOT EXISTS auto_tasks_enabled BOOLEAN DEFAULT TRUE;
+  -- Older databases created auto_emails_enabled with DEFAULT TRUE; flip the
+  -- default so newly-created accounts are opt-in. Existing rows keep their value.
+  ALTER TABLE users ALTER COLUMN auto_emails_enabled SET DEFAULT FALSE;
   -- Realtor portal accounts: role='realtor'. realtor_owner_id is the loan officer
   -- who created/owns the account (a realtor belongs to one LO). Deleting that LO
   -- removes their realtor logins too.
@@ -489,7 +494,7 @@ async function loadUserFromSession(sid) {
     role: row.role || 'user', leaderId: row.leader_id || null, leaderName: row.leader_name || '',
     photo: row.photo || '', mustChangePassword: !!row.must_change_password,
     // Default to ON when the column is NULL (existing rows before this feature).
-    autoEmails: row.auto_emails_enabled !== false, autoTasks: row.auto_tasks_enabled !== false,
+    autoEmails: row.auto_emails_enabled === true, autoTasks: row.auto_tasks_enabled !== false,
     realtorOwnerId: row.realtor_owner_id || null
   };
 }
@@ -2827,7 +2832,7 @@ app.get('/api/auto-email-settings', safe(async (req, res) => {
     extraDefs: AUTO_EXTRA_DEFS.map(d => ({ key: d.key, group: d.group, label: d.label })),
     extraDefaults: DEFAULT_AUTO_EXTRA,
     timezones: SUPPORTED_TIMEZONES,
-    automation: { emails: req.user.autoEmails !== false, tasks: req.user.autoTasks !== false }
+    automation: { emails: req.user.autoEmails === true, tasks: req.user.autoTasks !== false }
   });
 }));
 
@@ -2843,7 +2848,7 @@ app.put('/api/automation-prefs', safe(async (req, res) => {
     await pool.query('UPDATE users SET auto_tasks_enabled = $1 WHERE id = $2', [!!b.tasks, req.user.id]);
   }
   const r = await one('SELECT auto_emails_enabled, auto_tasks_enabled FROM users WHERE id = $1', [req.user.id]);
-  res.json({ ok: true, automation: { emails: r.auto_emails_enabled !== false, tasks: r.auto_tasks_enabled !== false } });
+  res.json({ ok: true, automation: { emails: r.auto_emails_enabled === true, tasks: r.auto_tasks_enabled !== false } });
 }));
 app.put('/api/auto-email-settings', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
@@ -3046,7 +3051,7 @@ async function dispatchScheduled(req, res) {
   // connected Google get anything (the generators self-skip otherwise).
   try {
     const users = await q(`SELECT id FROM users
-       WHERE COALESCE(auto_emails_enabled, true) = true AND id IN (SELECT user_id FROM google_accounts)`);
+       WHERE COALESCE(auto_emails_enabled, false) = true AND id IN (SELECT user_id FROM google_accounts)`);
     for (const u of users) {
       const uid = u.id;
       try { await ensureAnniversaryMessages(uid); } catch (e) { console.error('anniversary gen:', e); }
@@ -3071,7 +3076,7 @@ async function dispatchScheduled(req, res) {
       WHERE status = 'pending' AND channel = 'Email' AND send_at IS NOT NULL AND send_at <= now()
         AND user_id IN (SELECT user_id FROM google_accounts)
         AND NOT (auto_kind IS NOT NULL
-                 AND user_id IN (SELECT id FROM users WHERE COALESCE(auto_emails_enabled, true) = false))
+                 AND user_id IN (SELECT id FROM users WHERE COALESCE(auto_emails_enabled, false) = false))
       ORDER BY send_at LIMIT 50 FOR UPDATE SKIP LOCKED
     )
     RETURNING id, user_id, recipient, type, body
