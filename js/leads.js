@@ -1430,6 +1430,48 @@
     });
   }
 
+  // ----- Hover a lead name to preview its notes -----
+  function ensureNotesTip() {
+    let tip = document.getElementById('lead-notes-tip');
+    if (!tip) {
+      tip = document.createElement('div');
+      tip.id = 'lead-notes-tip';
+      tip.style.cssText = 'position:fixed;z-index:90;max-width:320px;display:none;background:var(--surface);color:var(--text);border:1px solid var(--border-strong);box-shadow:0 8px 28px var(--shadow);border-radius:10px;padding:10px 12px;font-size:12.5px;line-height:1.45;white-space:pre-wrap;word-break:break-word;pointer-events:none;';
+      document.body.appendChild(tip);
+    }
+    return tip;
+  }
+  function bindNotesTooltip() {
+    const table = document.getElementById('leads-table');
+    if (!table) return;
+    const tip = ensureNotesTip();
+    const place = (e) => {
+      const pad = 14, r = tip.getBoundingClientRect();
+      let x = e.clientX + pad, y = e.clientY + pad;
+      if (x + r.width > window.innerWidth - 8) x = e.clientX - r.width - pad;
+      if (y + r.height > window.innerHeight - 8) y = e.clientY - r.height - pad;
+      tip.style.left = Math.max(8, x) + 'px';
+      tip.style.top = Math.max(8, y) + 'px';
+    };
+    table.addEventListener('mouseover', (e) => {
+      const el = e.target.closest('[data-view-uid]');
+      if (!el) return;
+      const lead = leads.find(l => String(l._uid) === el.getAttribute('data-view-uid'));
+      const notes = lead && lead.notes ? String(lead.notes).trim() : '';
+      if (!notes) return;
+      tip.innerHTML = `<div style="font-weight:600;font-size:11px;color:var(--text-muted);margin-bottom:3px;">Notes</div>${esc(notes)}`;
+      tip.style.display = 'block';
+      place(e);
+    });
+    table.addEventListener('mousemove', (e) => {
+      if (tip.style.display === 'block' && e.target.closest('[data-view-uid]')) place(e);
+    });
+    table.addEventListener('mouseout', (e) => {
+      const el = e.target.closest('[data-view-uid]');
+      if (el && !el.contains(e.relatedTarget)) tip.style.display = 'none';
+    });
+  }
+
   document.addEventListener('DOMContentLoaded', async function () {
     // Layout must render first — it rebuilds #app's innerHTML, which wipes
     // any event listeners attached to elements inside it.
@@ -1456,6 +1498,7 @@
     bindExport();
     bindClosedImport();
     bindClosed();
+    bindNotesTooltip();
     if (window.lucide) lucide.createIcons();
   });
 })();
