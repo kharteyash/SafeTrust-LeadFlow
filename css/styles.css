@@ -358,6 +358,21 @@ html.dark [class*="#F5F5FA"] { background-color: var(--surface-3) !important; }
   .topbar { padding-left: 14px !important; padding-right: 14px !important; }
   /* The avatar stays; its name/role text is dropped to save width. */
   .lf-user-text { display: none !important; }
+  /* The squished topbar search is dropped — the Leads page has its own search
+     box in the panel, so nothing is lost. */
+  .lf-topbar-search { display: none !important; }
+
+  /* Dropdowns are anchored to their button, which sits at the right edge — on a
+     phone that pushes them off-screen. Pin them to the viewport instead. */
+  #lf-notif-dropdown {
+    position: fixed !important;
+    top: 58px !important; left: 10px !important; right: 10px !important;
+    width: auto !important; max-width: none !important;
+  }
+  #lf-user-dropdown {
+    position: fixed !important;
+    top: 58px !important; right: 10px !important; left: auto !important;
+  }
 
   /* Bottom tab bar */
   .lf-bottom-nav {

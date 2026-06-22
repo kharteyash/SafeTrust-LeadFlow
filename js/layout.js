@@ -178,7 +178,7 @@ LF.renderLayout = async function ({ active }) {
         <!-- Topbar -->
         <header class="topbar h-[60px] flex-shrink-0 flex items-center px-6 gap-4">
           ${active === 'leads' ? `
-            <div class="relative flex-1 max-w-[420px]">
+            <div class="lf-topbar-search relative flex-1 max-w-[420px]">
               <i data-lucide="search" style="width:16px;height:16px;color:#8A8AA0;position:absolute;left:14px;top:50%;transform:translateY(-50%);"></i>
               <input id="topbar-search" class="input pl-10" style="background:var(--surface-3);border-color:var(--chip);" placeholder="Search leads, phone, email, notes..." />
             </div>
