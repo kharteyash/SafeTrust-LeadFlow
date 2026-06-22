@@ -69,6 +69,48 @@ function decToken(stored) {
   } catch (e) { console.error('Token decrypt failed:', e.message); return null; }
 }
 
+// ----- Two-factor auth (TOTP, RFC 6238) — built on crypto, no dependency -----
+const B32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+function base32Encode(buf) {
+  let bits = 0, value = 0, out = '';
+  for (const b of buf) { value = (value << 8) | b; bits += 8; while (bits >= 5) { out += B32[(value >>> (bits - 5)) & 31]; bits -= 5; } }
+  if (bits > 0) out += B32[(value << (5 - bits)) & 31];
+  return out;
+}
+function base32Decode(str) {
+  const clean = String(str).toUpperCase().replace(/[^A-Z2-7]/g, '');
+  let bits = 0, value = 0; const out = [];
+  for (const ch of clean) { value = (value << 5) | B32.indexOf(ch); bits += 5; if (bits >= 8) { out.push((value >>> (bits - 8)) & 0xff); bits -= 8; } }
+  return Buffer.from(out);
+}
+function totpAt(secretB32, counter) {
+  const buf = Buffer.alloc(8);
+  buf.writeBigUInt64BE(BigInt(counter));
+  const hmac = crypto.createHmac('sha1', base32Decode(secretB32)).update(buf).digest();
+  const o = hmac[hmac.length - 1] & 0xf;
+  const bin = ((hmac[o] & 0x7f) << 24) | (hmac[o + 1] << 16) | (hmac[o + 2] << 8) | hmac[o + 3];
+  return String(bin % 1000000).padStart(6, '0');
+}
+// Verify a 6-digit code, tolerating ±1 time-step (30s) of clock skew.
+function totpVerify(secretB32, token) {
+  const t = String(token == null ? '' : token).trim();
+  if (!secretB32 || !/^\d{6}$/.test(t)) return false;
+  const counter = Math.floor(Date.now() / 30000);
+  for (let w = -1; w <= 1; w++) {
+    if (crypto.timingSafeEqual(Buffer.from(totpAt(secretB32, counter + w)), Buffer.from(t))) return true;
+  }
+  return false;
+}
+function newTotpSecret() { return base32Encode(crypto.randomBytes(20)); }
+function otpauthUrl(secret, email) {
+  const issuer = 'LeadFlow';
+  return `otpauth://totp/${encodeURIComponent(issuer + ':' + email)}?secret=${secret}&issuer=${encodeURIComponent(issuer)}&algorithm=SHA1&digits=6&period=30`;
+}
+// One-time backup codes (shown once at enrollment; stored only as bcrypt hashes).
+function makeBackupCodes(n = 8) {
+  return Array.from({ length: n }, () => crypto.randomBytes(5).toString('hex'));
+}
+
 // ----- Database -----
 const isLocalDb = /localhost|127\.0\.0\.1/.test(process.env.DATABASE_URL);
 const pool = new Pool({
@@ -149,6 +191,11 @@ const SCHEMA = `
   -- Failed-login lockout: 3 wrong passwords locks the account for 24 hours.
   ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_attempts INTEGER DEFAULT 0;
   ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_until TIMESTAMPTZ;
+  -- Two-factor (TOTP): the (encrypted) shared secret, whether it's active, and a
+  -- JSON array of bcrypt-hashed one-time backup codes for account recovery.
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_secret TEXT;
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_enabled BOOLEAN DEFAULT FALSE;
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_backup_codes TEXT;
   -- Per-user secret for inbound integrations (e.g. the RETR webhook). Identifies
   -- AND authenticates the user, so each person connects their own account.
   ALTER TABLE users ADD COLUMN IF NOT EXISTS webhook_token TEXT;
@@ -536,12 +583,13 @@ async function loadUserFromSession(sid) {
   if (!sid) return null;
   const row = await one(`
     SELECT u.id, u.email, u.name, u.phone, u.title, u.bio, u.role, u.leader_id, u.photo,
-           u.must_change_password, u.auto_emails_enabled, u.auto_tasks_enabled, u.realtor_owner_id, l.name AS leader_name
+           u.must_change_password, u.auto_emails_enabled, u.auto_tasks_enabled, u.realtor_owner_id, u.mfa_enabled, l.name AS leader_name
     FROM sessions s JOIN users u ON u.id = s.user_id
     LEFT JOIN users l ON l.id = u.leader_id
     WHERE s.id = $1 AND s.expires_at > now()
   `, [sid]);
   if (!row) return null;
+  const mfaEnabled = row.mfa_enabled === true;
   return {
     id: row.id, email: row.email, name: row.name,
     phone: row.phone || '', title: row.title || '', bio: row.bio || '',
@@ -549,7 +597,10 @@ async function loadUserFromSession(sid) {
     photo: row.photo || '', mustChangePassword: !!row.must_change_password,
     // Default to ON when the column is NULL (existing rows before this feature).
     autoEmails: row.auto_emails_enabled === true, autoTasks: row.auto_tasks_enabled !== false,
-    realtorOwnerId: row.realtor_owner_id || null
+    realtorOwnerId: row.realtor_owner_id || null,
+    mfaEnabled,
+    // Admins are expected to have 2FA on; the UI uses this to prompt them.
+    mfaRequired: (row.role === 'admin') && !mfaEnabled
   };
 }
 
@@ -608,8 +659,8 @@ app.use(async (req, res, next) => {
 // have no business sending mail through the company's system.
 const REALTOR_API_ALLOW = new Set(['/api/login', '/api/logout', '/api/me', '/api/change-password']);
 function realtorApiAllowed(path) {
-  // Account basics + everything namespaced under /api/realtor/ (portal, chat, leads…).
-  return REALTOR_API_ALLOW.has(path) || path.startsWith('/api/realtor/');
+  // Account basics + 2FA management + everything namespaced under /api/realtor/.
+  return REALTOR_API_ALLOW.has(path) || path.startsWith('/api/realtor/') || path.startsWith('/api/mfa/');
 }
 app.use((req, res, next) => {
   if (req.user && req.user.role === 'realtor' && req.path.startsWith('/api/') && !realtorApiAllowed(req.path)) {
@@ -707,7 +758,11 @@ function rateLimit(key, max, windowMs) {
   b.count++;
   return b.count <= max;
 }
-setInterval(() => { const now = Date.now(); for (const [k, b] of rateBuckets) if (b.reset <= now) rateBuckets.delete(k); }, 10 * 60 * 1000).unref();
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, b] of rateBuckets) if (b.reset <= now) rateBuckets.delete(k);
+  for (const [k, p] of mfaPending) if (p.exp <= now) mfaPending.delete(k);  // drop abandoned 2FA challenges
+}, 10 * 60 * 1000).unref();
 
 app.post('/api/login', safe(async (req, res) => {
   if (!rateLimit('login:' + req.ip, 15, 15 * 60 * 1000)) {
@@ -742,10 +797,48 @@ app.post('/api/login', safe(async (req, res) => {
     return res.status(401).json({ error: 'Invalid email or password.' });
   }
 
-  // Success — clear any prior failure/lock state.
+  // Password is correct — clear any prior failure/lock state.
   if (user.failed_attempts || user.locked_until) {
     await q('UPDATE users SET failed_attempts = 0, locked_until = NULL WHERE id = $1', [user.id]);
   }
+
+  // Two-factor: if the account has 2FA on, don't sign them in yet — issue a
+  // short-lived challenge token and make them prove the second factor.
+  if (user.mfa_enabled) {
+    const token = crypto.randomBytes(32).toString('hex');
+    mfaPending.set(token, { userId: user.id, exp: Date.now() + 5 * 60 * 1000 });
+    return res.json({ mfaRequired: true, mfaToken: token });
+  }
+
+  const sid = await createSession(user.id);
+  setSessionCookie(res, sid);
+  res.json({ id: user.id, email: user.email, name: user.name, role: user.role || 'user', mustChangePassword: !!user.must_change_password });
+}));
+
+// Step 2 of a 2FA login: verify the authenticator code (or a backup code) against
+// the challenge token from /api/login, then create the real session.
+const mfaPending = new Map(); // challenge token -> { userId, exp }
+app.post('/api/login/mfa', safe(async (req, res) => {
+  if (!rateLimit('mfa:' + req.ip, 20, 15 * 60 * 1000)) {
+    return res.status(429).json({ error: 'Too many attempts. Please wait a few minutes and try again.' });
+  }
+  const { mfaToken, code } = req.body || {};
+  const pend = mfaToken && mfaPending.get(mfaToken);
+  if (!pend || pend.exp < Date.now()) { if (mfaToken) mfaPending.delete(mfaToken); return res.status(401).json({ error: 'Your verification window expired — please sign in again.' }); }
+  const user = await one('SELECT * FROM users WHERE id = $1', [pend.userId]);
+  if (!user || !user.mfa_enabled) { mfaPending.delete(mfaToken); return res.status(401).json({ error: 'Please sign in again.' }); }
+
+  const entered = String(code == null ? '' : code).trim();
+  let ok = totpVerify(decToken(user.mfa_secret), entered);
+  // Fall back to a one-time backup code (consumed on use).
+  if (!ok && user.mfa_backup_codes && entered) {
+    let hashes; try { hashes = JSON.parse(user.mfa_backup_codes); } catch (e) { hashes = []; }
+    const idx = hashes.findIndex(h => { try { return bcrypt.compareSync(entered, h); } catch (e) { return false; } });
+    if (idx >= 0) { ok = true; hashes.splice(idx, 1); await q('UPDATE users SET mfa_backup_codes = $1 WHERE id = $2', [JSON.stringify(hashes), user.id]); }
+  }
+  if (!ok) return res.status(401).json({ error: 'That code isn\'t right. Try again.' });
+
+  mfaPending.delete(mfaToken);
   const sid = await createSession(user.id);
   setSessionCookie(res, sid);
   res.json({ id: user.id, email: user.email, name: user.name, role: user.role || 'user', mustChangePassword: !!user.must_change_password });
@@ -761,6 +854,54 @@ app.post('/api/logout', safe(async (req, res) => {
 app.get('/api/me', safe((req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
   res.json(req.user);
+}));
+
+// ----- Two-factor (TOTP) enrollment & management -----
+// Begin setup: generate a fresh secret (stored pending, encrypted), and return it
+// plus the otpauth:// URI so the user can add it to their authenticator app. Not
+// active until confirmed with a valid code via /api/mfa/enable.
+app.post('/api/mfa/setup', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  if (req.user.mfaEnabled) return res.status(400).json({ error: 'Two-factor is already on. Turn it off first to re-enroll.' });
+  const secret = newTotpSecret();
+  await q('UPDATE users SET mfa_secret = $1, mfa_enabled = FALSE WHERE id = $2', [encToken(secret), req.user.id]);
+  res.json({ secret, otpauth: otpauthUrl(secret, req.user.email) });
+}));
+
+// Confirm + activate: verify a code against the pending secret, then turn 2FA on
+// and return one-time backup codes (shown to the user exactly once).
+app.post('/api/mfa/enable', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  const row = await one('SELECT mfa_secret, mfa_enabled FROM users WHERE id = $1', [req.user.id]);
+  if (!row || !row.mfa_secret) return res.status(400).json({ error: 'Start setup first.' });
+  if (row.mfa_enabled) return res.status(400).json({ error: 'Two-factor is already on.' });
+  if (!totpVerify(decToken(row.mfa_secret), (req.body || {}).code)) {
+    return res.status(400).json({ error: "That code isn't right — check your authenticator app and try again." });
+  }
+  const codes = makeBackupCodes();
+  const hashed = JSON.stringify(codes.map(c => bcrypt.hashSync(c, 10)));
+  await q('UPDATE users SET mfa_enabled = TRUE, mfa_backup_codes = $1 WHERE id = $2', [hashed, req.user.id]);
+  res.json({ ok: true, backupCodes: codes });
+}));
+
+// Turn 2FA off — requires the account password to confirm.
+app.post('/api/mfa/disable', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  const me = await one('SELECT password_hash FROM users WHERE id = $1', [req.user.id]);
+  if (!me || !bcrypt.compareSync((req.body || {}).password || '', me.password_hash)) {
+    return res.status(401).json({ error: 'Password is incorrect.' });
+  }
+  await q('UPDATE users SET mfa_enabled = FALSE, mfa_secret = NULL, mfa_backup_codes = NULL WHERE id = $1', [req.user.id]);
+  res.json({ ok: true });
+}));
+
+// How many backup codes are left (for the Settings status line).
+app.get('/api/mfa/status', safe(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+  const row = await one('SELECT mfa_enabled, mfa_backup_codes FROM users WHERE id = $1', [req.user.id]);
+  let backupLeft = 0;
+  if (row && row.mfa_backup_codes) { try { backupLeft = JSON.parse(row.mfa_backup_codes).length; } catch (e) {} }
+  res.json({ enabled: !!(row && row.mfa_enabled), backupLeft });
 }));
 
 app.post('/api/profile', safe(async (req, res) => {

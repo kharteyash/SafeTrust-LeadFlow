@@ -24,6 +24,7 @@
     { id: 'autoemails',      label: 'Automation',          icon: 'zap' },
     { id: 'integrations',    label: 'Integrations',        icon: 'plug' },
     { id: 'changepassword',  label: 'Change Password',     icon: 'key-round' },
+    { id: 'twofactor',       label: 'Two-Factor Auth',     icon: 'shield-check' },
     { id: 'help',            label: 'Help & FAQ',          icon: 'help-circle' }
   ];
 
@@ -1249,6 +1250,131 @@
     });
   }
 
+  // ----- Two-factor authentication -----
+  function renderTwoFactor() {
+    return `
+      <div class="max-w-[640px]">
+        <h2 class="text-[18px] font-bold tracking-tight">Two-factor authentication</h2>
+        <p class="text-[13px] text-muted mt-1">Add a second step at sign-in using an authenticator app (Google Authenticator, Authy, 1Password…), so a stolen password alone isn't enough to get in.</p>
+        <div id="tf-body" class="mt-5"><div class="text-[13px] text-muted">Loading…</div></div>
+      </div>`;
+  }
+
+  async function tfStatus() {
+    try { const r = await fetch('/api/mfa/status', { credentials: 'same-origin', cache: 'no-store' }); return r.ok ? await r.json() : { enabled: false, backupLeft: 0 }; }
+    catch (e) { return { enabled: false, backupLeft: 0 }; }
+  }
+
+  function bindTwoFactor() {
+    const body = document.getElementById('tf-body');
+    if (!body) return;
+
+    const renderOff = () => {
+      body.innerHTML = `
+        <div class="rounded-xl p-4" style="border:1px solid var(--border);">
+          <div class="flex items-center gap-2 mb-1">
+            <span class="pill pill-gray" style="font-size:11px;">Off</span>
+            <span class="text-[13.5px] font-semibold">Two-factor is currently off</span>
+          </div>
+          <p class="text-[12.5px] text-muted mb-3">Turn it on to require a 6-digit code from your phone each time you sign in.</p>
+          <button id="tf-start" class="btn-primary"><i data-lucide="shield-check" style="width:14px;height:14px;"></i> Enable two-factor</button>
+        </div>`;
+      if (window.lucide) lucide.createIcons();
+      document.getElementById('tf-start').addEventListener('click', startSetup);
+    };
+
+    const renderOn = (st) => {
+      body.innerHTML = `
+        <div class="rounded-xl p-4" style="border:1px solid var(--border);">
+          <div class="flex items-center gap-2 mb-1">
+            <span class="pill pill-green" style="font-size:11px;">On</span>
+            <span class="text-[13.5px] font-semibold">Two-factor is protecting your account</span>
+          </div>
+          <p class="text-[12.5px] text-muted mb-3">You'll be asked for a code at sign-in. You have <b>${st.backupLeft}</b> backup code${st.backupLeft === 1 ? '' : 's'} left.</p>
+          <div class="flex flex-col gap-2" style="max-width:320px;">
+            <label class="text-[12px] font-semibold text-muted">Your account password (to turn it off)</label>
+            <input id="tf-disable-pw" type="password" autocomplete="current-password" class="input" placeholder="Password" />
+            <div id="tf-disable-msg" class="text-[12.5px] font-medium" style="color:#D63333;"></div>
+            <button id="tf-disable" class="btn-secondary" style="align-self:flex-start;">Turn off two-factor</button>
+          </div>
+        </div>`;
+      document.getElementById('tf-disable').addEventListener('click', disable);
+    };
+
+    async function startSetup() {
+      body.innerHTML = `<div class="text-[13px] text-muted">Setting up…</div>`;
+      let data;
+      try { const r = await fetch('/api/mfa/setup', { method: 'POST', credentials: 'same-origin' }); data = await r.json(); if (!r.ok) throw new Error(data.error || 'Setup failed'); }
+      catch (e) { body.innerHTML = `<div class="text-[13px]" style="color:#D63333;">${escapeHTML(e.message)}</div>`; return; }
+      const grouped = data.secret.replace(/(.{4})/g, '$1 ').trim();
+      body.innerHTML = `
+        <div class="rounded-xl p-4" style="border:1px solid var(--border);">
+          <div class="text-[13.5px] font-semibold mb-1">1 · Add LeadFlow to your authenticator app</div>
+          <p class="text-[12.5px] text-muted mb-2">Open your authenticator app and add an account. On a phone, tap the link below; on a computer, type this setup key in manually:</p>
+          <div class="rounded-lg px-3 py-2 mb-2" style="background:var(--surface-3);font-family:monospace;font-size:14px;letter-spacing:1px;word-break:break-all;">${escapeHTML(grouped)}</div>
+          <a href="${escapeAttr(data.otpauth)}" class="text-[12.5px] font-semibold" style="color:var(--accent);">Open in authenticator app →</a>
+          <div class="text-[13.5px] font-semibold mt-4 mb-1">2 · Enter the 6-digit code it shows</div>
+          <div class="flex items-center gap-2" style="max-width:280px;">
+            <input id="tf-code" inputmode="numeric" maxlength="6" class="input" placeholder="123456" />
+            <button id="tf-verify" class="btn-primary" style="white-space:nowrap;">Turn on</button>
+          </div>
+          <div id="tf-verify-msg" class="text-[12.5px] font-medium mt-2" style="color:#D63333;"></div>
+          <button id="tf-cancel" class="text-[12px] text-muted mt-3" style="cursor:pointer;background:none;border:none;">Cancel</button>
+        </div>`;
+      if (window.lucide) lucide.createIcons();
+      document.getElementById('tf-code').focus();
+      document.getElementById('tf-cancel').addEventListener('click', refresh);
+      document.getElementById('tf-verify').addEventListener('click', enable);
+      document.getElementById('tf-code').addEventListener('keydown', (e) => { if (e.key === 'Enter') enable(); });
+    }
+
+    async function enable() {
+      const code = (document.getElementById('tf-code').value || '').trim();
+      const msg = document.getElementById('tf-verify-msg');
+      const btn = document.getElementById('tf-verify');
+      msg.textContent = '';
+      btn.disabled = true; btn.style.opacity = '0.7';
+      let data;
+      try { const r = await fetch('/api/mfa/enable', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ code }) }); data = await r.json(); if (!r.ok) throw new Error(data.error || 'Could not turn on two-factor'); }
+      catch (e) { msg.textContent = e.message; btn.disabled = false; btn.style.opacity = ''; return; }
+      showBackupCodes(data.backupCodes || []);
+    }
+
+    function showBackupCodes(codes) {
+      body.innerHTML = `
+        <div class="rounded-xl p-4" style="border:1px solid var(--border);">
+          <div class="flex items-center gap-2 mb-1"><span class="pill pill-green" style="font-size:11px;">On</span><span class="text-[13.5px] font-semibold">Two-factor is now on 🎉</span></div>
+          <p class="text-[12.5px] text-muted mb-3">Save these <b>backup codes</b> somewhere safe. Each one works once if you ever lose your phone. <b>They won't be shown again.</b></p>
+          <div class="grid grid-cols-2 gap-2 mb-3" style="max-width:360px;">
+            ${codes.map(c => `<div class="rounded-md px-3 py-2 text-center" style="background:var(--surface-3);font-family:monospace;font-size:14px;letter-spacing:1px;">${escapeHTML(c)}</div>`).join('')}
+          </div>
+          <button id="tf-copy" class="btn-secondary" style="margin-right:8px;"><i data-lucide="copy" style="width:13px;height:13px;"></i> Copy codes</button>
+          <button id="tf-done" class="btn-primary">Done</button>
+        </div>`;
+      if (window.lucide) lucide.createIcons();
+      document.getElementById('tf-copy').addEventListener('click', () => { try { navigator.clipboard.writeText(codes.join('\n')); } catch (e) {} });
+      document.getElementById('tf-done').addEventListener('click', refresh);
+    }
+
+    async function disable() {
+      const pw = document.getElementById('tf-disable-pw').value || '';
+      const msg = document.getElementById('tf-disable-msg');
+      msg.textContent = '';
+      if (!pw) { msg.textContent = 'Enter your password to confirm.'; return; }
+      try { const r = await fetch('/api/mfa/disable', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ password: pw }) }); const d = await r.json(); if (!r.ok) throw new Error(d.error || 'Could not turn off two-factor'); }
+      catch (e) { msg.textContent = e.message; return; }
+      refresh();
+    }
+
+    async function refresh() {
+      body.innerHTML = `<div class="text-[13px] text-muted">Loading…</div>`;
+      const st = await tfStatus();
+      if (st.enabled) renderOn(st); else renderOff();
+    }
+
+    refresh();
+  }
+
   function renderContent() {
     const out = document.getElementById('settings-content');
     const map = {
@@ -1258,6 +1384,7 @@
       autoemails:     renderAutoEmails,
       integrations:   renderIntegrations,
       changepassword: renderChangePassword,
+      twofactor:      renderTwoFactor,
       help:           renderHelp
     };
     out.innerHTML = (map[state.section] || renderProfile)();
@@ -1269,6 +1396,7 @@
     if (state.section === 'autoemails')     bindAutoEmails();
     if (state.section === 'integrations')   bindIntegrations();
     if (state.section === 'changepassword') bindChangePassword();
+    if (state.section === 'twofactor')      bindTwoFactor();
     if (state.section === 'help')           bindHelp();
 
     if (window.lucide) lucide.createIcons();

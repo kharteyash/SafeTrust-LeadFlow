@@ -50,6 +50,8 @@
         }
         return;
       }
+      // Account has 2FA: switch to the code step instead of signing in.
+      if (data.mfaRequired) { showMfaStep(data.mfaToken); return; }
       window.location.href = data.role === 'realtor' ? '/realtor.html' : '/index.html';
     } catch (err) {
       errorEl.textContent = 'Network error. Is the server running?';
@@ -57,6 +59,58 @@
     } finally {
       submitBtn.disabled = false;
       submitBtn.style.opacity = '';
+    }
+  });
+
+  // ----- Two-factor step -----
+  const mfaForm = document.getElementById('mfa-form');
+  const mfaCode = document.getElementById('mfa-code');
+  const mfaError = document.getElementById('mfa-error');
+  const subtitle = document.getElementById('auth-subtitle');
+  let pendingToken = null;
+
+  function showMfaStep(token) {
+    pendingToken = token;
+    loginForm.classList.add('hidden');
+    mfaForm.classList.remove('hidden');
+    mfaForm.classList.add('flex');
+    if (subtitle) subtitle.textContent = 'Two-step verification';
+    mfaError.textContent = '';
+    mfaCode.value = '';
+    mfaCode.focus();
+  }
+  function backToLogin() {
+    pendingToken = null;
+    mfaForm.classList.add('hidden');
+    mfaForm.classList.remove('flex');
+    loginForm.classList.remove('hidden');
+    if (subtitle) subtitle.textContent = 'Sign in to continue to your dashboard.';
+    errorEl.textContent = '';
+  }
+  document.getElementById('mfa-back').addEventListener('click', backToLogin);
+
+  mfaForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    mfaError.textContent = '';
+    const btn = mfaForm.querySelector('button[type="submit"]');
+    btn.disabled = true; btn.style.opacity = '0.7';
+    try {
+      const res = await fetch('/api/login/mfa', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mfaToken: pendingToken, code: mfaCode.value.trim() })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        mfaError.textContent = data.error || 'Verification failed.';
+        // Expired challenge → send them back to re-enter the password.
+        if (res.status === 401 && /expired|sign in again/i.test(data.error || '')) setTimeout(backToLogin, 1500);
+        return;
+      }
+      window.location.href = data.role === 'realtor' ? '/realtor.html' : '/index.html';
+    } catch (err) {
+      mfaError.textContent = 'Network error. Is the server running?';
+    } finally {
+      btn.disabled = false; btn.style.opacity = '';
     }
   });
 
