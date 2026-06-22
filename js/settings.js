@@ -1098,7 +1098,18 @@
     bindAutoSwitch(document.getElementById('auto-toggle-tasks'), 'tasks', auto.tasks);
     const s = data.settings;
     const extraDefs = data.extraDefs || [];
-    const tzOpts = data.timezones.map(tz => `<option value="${escapeAttr(tz)}" ${tz === s.tz ? 'selected' : ''}>${escapeHTML(tz.replace(/_/g, ' '))}</option>`).join('');
+    // Show friendly US timezone names instead of the IANA city-based ids (the
+    // <option> value stays the IANA id the server expects).
+    const TZ_LABELS = {
+      'America/New_York': 'Eastern Time (ET)',
+      'America/Chicago': 'Central Time (CT)',
+      'America/Denver': 'Mountain Time (MT)',
+      'America/Phoenix': 'Mountain Time — Arizona (no DST)',
+      'America/Los_Angeles': 'Pacific Time (PT)',
+      'America/Anchorage': 'Alaska Time (AKT)',
+      'Pacific/Honolulu': 'Hawaii Time (HT)'
+    };
+    const tzOpts = data.timezones.map(tz => `<option value="${escapeAttr(tz)}" ${tz === s.tz ? 'selected' : ''}>${escapeHTML(TZ_LABELS[tz] || tz.replace(/_/g, ' '))}</option>`).join('');
 
     // Group the editable drip / nurture / post-close steps into one card each.
     const groupIcon = { 'New-lead drip': '🌱', '15-day nurture': '💬', 'Post-close nurture': '🤝', 'Post-call recap': '📞' };
