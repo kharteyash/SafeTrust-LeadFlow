@@ -3587,6 +3587,14 @@ app.patch('/api/leads/:id', safe(async (req, res) => {
     [name, email, phone, timeline, owner, notes, score, state,
      f.preapproved, f.leadType, f.refiType, f.realtorStatus, f.realtorName, f.realtorEmail, f.realtorPhone, id, req.user.id, birthday]);
 
+  // Editing a lead can attach (or change) its realtor too — surface that realtor
+  // in Contacts so it shows on the Realtors page, exactly like lead creation does.
+  if (hasRealtor(f.realtorStatus)) {
+    try {
+      await ensureContact(req.user.id, { name: f.realtorName, email: f.realtorEmail, phone: f.realtorPhone, tag: 'Realtor', relationship: 'unknown' });
+    } catch (e) { console.error('ensureContact (lead edit realtor):', e); }
+  }
+
   res.json(leadRowToJson({
     id, name, email, phone, timeline, score, owner, notes, state, birthday,
     preapproved: f.preapproved, lead_type: f.leadType, refi_type: f.refiType,
@@ -4639,6 +4647,31 @@ async function formatClosedPhonesOnce() {
   console.log(`Reformatted phones on ${total} past-client row(s).`);
 }
 
+// One-time: surface every existing lead's attached realtor into Contacts (tag
+// 'Realtor') so they appear on the Realtors page. Past leads created/edited
+// before the lead endpoints did this were never added. ensureContact dedupes by
+// email/name, so this never creates duplicates. Flag-guarded — runs once.
+async function backfillLeadRealtorsOnce() {
+  const done = await one("SELECT 1 AS x FROM app_flags WHERE flag = 'lead_realtor_contacts_v1'");
+  if (done) return;
+  const rows = await q(`
+    SELECT user_id, realtor_name, realtor_email, realtor_phone
+    FROM leads
+    WHERE realtor_status LIKE 'has%'
+      AND (btrim(coalesce(realtor_name, '')) <> '' OR btrim(coalesce(realtor_email, '')) <> '')`);
+  let created = 0;
+  for (const r of rows) {
+    try {
+      const res = await ensureContact(r.user_id, {
+        name: r.realtor_name, email: r.realtor_email, phone: r.realtor_phone, tag: 'Realtor', relationship: 'unknown'
+      });
+      if (res && res.created) created++;
+    } catch (e) { console.error('backfill lead realtor:', e); }
+  }
+  await q("INSERT INTO app_flags (flag) VALUES ('lead_realtor_contacts_v1') ON CONFLICT DO NOTHING");
+  console.log(`Added ${created} lead-attached realtor(s) to Contacts.`);
+}
+
 pool.query(SCHEMA)
   // If no admin exists yet (e.g. a database created before roles), promote the
   // earliest account to Admin so there's always a superuser.
@@ -4651,5 +4684,6 @@ pool.query(SCHEMA)
   .then(() => disableAutoEmailsOnce())
   .then(() => formatPhonesOnce())
   .then(() => formatClosedPhonesOnce())
+  .then(() => backfillLeadRealtorsOnce())
   .then(() => app.listen(PORT, () => console.log(`LeadFlow running on port ${PORT}`)))
   .catch(err => { console.error('Database init failed:', err); process.exit(1); });
