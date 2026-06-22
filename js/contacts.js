@@ -227,19 +227,11 @@
       : `Showing ${start + 1} to ${start + shown} of ${total}`;
     const totalPages = Math.max(1, Math.ceil(total / pageSize));
     if (total <= pageSize) { pager.innerHTML = ''; return; }
-    const pages = [];
-    for (let p = 1; p <= totalPages; p++) pages.push(p);
     pager.innerHTML = `
       <button class="btn-icon" data-page="prev" style="width:30px;height:30px;" ${page === 1 ? 'disabled' : ''}>
         <i data-lucide="chevron-left" style="width:14px;height:14px;color:var(--text-muted);"></i>
       </button>
-      ${pages.map(p => {
-        const active = p === page;
-        const style = active
-          ? 'background:#2255a3;color:#FFF;'
-          : 'background:var(--surface);color:var(--text);border:1px solid var(--border-strong);';
-        return `<button data-page="${p}" class="rounded-md text-[12.5px] font-semibold" style="width:30px;height:30px;${style}">${p}</button>`;
-      }).join('')}
+      <span class="text-[12.5px] font-semibold" style="padding:0 12px;white-space:nowrap;">${page} / ${totalPages}</span>
       <button class="btn-icon" data-page="next" style="width:30px;height:30px;" ${page === totalPages ? 'disabled' : ''}>
         <i data-lucide="chevron-right" style="width:14px;height:14px;color:var(--text-muted);"></i>
       </button>`;

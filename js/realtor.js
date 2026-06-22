@@ -795,10 +795,9 @@
     const pager = document.getElementById('rc-pager');
     if (total <= RC_PAGE_SIZE) { pager.innerHTML = ''; }
     else {
-      const pages = []; for (let p = 1; p <= totalPages; p++) pages.push(p);
       pager.innerHTML = `
         <button class="btn-icon" data-rc-page="prev" style="width:30px;height:30px;" ${rcPage === 1 ? 'disabled' : ''}><i data-lucide="chevron-left" style="width:14px;height:14px;color:var(--text-muted);"></i></button>
-        ${pages.map(p => `<button data-rc-page="${p}" class="rounded-md text-[12.5px] font-semibold" style="width:30px;height:30px;${p === rcPage ? 'background:#2255a3;color:#FFF;' : 'background:var(--surface);color:var(--text);border:1px solid var(--border-strong);'}">${p}</button>`).join('')}
+        <span class="text-[12.5px] font-semibold" style="padding:0 12px;white-space:nowrap;">${rcPage} / ${totalPages}</span>
         <button class="btn-icon" data-rc-page="next" style="width:30px;height:30px;" ${rcPage === totalPages ? 'disabled' : ''}><i data-lucide="chevron-right" style="width:14px;height:14px;color:var(--text-muted);"></i></button>`;
       pager.querySelectorAll('[data-rc-page]').forEach(btn => btn.addEventListener('click', () => {
         const v = btn.dataset.rcPage;
@@ -1141,10 +1140,9 @@
     const pager = document.getElementById('pc-pager');
     if (total <= PC_PAGE_SIZE) { pager.innerHTML = ''; }
     else {
-      const pages = []; for (let p = 1; p <= totalPages; p++) pages.push(p);
       pager.innerHTML = `
         <button class="btn-icon" data-pc-page="prev" style="width:30px;height:30px;" ${pcPage === 1 ? 'disabled' : ''}><i data-lucide="chevron-left" style="width:14px;height:14px;color:var(--text-muted);"></i></button>
-        ${pages.map(p => `<button data-pc-page="${p}" class="rounded-md text-[12.5px] font-semibold" style="width:30px;height:30px;${p === pcPage ? 'background:#2255a3;color:#FFF;' : 'background:var(--surface);color:var(--text);border:1px solid var(--border-strong);'}">${p}</button>`).join('')}
+        <span class="text-[12.5px] font-semibold" style="padding:0 12px;white-space:nowrap;">${pcPage} / ${totalPages}</span>
         <button class="btn-icon" data-pc-page="next" style="width:30px;height:30px;" ${pcPage === totalPages ? 'disabled' : ''}><i data-lucide="chevron-right" style="width:14px;height:14px;color:var(--text-muted);"></i></button>`;
       pager.querySelectorAll('[data-pc-page]').forEach(btn => btn.addEventListener('click', () => {
         const v = btn.dataset.pcPage;
