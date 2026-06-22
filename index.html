@@ -100,15 +100,17 @@
     <div id="dash-lead-modal" class="hidden" style="position:fixed;inset:0;z-index:50;">
       <div id="dash-lead-backdrop" style="position:absolute;inset:0;background:rgba(14,14,27,.45);"></div>
       <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:100%;max-width:480px;" class="px-4">
-        <div class="bg-white rounded-2xl p-6 shadow-2xl">
-          <div class="flex items-center justify-between mb-4">
+        <!-- Height-capped flex column: header + footer pinned, body scrolls so a
+             long notes block never hides the "Open in Leads" button. -->
+        <div class="bg-white rounded-2xl shadow-2xl" style="display:flex;flex-direction:column;max-height:88vh;max-height:88dvh;">
+          <div class="flex items-center justify-between px-6 pt-6 pb-4" style="flex-shrink:0;">
             <h3 class="text-[17px] font-bold">Lead details</h3>
             <button id="dash-lead-close" class="btn-icon" style="width:32px;height:32px;border:none;">
               <i data-lucide="x" style="width:16px;height:16px;color:var(--text-muted);"></i>
             </button>
           </div>
-          <div id="dash-lead-body"></div>
-          <div class="flex items-center justify-end gap-2 mt-4">
+          <div id="dash-lead-body" class="px-6" style="overflow-y:auto;flex:1 1 auto;min-height:0;"></div>
+          <div class="flex items-center justify-end gap-2 px-6 pt-4 pb-6" style="flex-shrink:0;">
             <a href="leads.html" class="btn-secondary"><i data-lucide="external-link" style="width:13px;height:13px;"></i> Open in Leads</a>
           </div>
         </div>

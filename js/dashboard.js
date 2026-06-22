@@ -197,10 +197,13 @@
   // ----- High priority: leads not yet contacted -----
   function renderHighPriority() {
     const calledNames = new Set(calls.map(c => (c.name || '').toLowerCase()));
-    const list = leads.filter(l => !calledNames.has((l.name || '').toLowerCase())).slice(0, 5);
+    // Only the viewer's own leads belong on their call list — for the admin this
+    // hides every other rep's leads; for a regular user every lead is theirs.
+    const myLeads = leads.filter(l => l.mine);
+    const list = myLeads.filter(l => !calledNames.has((l.name || '').toLowerCase())).slice(0, 5);
     const host = document.getElementById('high-priority');
     if (list.length === 0) {
-      host.innerHTML = `<div class="text-[13px] text-muted py-6 text-center">${leads.length ? 'All leads have been contacted.' : 'No leads yet.'}</div>`;
+      host.innerHTML = `<div class="text-[13px] text-muted py-6 text-center">${myLeads.length ? 'All your leads have been contacted.' : 'No leads yet.'}</div>`;
       return;
     }
     host.innerHTML = list.map(p => `
