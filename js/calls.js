@@ -208,22 +208,22 @@
       const carried = itemDate(c) < today; // from a previous day
       return `
       <tr ${overdue ? 'style="background:rgba(214,51,51,.06);"' : ''}>
-        <td>
+        <td data-col="name">
           <div class="flex items-center gap-2">
             <div class="avatar avatar-sm">${initials(c.name)}</div>
             <span class="font-semibold text-[13px]">${esc(c.name)}</span>
           </div>
         </td>
-        <td>
+        <td data-label="Time">
           <div class="flex items-center gap-2">
             <span class="text-muted">${esc(c.time) || '—'}</span>
             ${carried ? `<span class="text-soft text-[11px]">${fmtDateShort(itemDate(c))}</span>` : ''}
             ${overdue ? '<span class="pill pill-red" style="font-size:10.5px;">Overdue</span>' : ''}
           </div>
         </td>
-        <td><span class="pill ${priorityPill(c.priority)}">${esc(c.priority)}</span></td>
-        <td class="text-muted">${esc(c.reason) || '—'}</td>
-        <td>
+        <td data-label="Priority"><span class="pill ${priorityPill(c.priority)}">${esc(c.priority)}</span></td>
+        <td class="text-muted" data-label="Reason">${esc(c.reason) || '—'}</td>
+        <td data-col="actions">
           <div class="flex items-center gap-1">
             ${callBtn(c.name, c.phone, c.id, 30)}
             ${logBtn(c.name, c.phone, c.id)}
@@ -249,7 +249,7 @@
         </button>
       </div>
       <div class="rounded-xl overflow-hidden" style="border:1px solid var(--border);">
-        <table class="lf-table">
+        <table class="lf-table lf-cards">
           <thead><tr><th>Name</th><th>Time</th><th>Priority</th><th>Reason</th><th>Action</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>

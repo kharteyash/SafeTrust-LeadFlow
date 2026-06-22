@@ -346,7 +346,7 @@
           </div>
         </div>
         <div id="rl-import-msg" class="px-5 text-[12.5px] font-medium"></div>
-        <div class="overflow-x-auto"><table class="lf-table" id="rl-table"></table></div>
+        <div class="overflow-x-auto"><table class="lf-table lf-cards" id="rl-table"></table></div>
       </div>`;
     document.getElementById('rl-add').addEventListener('click', () => openLeadModal(null));
     document.getElementById('rl-import').addEventListener('click', () => document.getElementById('rl-file').click());
@@ -391,16 +391,16 @@
       <tbody>
         ${rows.length ? rows.map(l => `
           <tr>
-            <td><span class="font-semibold text-[13px]" data-rl-view="${l.id}" style="cursor:pointer;color:var(--accent);">${esc(l.name)}</span></td>
-            <td class="text-muted">${[l.phone, l.email].filter(Boolean).map(esc).join('<br>') || '—'}</td>
-            <td>${l.intent ? `<span class="pill ${intentPill(l.intent)}">${esc(l.intent)}</span>` : '<span class="text-soft">—</span>'}</td>
-            <td>${esc(l.timeline) || '<span class="text-soft">—</span>'}</td>
-            <td>${esc(l.budget) || '<span class="text-soft">—</span>'}</td>
-            <td class="text-muted">${[l.area, l.zipcode].filter(Boolean).map(esc).join(' · ') || '—'}</td>
-            <td>${esc(l.financing) || '<span class="text-soft">—</span>'}</td>
-            <td>${esc(l.creditScore) || '<span class="text-soft">—</span>'}</td>
-            <td class="text-muted">${esc(l.assets) || '—'}</td>
-            <td style="text-align:right;">
+            <td data-col="name"><span class="font-semibold text-[13px]" data-rl-view="${l.id}" style="cursor:pointer;color:var(--accent);">${esc(l.name)}</span></td>
+            <td class="text-muted" data-label="Contact">${[l.phone, l.email].filter(Boolean).map(esc).join('<br>') || '—'}</td>
+            <td data-label="Looking to">${l.intent ? `<span class="pill ${intentPill(l.intent)}">${esc(l.intent)}</span>` : '<span class="text-soft">—</span>'}</td>
+            <td data-label="Timeline">${esc(l.timeline) || '<span class="text-soft">—</span>'}</td>
+            <td data-label="Budget">${esc(l.budget) || '<span class="text-soft">—</span>'}</td>
+            <td class="text-muted" data-label="Area">${[l.area, l.zipcode].filter(Boolean).map(esc).join(' · ') || '—'}</td>
+            <td data-label="Financing">${esc(l.financing) || '<span class="text-soft">—</span>'}</td>
+            <td data-label="Credit">${esc(l.creditScore) || '<span class="text-soft">—</span>'}</td>
+            <td class="text-muted" data-label="Assets">${esc(l.assets) || '—'}</td>
+            <td data-col="actions" style="text-align:right;">
               <div class="flex items-center gap-1 justify-end">
                 <button class="btn-secondary" data-close-lead="${l.id}" data-lead-name="${escAttr(l.name)}" data-lead-phone="${escAttr(l.phone || '')}" title="Mark as a past client" style="padding:5px 10px;font-size:12px;">Close</button>
                 <button class="btn-icon" data-rl-edit="${l.id}" title="Edit lead" style="width:30px;height:30px;">
@@ -711,7 +711,7 @@
             <input id="rc-search" class="input pl-9" style="padding-top:7px;padding-bottom:7px;font-size:12.5px;width:240px;" placeholder="Search people…" />
           </div>
         </div>
-        <div class="overflow-x-auto"><table class="lf-table" id="rc-table"></table></div>
+        <div class="overflow-x-auto"><table class="lf-table lf-cards" id="rc-table"></table></div>
         <div class="p-4 flex items-center justify-between border-t flex-wrap gap-3" style="border-color:var(--border);">
           <span id="rc-summary" class="text-[12.5px] text-muted"></span>
           <div id="rc-pager" class="flex items-center gap-1"></div>
@@ -780,13 +780,13 @@
             </div>` : `<button class="btn-secondary" data-rc-view="${p.kind}:${p.id}" style="padding:5px 11px;font-size:12px;">View</button>`;
           return `
             <tr>
-              <td><div class="flex items-center gap-2"><div class="avatar avatar-sm">${initials(p.name)}</div>
+              <td data-col="name"><div class="flex items-center gap-2"><div class="avatar avatar-sm">${initials(p.name)}</div>
                 <span class="font-semibold text-[13px]" data-rc-view="${p.kind}:${p.id}" style="cursor:pointer;color:var(--accent);">${esc(p.name)}</span></div></td>
-              <td><span class="pill ${rcTypePill(p.kind)}">${esc(p.type)}</span></td>
-              <td class="text-muted">${esc(p.email) || '—'}</td>
-              <td>${esc(p.phone) || '—'}</td>
-              <td class="text-muted">${esc(p.company) || '—'}</td>
-              <td>${actions}</td>
+              <td data-label="Type"><span class="pill ${rcTypePill(p.kind)}">${esc(p.type)}</span></td>
+              <td class="text-muted" data-label="Email">${esc(p.email) || '—'}</td>
+              <td data-label="Phone">${esc(p.phone) || '—'}</td>
+              <td class="text-muted" data-label="Company">${esc(p.company) || '—'}</td>
+              <td data-col="actions">${actions}</td>
             </tr>`;
         }).join('') : `<tr><td colspan="6" class="text-center py-8 text-muted">No one matches that search.</td></tr>`}
       </tbody>`;
@@ -1078,7 +1078,7 @@
           </div>
         </div>
         <div id="pc-import-msg" class="px-5 text-[12.5px] font-medium"></div>
-        <div class="overflow-x-auto"><table class="lf-table" id="pc-table"></table></div>
+        <div class="overflow-x-auto"><table class="lf-table lf-cards" id="pc-table"></table></div>
         <div class="p-4 flex items-center justify-between border-t flex-wrap gap-3" style="border-color:var(--border);">
           <span id="pc-summary" class="text-[12.5px] text-muted"></span>
           <div id="pc-pager" class="flex items-center gap-1"></div>
@@ -1122,13 +1122,13 @@
       <tbody>
         ${pageRows.length ? pageRows.map(c => `
           <tr>
-            <td><span class="font-semibold text-[13px]" data-pc-view="${c.id}" style="cursor:pointer;color:var(--accent);">${esc(c.name)}</span></td>
-            <td>${c.dealType ? `<span class="pill ${dealPill(c.dealType)}">${esc(c.dealType)}</span>` : '<span class="text-soft">—</span>'}</td>
-            <td class="text-muted">${esc(c.address) || '—'}</td>
-            <td>${esc(c.price) || '<span class="text-soft">—</span>'}</td>
-            <td class="text-muted">${esc(c.closedDate) || '—'}</td>
-            <td class="text-muted">${[c.phone, c.email].filter(Boolean).map(esc).join('<br>') || '—'}</td>
-            <td style="text-align:right;">
+            <td data-col="name"><span class="font-semibold text-[13px]" data-pc-view="${c.id}" style="cursor:pointer;color:var(--accent);">${esc(c.name)}</span></td>
+            <td data-label="Deal">${c.dealType ? `<span class="pill ${dealPill(c.dealType)}">${esc(c.dealType)}</span>` : '<span class="text-soft">—</span>'}</td>
+            <td class="text-muted" data-label="Property">${esc(c.address) || '—'}</td>
+            <td data-label="Price">${esc(c.price) || '<span class="text-soft">—</span>'}</td>
+            <td class="text-muted" data-label="Closed">${esc(c.closedDate) || '—'}</td>
+            <td class="text-muted" data-label="Contact">${[c.phone, c.email].filter(Boolean).map(esc).join('<br>') || '—'}</td>
+            <td data-col="actions" style="text-align:right;">
               <div class="flex items-center gap-1 justify-end">
                 <button class="btn-icon" data-pc-edit="${c.id}" title="Edit client" style="width:30px;height:30px;"><i data-lucide="pencil" style="width:13px;height:13px;color:var(--text-muted);pointer-events:none;"></i></button>
                 <button class="btn-icon" data-pc-del="${c.id}" data-pc-name="${escAttr(c.name)}" title="Remove" style="width:30px;height:30px;border:none;"><i data-lucide="trash-2" style="width:14px;height:14px;color:#D63333;pointer-events:none;"></i></button>
@@ -1296,7 +1296,7 @@
       <div class="grid grid-cols-12 gap-5">
         <div class="panel col-span-12 lg:col-span-7">
           <div class="p-5 pb-3"><h3 class="text-[15px] font-semibold">Who to call <span id="rk-q-count" class="text-muted font-normal"></span></h3></div>
-          <div class="overflow-x-auto"><table class="lf-table" id="rk-queue"></table></div>
+          <div class="overflow-x-auto"><table class="lf-table lf-cards" id="rk-queue"></table></div>
         </div>
         <div class="panel col-span-12 lg:col-span-5">
           <div class="p-5 pb-3"><h3 class="text-[15px] font-semibold">Recent calls</h3></div>
@@ -1331,11 +1331,11 @@
       <tbody>
         ${rkQueue.map(p => `
           <tr>
-            <td><span class="font-semibold text-[13px]">${esc(p.name)}</span></td>
-            <td><span class="pill ${priPill(p.priority)}">${esc(p.priority)}</span></td>
-            <td class="text-muted">${esc(p.reason)}</td>
-            <td>${esc(p.phone)}</td>
-            <td>
+            <td data-col="name"><span class="font-semibold text-[13px]">${esc(p.name)}</span></td>
+            <td data-label="Priority"><span class="pill ${priPill(p.priority)}">${esc(p.priority)}</span></td>
+            <td class="text-muted" data-label="Why">${esc(p.reason)}</td>
+            <td data-label="Phone">${esc(p.phone)}</td>
+            <td data-col="actions">
               <div class="flex items-center gap-1">
                 ${telLink(p.phone) ? `<a href="${escAttr(telLink(p.phone))}" data-rk-callnow="${p.leadId}" data-rk-name="${escAttr(p.name)}" data-rk-phone="${escAttr(p.phone)}" class="btn-icon" title="Call & log" style="width:30px;height:30px;"><i data-lucide="phone" style="width:13px;height:13px;color:#2255a3;pointer-events:none;"></i></a>` : ''}
                 ${smsLink(p.phone) ? `<a href="${escAttr(smsLink(p.phone))}" class="btn-icon" title="Text" style="width:30px;height:30px;"><i data-lucide="message-square" style="width:13px;height:13px;color:#2255a3;pointer-events:none;"></i></a>` : ''}
