@@ -263,7 +263,7 @@
     if (!list.length) return `<tr><td colspan="6" class="text-center py-8 text-muted">No calls match.</td></tr>`;
     return list.map(c => `
       <tr data-call-uid="${c.id}" style="cursor:pointer;">
-        <td>
+        <td data-col="name">
           <div class="flex items-center gap-2">
             <i data-lucide="${c.direction === 'inbound' ? 'phone-incoming' : 'phone-outgoing'}"
                style="width:14px;height:14px;color:${c.direction === 'inbound' ? '#2B57D9' : '#138A4B'};"></i>
@@ -271,11 +271,11 @@
             ${c.isRealtor ? '<span class="pill pill-purple" style="font-size:10px;">Realtor</span>' : ''}
           </div>
         </td>
-        <td class="text-muted">${fmtCallShort(c.date)}</td>
-        <td class="text-muted">${esc(c.duration)}</td>
-        <td><span class="pill ${outcomePill(c.outcome)}">${esc(c.outcome)}</span></td>
-        <td class="text-muted">${esc(c.notes)}</td>
-        <td>
+        <td class="text-muted" data-label="Date">${fmtCallShort(c.date)}</td>
+        <td class="text-muted" data-label="Duration">${esc(c.duration)}</td>
+        <td data-label="Outcome"><span class="pill ${outcomePill(c.outcome)}">${esc(c.outcome)}</span></td>
+        <td class="text-muted" data-label="Notes">${esc(c.notes)}</td>
+        <td data-col="agent" data-label="Agent">
           <div class="flex items-center gap-2">
             <div class="avatar avatar-sm">${initials(c.agent)}</div>
             <span class="text-[13px]">${esc(c.agent)}</span>
@@ -369,7 +369,7 @@
         </div>
       </div>
       <div class="overflow-x-auto rounded-xl" style="border:1px solid var(--border);">
-        <table class="lf-table">
+        <table class="lf-table lf-cards">
           <thead><tr><th>Contact</th><th>Date</th><th>Duration</th><th>Outcome</th><th>Notes</th><th>Agent</th></tr></thead>
           <tbody id="history-tbody">${historyRowsHTML(list)}</tbody>
         </table>

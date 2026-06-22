@@ -406,7 +406,7 @@ html.dark [class*="#F5F5FA"] { background-color: var(--surface-3) !important; }
   table.lf-cards td[data-col="sel"] { position: absolute; top: 12px; right: 12px; width: auto; padding: 0; }
   table.lf-cards td[data-col="actions"] { padding-top: 10px; }
   table.lf-cards td[data-col="actions"] > div { flex-wrap: wrap; }
-  table.lf-cards td[data-col="owner"] { display: none; }
+  table.lf-cards td[data-col="owner"], table.lf-cards td[data-col="agent"] { display: none; }
   table.lf-cards td[colspan] { padding: 30px 0; text-align: center; }
 
   /* Admin "All users" table: too wide for a phone (the Role column got clipped).
