@@ -375,15 +375,35 @@
     const ap = h >= 12 ? 'PM' : 'AM'; h = h % 12 || 12;
     return `${h}:${m} ${ap}`;
   }
+  // A day key (local) so we can show one date divider per calendar day, plus a
+  // friendly label ("Today" / "Yesterday" / "Jun 22, 2026") for the divider.
+  function dayKey(at) { const d = new Date(at); return isNaN(d.getTime()) ? '' : d.toDateString(); }
+  function chatDateLabel(at) {
+    const d = new Date(at); if (isNaN(d.getTime())) return '';
+    const today = new Date(); const key = d.toDateString();
+    if (key === today.toDateString()) return 'Today';
+    const yest = new Date(today); yest.setDate(today.getDate() - 1);
+    if (key === yest.toDateString()) return 'Yesterday';
+    const sameYear = d.getFullYear() === today.getFullYear();
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', ...(sameYear ? {} : { year: 'numeric' }) });
+  }
   function renderChat(messages) {
     const host = document.getElementById('rchat-body');
     if (!host) return;
     if (!messages.length) { host.innerHTML = `<div class="text-[12.5px] text-muted text-center py-8">No messages yet. Start the conversation.</div>`; return; }
+    let lastDay = '';
     host.innerHTML = messages.map(m => {
       const mine = m.mine;   // mine = sent by the loan officer
       const align = mine ? 'align-items:flex-end;' : 'align-items:flex-start;';
       const bg = mine ? 'background:#2255a3;color:#fff;' : 'background:var(--surface-2);color:var(--text);';
-      return `<div class="flex flex-col" style="${align}">
+      // Insert a centered date divider whenever the day changes.
+      const k = dayKey(m.at);
+      let divider = '';
+      if (k && k !== lastDay) {
+        lastDay = k;
+        divider = `<div class="flex items-center justify-center my-2"><span class="text-[10.5px] font-medium text-soft" style="background:var(--surface-3);border-radius:999px;padding:2px 10px;">${esc(chatDateLabel(m.at))}</span></div>`;
+      }
+      return `${divider}<div class="flex flex-col" style="${align}">
         <div style="max-width:80%;${bg}border-radius:12px;padding:7px 11px;font-size:13px;white-space:pre-wrap;word-break:break-word;">${esc(m.body)}</div>
         <div class="text-[10.5px] text-soft mt-0.5">${chatTime(m.at)}</div>
       </div>`;
