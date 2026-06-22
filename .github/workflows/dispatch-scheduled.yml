@@ -9,9 +9,9 @@ name: Dispatch scheduled emails
 
 on:
   schedule:
-    # Every 5 minutes. Note: GitHub may delay scheduled runs under load, and
+    # Every 10 minutes. Note: GitHub may delay scheduled runs under load, and
     # disables them after ~60 days with no repo activity.
-    - cron: '*/5 * * * *'
+    - cron: '*/10 * * * *'
   workflow_dispatch: {}   # lets you run it manually from the Actions tab
 
 # If a run overruns, don't pile up overlapping ones.
