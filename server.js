@@ -742,7 +742,7 @@ app.post('/api/register', safe(async (req, res) => {
 
   const { email, name, password } = req.body || {};
   if (!email || !name || !password) return res.status(400).json({ error: 'All fields are required.' });
-  if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters.' });
+  if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters.' });
 
   const emailNorm = email.trim().toLowerCase();
   const hash = bcrypt.hashSync(password, 10);
@@ -942,7 +942,7 @@ app.post('/api/change-password', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
   const { currentPassword, newPassword } = req.body || {};
   if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Current and new password are required.' });
-  if (newPassword.length < 6) return res.status(400).json({ error: 'New password must be at least 6 characters.' });
+  if (newPassword.length < 8) return res.status(400).json({ error: 'New password must be at least 8 characters.' });
 
   const row = await one('SELECT password_hash FROM users WHERE id = $1', [req.user.id]);
   if (!row || !bcrypt.compareSync(currentPassword, row.password_hash)) {

@@ -100,7 +100,7 @@
           </div>
           <div>
             <label class="text-[12px] font-semibold text-muted">New password</label>
-            <input id="rp-cp-new" type="password" autocomplete="new-password" class="input mt-1" placeholder="At least 6 characters" />
+            <input id="rp-cp-new" type="password" autocomplete="new-password" class="input mt-1" placeholder="At least 8 characters" />
           </div>
           <div>
             <label class="text-[12px] font-semibold text-muted">Confirm new password</label>
@@ -623,7 +623,7 @@
       const msg = document.getElementById('rp-cp-msg');
       msg.style.color = '#D63333';
       if (!cur || !nw) { msg.textContent = 'Fill in all fields.'; return; }
-      if (nw.length < 6) { msg.textContent = 'New password must be at least 6 characters.'; return; }
+      if (nw.length < 8) { msg.textContent = 'New password must be at least 8 characters.'; return; }
       if (nw !== nw2) { msg.textContent = 'The new passwords don’t match.'; return; }
       btn.disabled = true; btn.style.opacity = '0.7';
       try {

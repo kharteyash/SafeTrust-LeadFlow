@@ -892,8 +892,8 @@
           </div>
           <div>
             <label class="text-[12px] font-semibold text-muted">New password</label>
-            <input name="newPassword" type="password" required minlength="6" autocomplete="new-password"
-                   class="input mt-1" placeholder="At least 6 characters" />
+            <input name="newPassword" type="password" required minlength="8" autocomplete="new-password"
+                   class="input mt-1" placeholder="At least 8 characters" />
           </div>
           <div>
             <label class="text-[12px] font-semibold text-muted">Confirm new password</label>
