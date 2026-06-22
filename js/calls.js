@@ -98,8 +98,12 @@
 
   function renderPriority() {
     const calledNames = new Set(callHistory.map(c => (c.name || '').toLowerCase()));
-    const notContacted = leads.filter(l => !calledNames.has((l.name || '').toLowerCase())).slice(0, 5);
-    const hotLeads = leads.filter(l => LF.scoreStars(l.score) === 5).sort((a, b) => b.score - a.score).slice(0, 5);
+    // Only the user's own leads belong on their calling list. For the admin this
+    // hides every other rep's leads (call queue/history are already per-user); for
+    // a regular user every lead is theirs, so nothing changes.
+    const myLeads = leads.filter(l => l.mine);
+    const notContacted = myLeads.filter(l => !calledNames.has((l.name || '').toLowerCase())).slice(0, 5);
+    const hotLeads = myLeads.filter(l => LF.scoreStars(l.score) === 5).sort((a, b) => b.score - a.score).slice(0, 5);
     const missed = callHistory.filter(c => isNoAnswer(c.outcome)).slice(0, 5);
 
     // AI-style recommendations derived from the data above.

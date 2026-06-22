@@ -78,7 +78,8 @@ LF.renderLayout = async function ({ active }) {
   };
 
   const pageContent = root.innerHTML;
-  const collapsed = localStorage.getItem('lf-sidebar-collapsed') === '1';
+  // Closed (collapsed to icons) by default — only expanded if the user chose to.
+  const collapsed = localStorage.getItem('lf-sidebar-collapsed') !== '0';
 
   const navLink = (item, isChild) => `
     <a href="${item.href}" class="nav-item ${isChild ? 'nav-subitem' : ''} ${active === item.id ? 'active' : ''}" title="${item.label}">
@@ -92,8 +93,8 @@ LF.renderLayout = async function ({ active }) {
     return NAV_ITEMS.map(item => {
       if (!item.group) return navLink(item, false);
       if (isCollapsed) return item.children.map(c => navLink(c, false)).join('');
-      const childActive = item.children.some(c => c.id === active);
-      const open = childActive || localStorage.getItem('lf-nav-' + item.id) === '1';
+      // Groups stay closed by default — they only open if the user opened them.
+      const open = localStorage.getItem('lf-nav-' + item.id) === '1';
       return `
         <div class="nav-group ${open ? 'open' : ''}" data-group="${item.id}">
           <div class="nav-item nav-group-header" data-group-toggle="${item.id}" title="${item.label}" role="button" tabindex="0">
