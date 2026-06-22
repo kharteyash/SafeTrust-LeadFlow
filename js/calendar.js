@@ -254,8 +254,33 @@
   }
 
   // ----- Week View -----
+  function isMobile() { return window.matchMedia('(max-width: 768px)').matches; }
+
+  // On a phone the 7-column week grid is unreadable, so the week renders as an
+  // agenda: each day with anything on it, listed top-to-bottom.
+  function renderWeekAgenda(days) {
+    const sections = days.map(d => {
+      const evs = eventsOn(d).slice().sort((a, b) => a.start.localeCompare(b.start));
+      const tasks = openTasksOn(d);
+      if (!evs.length && !tasks.length) return '';
+      const today = sameDay(d, TODAY);
+      const head = `${DOW[d.getDay()]}, ${MONTHS[d.getMonth()].slice(0, 3)} ${d.getDate()}${today ? ' · Today' : ''}`;
+      return `
+        <div class="mb-4">
+          <div class="text-[12.5px] font-semibold mb-2" style="${today ? 'color:var(--accent);' : 'color:var(--text-muted);'}">${head}</div>
+          <div class="flex flex-col gap-2">
+            ${tasks.map(t => taskChip(t, false, false)).join('')}
+            ${evs.map(e => eventBlock(e, false)).join('')}
+          </div>
+        </div>`;
+    }).join('');
+    document.getElementById('cal-body').innerHTML = sections
+      || `<div class="text-center py-12 text-muted text-[13px]">Nothing scheduled this week.</div>`;
+  }
+
   function renderWeek() {
     const days = weekDays(state.cursor);
+    if (isMobile()) return renderWeekAgenda(days);
     const weekEvents = days.reduce((acc, d) => acc.concat(eventsOn(d)), []);
 
     const header = `
@@ -633,5 +658,16 @@
     bindModal();
     bindDelete();
     render();
+
+    // Re-render when the viewport crosses the phone breakpoint so the week view
+    // swaps between the grid and the agenda list (e.g. on rotation).
+    let lastMobile = isMobile();
+    let resizeT = null;
+    window.addEventListener('resize', () => {
+      clearTimeout(resizeT);
+      resizeT = setTimeout(() => {
+        if (isMobile() !== lastMobile) { lastMobile = isMobile(); render(); }
+      }, 150);
+    });
   });
 })();
