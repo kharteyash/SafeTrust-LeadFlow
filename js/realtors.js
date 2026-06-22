@@ -280,10 +280,10 @@
             </div>
           </div>
           <div class="flex items-center gap-1 flex-shrink-0">
-            <button class="btn-secondary" data-chat-login="${l.id}" data-login-name="${escAttr(l.name)}" style="padding:5px 10px;font-size:12px;display:inline-flex;align-items:center;gap:5px;" title="Chat with this realtor">
+            ${l.mine ? `<button class="btn-secondary" data-chat-login="${l.id}" data-login-name="${escAttr(l.name)}" style="padding:5px 10px;font-size:12px;display:inline-flex;align-items:center;gap:5px;" title="Chat with this realtor">
               <i data-lucide="message-circle" style="width:13px;height:13px;pointer-events:none;"></i> Chat
               ${l.unread ? `<span class="rounded-full text-[10px] font-bold text-white" style="background:#D63333;min-width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center;padding:0 4px;">${l.unread}</span>` : ''}
-            </button>
+            </button>` : ''}
             <button class="btn-secondary" data-reset-login="${l.id}" style="padding:5px 10px;font-size:12px;" title="Email a new temporary password">Reset password</button>
             <button class="btn-icon" data-del-login="${l.id}" data-login-name="${escAttr(l.name)}" title="Remove login" style="width:30px;height:30px;border:none;">
               <i data-lucide="trash-2" style="width:14px;height:14px;color:#D63333;pointer-events:none;"></i>

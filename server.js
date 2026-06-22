@@ -983,20 +983,26 @@ app.get('/api/realtor-accounts', safe(async (req, res) => {
   // are measured against each realtor's actual owner so they stay meaningful.
   const isAdmin = req.user.role === 'admin';
   const rows = await q(
-    `SELECT u.id, u.name, u.email, u.must_change_password, u.locked_until, own.name AS owner_name,
+    `SELECT u.id, u.name, u.email, u.must_change_password, u.locked_until, u.realtor_owner_id, own.name AS owner_name,
             (SELECT COUNT(*)::int FROM realtor_messages m
               WHERE m.officer_id = u.realtor_owner_id AND m.realtor_id = u.id AND m.sender = 'realtor' AND m.read_by_officer = FALSE) AS unread
      FROM users u
      LEFT JOIN users own ON own.id = u.realtor_owner_id
      WHERE u.role = 'realtor' ${isAdmin ? '' : 'AND u.realtor_owner_id = $1'}
      ORDER BY ${isAdmin ? 'lower(own.name), ' : ''}lower(u.name)`, isAdmin ? [] : [req.user.id]);
-  res.json(rows.map(r => ({
-    id: r.id, name: r.name, email: r.email,
-    pending: !!r.must_change_password,
-    locked: !!(r.locked_until && new Date(r.locked_until).getTime() > Date.now()),
-    unread: r.unread || 0,
-    owner: isAdmin ? (r.owner_name || '') : ''
-  })));
+  res.json(rows.map(r => {
+    const mine = Number(r.realtor_owner_id) === req.user.id;
+    return {
+      id: r.id, name: r.name, email: r.email,
+      pending: !!r.must_change_password,
+      locked: !!(r.locked_until && new Date(r.locked_until).getTime() > Date.now()),
+      // Chat is private to the owning officer; only surface unread (and the chat
+      // button, client-side) for the viewer's own logins.
+      mine,
+      unread: mine ? (r.unread || 0) : 0,
+      owner: isAdmin ? (r.owner_name || '') : ''
+    };
+  }));
 }));
 
 // Remove a realtor login you created.
@@ -1195,9 +1201,15 @@ app.post('/api/realtor/chat', safe(async (req, res) => {
 }));
 
 // Loan officer side: read + post in the thread with one of their realtors.
+// True when this realtor login was created by (belongs to) the given officer.
+// Used for the private chat, which never opens up to an admin.
+async function ownsRealtorLogin(userId, id) {
+  const r = await one(`SELECT 1 AS x FROM users WHERE id = $1 AND role = 'realtor' AND realtor_owner_id = $2`, [id, userId]);
+  return !!r;
+}
 // Resolve the officer a realtor login belongs to, for the current user. Its owner
-// manages its own; an admin can manage any (acting on the realtor's real owner
-// thread). Returns that owner id, or null when the user isn't allowed.
+// manages its own; an admin can manage any (reset password / remove). Returns
+// that owner id, or null when the user isn't allowed.
 async function manageableRealtorOwner(user, id) {
   const r = await one(`SELECT realtor_owner_id FROM users WHERE id = $1 AND role = 'realtor'`, [id]);
   if (!r) return null;
@@ -1208,26 +1220,27 @@ app.get('/api/realtor-accounts/:id/chat', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id.' });
-  const ownerId = await manageableRealtorOwner(req.user, id);
-  if (ownerId == null) return res.status(404).json({ error: 'Realtor account not found.' });
+  // Chat is private to the owning officer — not even an admin reads another
+  // officer's conversations with their realtors.
+  if (!(await ownsRealtorLogin(req.user.id, id))) return res.status(404).json({ error: 'Realtor account not found.' });
   await q(`UPDATE realtor_messages SET read_by_officer = TRUE
-           WHERE officer_id = $1 AND realtor_id = $2 AND sender = 'realtor' AND read_by_officer = FALSE`, [ownerId, id]);
+           WHERE officer_id = $1 AND realtor_id = $2 AND sender = 'realtor' AND read_by_officer = FALSE`, [req.user.id, id]);
   const rows = await q(`SELECT id, sender, body, created_at FROM realtor_messages
-                        WHERE officer_id = $1 AND realtor_id = $2 ORDER BY id`, [ownerId, id]);
+                        WHERE officer_id = $1 AND realtor_id = $2 ORDER BY id`, [req.user.id, id]);
   res.json({ messages: rows.map(r => chatRowToJson(r, 'officer')) });
 }));
 app.post('/api/realtor-accounts/:id/chat', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id.' });
-  const ownerId = await manageableRealtorOwner(req.user, id);
-  if (ownerId == null) return res.status(404).json({ error: 'Realtor account not found.' });
+  // Private to the owning officer — an admin can't post into another's chat.
+  if (!(await ownsRealtorLogin(req.user.id, id))) return res.status(404).json({ error: 'Realtor account not found.' });
   const body = String((req.body || {}).body || '').trim();
   if (!body) return res.status(400).json({ error: 'Message is empty.' });
   if (body.length > 4000) return res.status(400).json({ error: 'Message is too long.' });
   const row = await one(`INSERT INTO realtor_messages (officer_id, realtor_id, sender, body, read_by_officer)
                          VALUES ($1, $2, 'officer', $3, TRUE) RETURNING id, sender, body, created_at`,
-                        [ownerId, id, body]);
+                        [req.user.id, id, body]);
   res.json(chatRowToJson(row, 'officer'));
 }));
 
