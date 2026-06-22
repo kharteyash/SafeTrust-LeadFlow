@@ -362,6 +362,10 @@ html.dark [class*="#F5F5FA"] { background-color: var(--surface-3) !important; }
      box in the panel, so nothing is lost. */
   .lf-topbar-search { display: none !important; }
 
+  /* iOS zooms the whole page when you focus an input whose text is under 16px.
+     Bumping form controls to 16px on phones keeps the tap from zooming. */
+  .input, input, select, textarea { font-size: 16px; }
+
   /* Dropdowns are anchored to their button, which sits at the right edge — on a
      phone that pushes them off-screen. Pin them to the viewport instead. */
   #lf-notif-dropdown {
