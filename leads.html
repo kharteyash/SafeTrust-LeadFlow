@@ -52,11 +52,16 @@
       </div>
 
       <!-- Search (just above the table) -->
-      <div class="px-5 pb-3">
-        <div class="relative" style="max-width:340px;">
+      <div class="px-5 pb-3 flex items-center flex-wrap gap-3 justify-between">
+        <div class="relative" style="max-width:340px;flex:1 1 240px;">
           <i data-lucide="search" style="width:16px;height:16px;color:#8A8AA0;position:absolute;left:12px;top:50%;transform:translateY(-50%);"></i>
           <input id="leads-search" class="input pl-9" placeholder="Search leads, phone, email, notes..." />
         </div>
+        <!-- Admin-only: limit every tab to the admin's own leads. Populated by js/leads.js. -->
+        <label id="leads-mine-toggle" class="hidden items-center gap-2 text-[13px] font-medium select-none" style="cursor:pointer;">
+          <input id="leads-mine-only" type="checkbox" style="accent-color:#2255a3;cursor:pointer;width:15px;height:15px;" />
+          Only my leads
+        </label>
       </div>
       <div id="closed-msg" class="text-[12.5px] font-medium px-5 pb-2"></div>
 

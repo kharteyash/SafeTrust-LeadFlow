@@ -5,7 +5,6 @@
   const TABS = [
     { id: 'all',     label: 'All Leads',          match: () => true },
     { id: 'hot',     label: 'Hot Leads',          match: l => l.stars === 5 },
-    { id: 'mine',    label: 'My Leads',           match: l => l.mine, adminOnly: true },
     { id: 'buying',  label: 'Buying Immediately', match: l => l.timeline === 'Buying Immediately' },
     { id: '1-3',     label: '1-3 Months',         match: l => l.timeline === '1-3 Months' },
     { id: '3-6',     label: '3-6 Months',         match: l => l.timeline === '3-6 Months' },
@@ -17,7 +16,8 @@
     tab: 'all',
     search: '',
     page: 1,
-    pageSize: 10
+    pageSize: 10,
+    mineOnly: false   // admin-only: limit every tab to the admin's own leads
   };
 
   // The admin (superuser) sees every user's leads, each tagged with an owner pill.
@@ -58,9 +58,15 @@
     canAssign = assignTargets.length > 0;
   }
 
+  // The working set every view draws from. When the admin flips "Only my leads",
+  // every tab, count and stat narrows to leads the admin owns (l.mine).
+  function baseLeads() {
+    return (state.mineOnly && isAdmin) ? leads.filter(l => l.mine) : leads;
+  }
+
   // ----- Header stats -----
   function renderLeadStats() {
-    const all = leads;
+    const all = baseLeads();
     const cards = [
       { label: 'Total Leads',        value: all.length, icon: 'users',        tint: '#EFEAFF', color: '#2255a3', tab: 'all' },
       { label: 'Hot Leads',          value: all.filter(l => l.stars === 5).length, icon: 'flame',  tint: '#FEECEC', color: '#D63333', tab: 'hot' },
@@ -100,7 +106,7 @@
         <span class="ml-1.5 text-[11px] font-semibold rounded-full px-1.5 py-[1px]"
               style="background:${state.tab === t.id ? 'rgba(34,85,163,0.12)' : 'var(--chip)'};
                      color:${state.tab === t.id ? '#2255a3' : 'var(--text-muted)'};">
-          ${t.closed ? closedLeads.length : leads.filter(t.match).length}
+          ${t.closed ? closedLeads.length : baseLeads().filter(t.match).length}
         </span>
       </div>
     `).join('');
@@ -121,7 +127,7 @@
   function filtered() {
     const tab = TABS.find(t => t.id === state.tab);
     const q = state.search.trim().toLowerCase();
-    return leads.filter(l => {
+    return baseLeads().filter(l => {
       if (!tab.match(l)) return false;
       if (!q) return true;
       return (
@@ -333,6 +339,25 @@
     };
     if (local)  local.addEventListener('input', e => onSearch(e.target.value));
     if (topbar) topbar.addEventListener('input', e => onSearch(e.target.value));
+  }
+
+  // ----- "Only my leads" toggle (admin only) -----
+  function bindMineOnly() {
+    const wrap = document.getElementById('leads-mine-toggle');
+    const box = document.getElementById('leads-mine-only');
+    if (!wrap || !box) return;
+    wrap.classList.toggle('hidden', !isAdmin);
+    wrap.classList.toggle('flex', isAdmin);
+    if (!isAdmin) return;
+    box.checked = state.mineOnly;
+    box.addEventListener('change', () => {
+      state.mineOnly = box.checked;
+      state.page = 1;
+      selectedLeads.clear();
+      selectedClosed.clear();
+      renderLeadStats(); renderTabs(); renderTable();
+      if (window.lucide) lucide.createIcons();
+    });
   }
 
   // ----- Rows per page -----
@@ -1494,6 +1519,7 @@
     renderTabs();
     renderTable();
     bindSearch();
+    bindMineOnly();
     bindRowsPerPage();
     bindEmail();
     bindAddLead();
