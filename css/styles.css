@@ -358,10 +358,6 @@ html.dark [class*="#F5F5FA"] { background-color: var(--surface-3) !important; }
   .topbar { padding-left: 14px !important; padding-right: 14px !important; }
   /* The avatar stays; its name/role text is dropped to save width. */
   .lf-user-text { display: none !important; }
-  /* The squished topbar search is dropped — the Leads page has its own search
-     box in the panel, so nothing is lost. */
-  .lf-topbar-search { display: none !important; }
-
   /* iOS zooms the whole page when you focus an input whose text is under 16px.
      Bumping form controls to 16px on phones keeps the tap from zooming. */
   .input, input, select, textarea { font-size: 16px; }

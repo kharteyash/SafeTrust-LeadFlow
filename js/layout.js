@@ -177,12 +177,6 @@ LF.renderLayout = async function ({ active }) {
       <div class="flex-1 flex flex-col min-w-0" style="height:100vh;">
         <!-- Topbar -->
         <header class="topbar h-[60px] flex-shrink-0 flex items-center px-6 gap-4">
-          ${active === 'leads' ? `
-            <div class="lf-topbar-search relative flex-1 max-w-[420px]">
-              <i data-lucide="search" style="width:16px;height:16px;color:#8A8AA0;position:absolute;left:14px;top:50%;transform:translateY(-50%);"></i>
-              <input id="topbar-search" class="input pl-10" style="background:var(--surface-3);border-color:var(--chip);" placeholder="Search leads, phone, email, notes..." />
-            </div>
-          ` : ''}
           <div class="flex-1"></div>
           <button id="lf-theme-toggle" class="theme-toggle" title="Toggle dark mode">
             <i data-lucide="${document.documentElement.classList.contains('dark') ? 'sun' : 'moon'}" style="width:16px;height:16px;color:var(--text-muted);"></i>
