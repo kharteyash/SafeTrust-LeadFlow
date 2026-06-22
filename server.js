@@ -113,10 +113,21 @@ function makeBackupCodes(n = 8) {
 
 // ----- Database -----
 const isLocalDb = /localhost|127\.0\.0\.1/.test(process.env.DATABASE_URL);
+// TLS to the database. We now *verify* the server certificate (closes a
+// man-in-the-middle gap) — Neon and most managed providers use publicly-trusted
+// certs, so Node's built-in CA store validates them with no extra config.
+// Escape hatches if a provider ever needs them:
+//   DATABASE_CA_CERT            — a custom CA (PEM string) to trust instead
+//   DATABASE_SSL_NO_VERIFY=true — restore the old unverified behavior (last resort)
+function dbSsl() {
+  if (isLocalDb) return false;                               // local: usually no TLS
+  if (String(process.env.DATABASE_SSL_NO_VERIFY).toLowerCase() === 'true') return { rejectUnauthorized: false };
+  if (process.env.DATABASE_CA_CERT) return { ca: process.env.DATABASE_CA_CERT, rejectUnauthorized: true };
+  return { rejectUnauthorized: true };                       // verify against system CAs (Neon, etc.)
+}
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  // Hosted Postgres (Neon/Render/etc.) requires SSL; local usually doesn't.
-  ssl: isLocalDb ? false : { rejectUnauthorized: false }
+  ssl: dbSsl()
 });
 const q   = async (text, params) => (await pool.query(text, params)).rows;
 const one = async (text, params) => { const r = await pool.query(text, params); return r.rows[0] || null; };
