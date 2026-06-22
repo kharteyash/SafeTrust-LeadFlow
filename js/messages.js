@@ -142,7 +142,7 @@
           ${groups[when].map((s, i) => {
             const m = channelMeta(s.channel);
             return `
-              <div class="flex items-center gap-3 px-4 py-3 ${i > 0 ? 'border-t' : ''}" style="border-color:var(--border);">
+              <div class="msg-row flex items-center gap-3 px-4 py-3 ${i > 0 ? 'border-t' : ''}" style="border-color:var(--border);">
                 <span class="text-[13px] font-semibold w-[72px] flex-shrink-0">${s.time}</span>
                 <span class="stat-icon" style="background:${m.bg};width:30px;height:30px;border-radius:8px;flex-shrink:0;">
                   <i data-lucide="${m.icon}" style="width:14px;height:14px;color:${m.fg};"></i>
@@ -151,19 +151,21 @@
                   <span class="font-medium">${esc(s.type)}</span>
                   <span class="text-muted"> to ${esc(s.to)}</span>
                 </div>
-                <span class="pill ${m.pill}">${s.channel}</span>
-                ${autoPill(s.autoKind)}
-                ${statusChip(s.status, s.error)}
-                ${(s.channel === 'Email' && s.status !== 'sent' && s.status !== 'sending') ? `
-                <button class="btn-icon" title="Review &amp; edit" data-edit-uid="${s._uid}" style="width:30px;height:30px;">
-                  <i data-lucide="pencil" style="width:13px;height:13px;color:#2255a3;pointer-events:none;"></i>
-                </button>
-                <button class="btn-icon" title="Send now" data-send-uid="${s._uid}" style="width:30px;height:30px;">
-                  <i data-lucide="send" style="width:13px;height:13px;color:#138A4B;pointer-events:none;"></i>
-                </button>` : ''}
-                <button class="btn-icon" title="Remove" data-remove-uid="${s._uid}" style="width:30px;height:30px;border:none;">
-                  <i data-lucide="x" style="width:14px;height:14px;color:#8A8AA0;pointer-events:none;"></i>
-                </button>
+                <div class="msg-meta flex items-center gap-2 flex-shrink-0">
+                  <span class="pill ${m.pill}">${s.channel}</span>
+                  ${autoPill(s.autoKind)}
+                  ${statusChip(s.status, s.error)}
+                  ${(s.channel === 'Email' && s.status !== 'sent' && s.status !== 'sending') ? `
+                  <button class="btn-icon" title="Review &amp; edit" data-edit-uid="${s._uid}" style="width:30px;height:30px;">
+                    <i data-lucide="pencil" style="width:13px;height:13px;color:#2255a3;pointer-events:none;"></i>
+                  </button>
+                  <button class="btn-icon" title="Send now" data-send-uid="${s._uid}" style="width:30px;height:30px;">
+                    <i data-lucide="send" style="width:13px;height:13px;color:#138A4B;pointer-events:none;"></i>
+                  </button>` : ''}
+                  <button class="btn-icon" title="Remove" data-remove-uid="${s._uid}" style="width:30px;height:30px;border:none;">
+                    <i data-lucide="x" style="width:14px;height:14px;color:#8A8AA0;pointer-events:none;"></i>
+                  </button>
+                </div>
               </div>`;
           }).join('')}
         </div>

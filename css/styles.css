@@ -381,6 +381,12 @@ html.dark [class*="#F5F5FA"] { background-color: var(--surface-3) !important; }
   #pager { flex-wrap: wrap; justify-content: center; }
   div:has(> #rows-per-page) { white-space: nowrap; }
 
+  /* Messages rows: the message text + its pills/actions are crushed side-by-side
+     on a phone. Wrap, and drop the pills/buttons onto their own line so they no
+     longer overlap the text. */
+  .msg-row { flex-wrap: wrap; row-gap: 8px; }
+  .msg-row .msg-meta { width: 100%; flex-wrap: wrap; padding-left: 84px; }
+
   /* Bottom tab bar */
   .lf-bottom-nav {
     display: flex;
