@@ -274,6 +274,7 @@
               <div class="font-semibold text-[13px] flex items-center gap-1.5 flex-wrap">${esc(l.name)}
                 ${l.pending ? '<span class="pill pill-yellow" style="font-size:10px;">Awaiting first sign-in</span>' : '<span class="pill pill-green" style="font-size:10px;">Active</span>'}
                 ${l.locked ? '<span class="pill pill-red" style="font-size:10px;">Locked</span>' : ''}
+                ${l.owner ? `<span class="pill pill-purple" style="font-size:10px;">${esc(l.owner)}</span>` : ''}
               </div>
               <div class="text-[11.5px] text-muted truncate">${esc(l.email)}</div>
             </div>
