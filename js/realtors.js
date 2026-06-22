@@ -55,17 +55,17 @@
       <tbody>
         ${pageRows.length ? pageRows.map(p => `
           <tr data-view="${p.id}" style="cursor:pointer;">
-            <td>
+            <td data-col="name">
               <div class="flex items-center gap-2">
                 <div class="avatar avatar-sm">${initials(p.name)}</div>
                 <span class="font-semibold text-[13px]" style="color:var(--accent);">${esc(p.name)}</span>
               </div>
             </td>
-            <td class="text-muted">${esc(p.email)}</td>
-            <td>${esc(p.phone)}</td>
-            <td class="text-muted">${esc(p.company)}</td>
-            <td><span class="pill ${LF.People.typePill('realtor')}">${esc(LF.People.relLabel((p.raw.relationship) || 'unknown'))}</span></td>
-            <td>
+            <td class="text-muted" data-label="Email">${esc(p.email)}</td>
+            <td data-label="Phone">${esc(p.phone)}</td>
+            <td class="text-muted" data-label="Company">${esc(p.company)}</td>
+            <td data-label="Relationship"><span class="pill ${LF.People.typePill('realtor')}">${esc(LF.People.relLabel((p.raw.relationship) || 'unknown'))}</span></td>
+            <td data-col="actions">
               <div class="flex items-center gap-1">
                 <button class="btn-icon" data-edit-realtor="${p.id}" title="Edit" style="width:30px;height:30px;">
                   <i data-lucide="pencil" style="width:13px;height:13px;color:var(--text-muted);pointer-events:none;"></i>

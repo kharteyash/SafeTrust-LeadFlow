@@ -161,15 +161,15 @@
           ? `<tr><td colspan="${cols.length + 2}" class="text-center py-10 text-muted">No closed leads match "${esc(query)}".</td></tr>`
           : pageRows.map(r => `
           <tr>
-            <td><input type="checkbox" data-select-id="${r.id}" style="accent-color:#2255a3;cursor:pointer;" ${selectedClosed.has(String(r.id)) ? 'checked' : ''} /></td>
+            <td data-col="sel"><input type="checkbox" data-select-id="${r.id}" style="accent-color:#2255a3;cursor:pointer;" ${selectedClosed.has(String(r.id)) ? 'checked' : ''} /></td>
             ${cols.map(c => {
               const val = r.data ? r.data[c] : '';
               if (c === nameCol) {
-                return `<td><span class="font-semibold" data-view-id="${r.id}" style="cursor:pointer;color:var(--accent);">${esc(val) || '(no name)'}</span></td>`;
+                return `<td data-col="name"><span class="font-semibold" data-view-id="${r.id}" style="cursor:pointer;color:var(--accent);">${esc(val) || '(no name)'}</span></td>`;
               }
-              return `<td class="text-muted">${esc(val) || '<span class="text-soft">—</span>'}</td>`;
+              return `<td class="text-muted" data-label="${escAttr(c)}">${esc(val) || '<span class="text-soft">—</span>'}</td>`;
             }).join('')}
-            <td>
+            <td data-col="actions">
               <div class="flex items-center gap-1">
                 <button class="btn-icon" title="Edit" data-edit="${r.id}" style="width:30px;height:30px;">
                   <i data-lucide="pencil" style="width:13px;height:13px;color:var(--text-muted);pointer-events:none;"></i>

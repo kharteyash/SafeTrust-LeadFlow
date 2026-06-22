@@ -199,17 +199,17 @@
             : `<button class="btn-secondary" data-person="${p.group}:${p.id}" style="padding:5px 11px;font-size:12px;">View</button>`;
           return `
           <tr>
-            <td>
+            <td data-col="name">
               <div class="flex items-center gap-2">
                 <div class="avatar avatar-sm">${initials(p.name)}</div>
                 <span class="font-semibold text-[13px]" data-person="${p.group}:${p.id}" style="cursor:pointer;color:var(--accent);">${esc(p.name)}</span>
               </div>
             </td>
-            <td><span class="pill ${LF.People.typePill(p.group)}">${esc(p.type)}</span></td>
-            <td class="text-muted">${esc(p.email)}</td>
-            <td>${esc(p.phone)}</td>
-            <td class="text-muted">${esc(p.company)}</td>
-            <td>${actions}</td>
+            <td data-label="Type"><span class="pill ${LF.People.typePill(p.group)}">${esc(p.type)}</span></td>
+            <td class="text-muted" data-label="Email">${esc(p.email)}</td>
+            <td data-label="Phone">${esc(p.phone)}</td>
+            <td class="text-muted" data-label="Company">${esc(p.company)}</td>
+            <td data-col="actions">${actions}</td>
           </tr>`;
         }).join('') : `<tr><td colspan="6" class="text-center py-8 text-muted">No one matches that search.</td></tr>`}
       </tbody>`;
