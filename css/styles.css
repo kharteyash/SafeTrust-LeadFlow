@@ -374,6 +374,13 @@ html.dark [class*="#F5F5FA"] { background-color: var(--surface-3) !important; }
     top: 58px !important; right: 10px !important; left: auto !important;
   }
 
+  /* Pagination footer (every table page): on a phone the page buttons + "Rows
+     per page" control get crushed side-by-side. Stack them and let the numbered
+     buttons wrap onto centered rows instead. */
+  div:has(> #pager) { width: 100%; flex-wrap: wrap; justify-content: center; row-gap: 10px; }
+  #pager { flex-wrap: wrap; justify-content: center; }
+  div:has(> #rows-per-page) { white-space: nowrap; }
+
   /* Bottom tab bar */
   .lf-bottom-nav {
     display: flex;
