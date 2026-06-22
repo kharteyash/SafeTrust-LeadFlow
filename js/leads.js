@@ -26,6 +26,15 @@
 
   const selectedLeads = new Set(); // _uids checked for bulk delete
 
+  // Render a lead's most-recent logged call date (ISO from the server) as a short
+  // local-timezone date. Leads never called yet show a dash.
+  function fmtLastCall(iso) {
+    if (!iso) return '<span class="text-soft">—</span>';
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '<span class="text-soft">—</span>';
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+
   // Working list = the user's saved leads (DB) + demo leads. Loaded on mount.
   // Each gets a client-side _uid so any row can be referenced for deletion.
   let leadUid = 0;
@@ -147,7 +156,7 @@
           <tr>
             <th style="width:34px;"><input type="checkbox" id="leads-select-all" title="Select all" style="accent-color:#2255a3;cursor:pointer;" ${allChecked ? 'checked' : ''} /></th>
             <th>Name</th><th>Email</th><th>Phone</th><th>Buying Timeline</th>
-            <th>Lead Score</th><th>Last Contacted</th><th>Owner</th><th>Action</th>
+            <th>Lead Score</th><th>Last Called</th><th>Owner</th><th>Action</th>
           </tr>
         </thead>`;
     if (pageRows.length === 0) {
@@ -169,7 +178,7 @@
               <td>${l.phone}</td>
               <td><span class="pill ${LF.timelinePill(l.timeline)}">${l.timeline}</span></td>
               <td>${LF.scoreStarsHTML(l)}</td>
-              <td class="text-muted">${l.last}</td>
+              <td class="text-muted">${fmtLastCall(l.lastCall)}</td>
               <td>
                 <div class="flex items-center gap-2">
                   <div class="avatar avatar-sm">${l.owner.split(' ').map(s => s[0]).join('')}</div>
@@ -988,10 +997,10 @@
     const rows = leads.filter(l => checked.includes(l.timeline));
     if (!rows.length) { msg.textContent = 'No leads to export for the selected categories.'; return; }
 
-    const headers = ['Name', 'Email', 'Phone', 'Buying Timeline', 'Lead Score', 'Last Contacted', 'Owner'];
+    const headers = ['Name', 'Email', 'Phone', 'Buying Timeline', 'Lead Score', 'Last Called', 'Owner'];
     const lines = [headers.join(',')];
     rows.forEach(l => lines.push(
-      [l.name, l.email, l.phone, l.timeline, `${l.stars || LF.scoreStars(l.score)}/5`, l.last, l.owner].map(csvEscape).join(',')
+      [l.name, l.email, l.phone, l.timeline, `${l.stars || LF.scoreStars(l.score)}/5`, l.lastCall ? new Date(l.lastCall).toLocaleDateString() : '', l.owner].map(csvEscape).join(',')
     ));
     // BOM so Excel reads UTF-8 correctly.
     const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });

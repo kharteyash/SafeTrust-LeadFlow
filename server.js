@@ -3344,7 +3344,7 @@ function leadRowToJson(r) {
     assignedByName: r.assigned_by_name || '',
     ownerUserName: r.owner_user_name || '',
     mine: !!r.mine,
-    last: 'Just now', created: r.created_at
+    lastCall: r.last_call || '', created: r.created_at
   };
 }
 
@@ -3436,6 +3436,9 @@ app.get('/api/leads', safe(async (req, res) => {
     SELECT le.id, le.name, le.email, le.phone, le.timeline, le.score, le.owner, le.notes, le.state, le.birthday,
            le.preapproved, le.lead_type, le.refi_type, le.realtor_status, le.realtor_name, le.realtor_email, le.realtor_phone,
            le.created_at, ab.name AS assigned_by_name, ou.name AS owner_user_name,
+           (SELECT cl.logged_at FROM call_log cl
+              WHERE cl.user_id = le.user_id AND lower(cl.name) = lower(le.name)
+              ORDER BY cl.created_at DESC LIMIT 1) AS last_call,
            (le.user_id = $1 AND NOT EXISTS (
               SELECT 1 FROM lead_assignments la
               WHERE la.lead_id = le.id AND la.from_user_id = $1 AND la.status = 'pending'
