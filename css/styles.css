@@ -387,6 +387,28 @@ html.dark [class*="#F5F5FA"] { background-color: var(--surface-3) !important; }
   .msg-row { flex-wrap: wrap; row-gap: 8px; }
   .msg-row .msg-meta { width: 100%; flex-wrap: wrap; padding-left: 84px; }
 
+  /* ---- Reusable card mode: any table with class .lf-cards renders each row as
+     a stacked card on phones. Cells opt in via data-label (inline "LABEL value")
+     or data-col for the special name / selection / actions / owner cells. The
+     same markup still shows as a normal table on desktop. ---- */
+  table.lf-cards thead { display: none; }
+  table.lf-cards, table.lf-cards tbody, table.lf-cards tr, table.lf-cards td { display: block; width: 100%; }
+  table.lf-cards tr { position: relative; padding: 12px 14px; border-bottom: 1px solid var(--border); }
+  table.lf-cards tr:hover td { background: transparent; }
+  table.lf-cards td { border: none !important; padding: 3px 0; font-size: 13.5px; }
+  table.lf-cards td[data-label]::before {
+    content: attr(data-label);
+    display: inline-block; width: 92px;
+    font-size: 11px; font-weight: 700; color: var(--text-soft);
+    text-transform: uppercase; letter-spacing: .03em; vertical-align: middle;
+  }
+  table.lf-cards td[data-col="name"] { font-size: 15px; font-weight: 600; padding: 0 36px 6px 0; }
+  table.lf-cards td[data-col="sel"] { position: absolute; top: 12px; right: 12px; width: auto; padding: 0; }
+  table.lf-cards td[data-col="actions"] { padding-top: 10px; }
+  table.lf-cards td[data-col="actions"] > div { flex-wrap: wrap; }
+  table.lf-cards td[data-col="owner"] { display: none; }
+  table.lf-cards td[colspan] { padding: 30px 0; text-align: center; }
+
   /* Admin "All users" table: too wide for a phone (the Role column got clipped).
      Restack each row as a card — user on top, role + actions below, the mostly
      "—" Team leader column dropped. */

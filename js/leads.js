@@ -178,20 +178,20 @@
         <tbody>
           ${pageRows.map(l => `
             <tr>
-              <td><input type="checkbox" data-select-uid="${l._uid}" style="accent-color:#2255a3;cursor:pointer;" ${selectedLeads.has(String(l._uid)) ? 'checked' : ''} /></td>
-              <td><span class="font-semibold" data-view-uid="${l._uid}" style="cursor:pointer;color:var(--accent);">${l.name}</span>${l.preapproved ? ' <span class="pill pill-green" style="font-size:10px;">Pre-approved</span>' : ''}${l.assignedByName ? ` <span class="pill pill-blue" style="font-size:10px;">From ${esc(l.assignedByName)}</span>` : ''}${isAdmin && l.ownerUserName ? ` <span class="pill pill-purple" style="font-size:10px;">${esc(l.ownerUserName)}</span>` : ''}</td>
-              <td class="text-muted">${l.email}</td>
-              <td>${l.phone}</td>
-              <td><span class="pill ${LF.timelinePill(l.timeline)}">${l.timeline}</span></td>
-              <td>${LF.scoreStarsHTML(l)}</td>
-              <td class="text-muted">${fmtLastCall(l.lastCall)}</td>
-              <td>
+              <td data-col="sel"><input type="checkbox" data-select-uid="${l._uid}" style="accent-color:#2255a3;cursor:pointer;" ${selectedLeads.has(String(l._uid)) ? 'checked' : ''} /></td>
+              <td data-col="name"><span class="font-semibold" data-view-uid="${l._uid}" style="cursor:pointer;color:var(--accent);">${l.name}</span>${l.preapproved ? ' <span class="pill pill-green" style="font-size:10px;">Pre-approved</span>' : ''}${l.assignedByName ? ` <span class="pill pill-blue" style="font-size:10px;">From ${esc(l.assignedByName)}</span>` : ''}${isAdmin && l.ownerUserName ? ` <span class="pill pill-purple" style="font-size:10px;">${esc(l.ownerUserName)}</span>` : ''}</td>
+              <td class="text-muted" data-label="Email">${l.email}</td>
+              <td data-label="Phone">${l.phone}</td>
+              <td data-label="Timeline"><span class="pill ${LF.timelinePill(l.timeline)}">${l.timeline}</span></td>
+              <td data-label="Score">${LF.scoreStarsHTML(l)}</td>
+              <td class="text-muted" data-label="Last called">${fmtLastCall(l.lastCall)}</td>
+              <td data-col="owner" data-label="Owner">
                 <div class="flex items-center gap-2">
                   <div class="avatar avatar-sm">${l.owner.split(' ').map(s => s[0]).join('')}</div>
                   <span class="text-[13px]">${l.owner}</span>
                 </div>
               </td>
-              <td>
+              <td data-col="actions">
                 <div class="flex items-center gap-1">
                   ${(l.phone || l.email) ? `<button class="btn-secondary" title="Contact" data-contact-uid="${l._uid}" style="padding:5px 11px;font-size:12px;display:inline-flex;align-items:center;gap:5px;">
                     <i data-lucide="message-circle" style="width:13px;height:13px;pointer-events:none;"></i> Contact
@@ -1236,13 +1236,13 @@
           ? `<tr><td colspan="${cols.length + 2}" class="text-center py-10 text-muted">No closed leads match "${esc(state.search)}".</td></tr>`
           : pageRows.map(r => `
           <tr>
-            <td><input type="checkbox" data-select-id="${r.id}" style="accent-color:#2255a3;cursor:pointer;" ${selectedClosed.has(String(r.id)) ? 'checked' : ''} /></td>
+            <td data-col="sel"><input type="checkbox" data-select-id="${r.id}" style="accent-color:#2255a3;cursor:pointer;" ${selectedClosed.has(String(r.id)) ? 'checked' : ''} /></td>
             ${cols.map(c => {
               const val = r.data ? r.data[c] : '';
-              if (c === nameCol) return `<td><span class="font-semibold" data-view-id="${r.id}" style="cursor:pointer;color:var(--accent);">${esc(val) || '(no name)'}</span></td>`;
-              return `<td class="text-muted">${esc(val) || '<span class="text-soft">—</span>'}</td>`;
+              if (c === nameCol) return `<td data-col="name"><span class="font-semibold" data-view-id="${r.id}" style="cursor:pointer;color:var(--accent);">${esc(val) || '(no name)'}</span></td>`;
+              return `<td class="text-muted" data-label="${escAttr(c)}">${esc(val) || '<span class="text-soft">—</span>'}</td>`;
             }).join('')}
-            <td><button class="btn-icon" title="Remove" data-del="${r.id}" style="width:30px;height:30px;border:none;">
+            <td data-col="actions"><button class="btn-icon" title="Remove" data-del="${r.id}" style="width:30px;height:30px;border:none;">
               <i data-lucide="trash-2" style="width:14px;height:14px;color:#D63333;pointer-events:none;"></i></button></td>
           </tr>`).join('')}
       </tbody>`;
