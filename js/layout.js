@@ -110,6 +110,48 @@ LF.renderLayout = async function ({ active }) {
   }
   const nav = navHTML(collapsed);
 
+  // ----- Mobile bottom tab bar (shown under 768px; CSS controls visibility) -----
+  // Four primary destinations + a "More" tab that opens a sheet with everything
+  // else. Kept in sync with NAV_ITEMS so the menu never goes stale.
+  const BOTTOM_PRIMARY = [
+    { id: 'dashboard', label: 'Home',     icon: 'layout-dashboard', href: 'index.html' },
+    { id: 'leads',     label: 'Leads',    icon: 'user-plus',        href: 'leads.html' },
+    { id: 'contacts',  label: 'Contacts', icon: 'contact',          href: 'contacts.html' },
+    { id: 'calls',     label: 'Calls',    icon: 'phone',            href: 'calls.html' }
+  ];
+  function bottomNavHTML() {
+    const primaryIds = BOTTOM_PRIMARY.map(t => t.id);
+    const moreActive = !primaryIds.includes(active);
+    const tab = (t, isMore) => {
+      const on = isMore ? moreActive : active === t.id;
+      const open = isMore ? 'id="lf-more-btn" role="button" tabindex="0"' : `href="${t.href}"`;
+      const el = isMore ? 'div' : 'a';
+      return `<${el} ${open} class="lf-tab ${on ? 'active' : ''}">
+          <i data-lucide="${t.icon}"></i><span>${t.label}</span>
+        </${el}>`;
+    };
+    return `<nav class="lf-bottom-nav">
+        ${BOTTOM_PRIMARY.map(t => tab(t, false)).join('')}
+        ${tab({ label: 'More', icon: 'menu' }, true)}
+      </nav>`;
+  }
+  // The "More" bottom sheet: every nav destination, grouped like the sidebar.
+  function moreSheetHTML() {
+    const item = (it) => `<a href="${it.href}" class="lf-more-item ${active === it.id ? 'active' : ''}">
+        <i data-lucide="${it.icon}"></i><span>${it.label}</span></a>`;
+    const sections = NAV_ITEMS.map(it => it.group
+      ? `<div class="lf-more-section"><div class="lf-more-head">${it.label}</div>${it.children.map(item).join('')}</div>`
+      : `<div class="lf-more-section">${item(it)}</div>`).join('');
+    return `<div id="lf-more-sheet" class="lf-more-sheet hidden">
+        <div id="lf-more-backdrop" class="lf-more-backdrop"></div>
+        <div class="lf-more-panel">
+          <div class="lf-more-grip"></div>
+          <div class="lf-more-title">Menu</div>
+          ${sections}
+        </div>
+      </div>`;
+  }
+
   root.innerHTML = `
     <div class="flex" style="height:100vh;overflow:hidden;">
       <!-- Sidebar (fixed to viewport height) -->
@@ -163,7 +205,7 @@ LF.renderLayout = async function ({ active }) {
           <div class="relative" id="lf-user-menu">
             <button id="lf-user-btn" class="flex items-center gap-2 pl-2 pr-3 py-1 rounded-lg hover:bg-[#FAFAFC]" style="cursor:pointer;">
               <div id="lf-user-avatar" class="avatar">${LF_DATA.user.initials}</div>
-              <div class="leading-tight text-left">
+              <div class="lf-user-text leading-tight text-left">
                 <div id="lf-user-name" class="text-[13px] font-semibold">${LF_DATA.user.name}</div>
                 <div class="text-[11px] text-soft">${LF_DATA.user.role}</div>
               </div>
@@ -182,11 +224,13 @@ LF.renderLayout = async function ({ active }) {
         </header>
 
         <!-- Page content -->
-        <main class="flex-1 p-6 overflow-y-auto min-h-0">
+        <main class="lf-main flex-1 p-6 overflow-y-auto min-h-0">
           ${pageContent}
         </main>
       </div>
     </div>
+    ${bottomNavHTML()}
+    ${moreSheetHTML()}
   `;
 
   // Wire up collapse toggle.
@@ -209,6 +253,13 @@ LF.renderLayout = async function ({ active }) {
     document.querySelectorAll('#lf-nav .nav-group.open .nav-chevron').forEach(c => { c.style.transform = 'rotate(180deg)'; });
   }
   bindNavGroups();
+
+  // Mobile "More" sheet (the 5th bottom-tab opens every other destination).
+  const moreSheet = document.getElementById('lf-more-sheet');
+  const moreBtn = document.getElementById('lf-more-btn');
+  const moreBackdrop = document.getElementById('lf-more-backdrop');
+  if (moreBtn && moreSheet) moreBtn.addEventListener('click', () => moreSheet.classList.remove('hidden'));
+  if (moreBackdrop && moreSheet) moreBackdrop.addEventListener('click', () => moreSheet.classList.add('hidden'));
 
   const btn = document.getElementById('lf-collapse-btn');
   const sidebar = document.getElementById('lf-sidebar');
