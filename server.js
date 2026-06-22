@@ -40,6 +40,35 @@ const GOOGLE = {
 function googleConfigured() { return !!(GOOGLE.clientId && GOOGLE.clientSecret); }
 const oauthStates = new Map(); // state -> { userId, exp } (CSRF + user mapping)
 
+// ----- Gmail token encryption at rest -----
+// Access/refresh tokens are encrypted (AES-256-GCM) before they touch the
+// database, so a DB compromise alone can't send mail as your users. Set
+// TOKEN_ENC_KEY (any strong passphrase) in the environment to turn it on. Without
+// it, tokens are stored as-is (legacy behavior) so email never silently breaks on
+// a missing key. Reads transparently handle both encrypted ("enc:v1:…") and
+// legacy plaintext values, so enabling the key is a zero-downtime migration —
+// existing rows re-encrypt on their next token refresh.
+const TOKEN_KEY = process.env.TOKEN_ENC_KEY
+  ? crypto.createHash('sha256').update(String(process.env.TOKEN_ENC_KEY)).digest()
+  : null;
+function encToken(plain) {
+  if (plain == null || !TOKEN_KEY) return plain;          // not configured → store as-is
+  const iv = crypto.randomBytes(12);
+  const c = crypto.createCipheriv('aes-256-gcm', TOKEN_KEY, iv);
+  const enc = Buffer.concat([c.update(String(plain), 'utf8'), c.final()]);
+  return 'enc:v1:' + Buffer.concat([iv, c.getAuthTag(), enc]).toString('base64');
+}
+function decToken(stored) {
+  if (typeof stored !== 'string' || !stored.startsWith('enc:v1:')) return stored; // legacy plaintext
+  if (!TOKEN_KEY) { console.error('TOKEN_ENC_KEY missing but an encrypted token was found.'); return null; }
+  try {
+    const raw = Buffer.from(stored.slice(7), 'base64');
+    const d = crypto.createDecipheriv('aes-256-gcm', TOKEN_KEY, raw.subarray(0, 12));
+    d.setAuthTag(raw.subarray(12, 28));
+    return Buffer.concat([d.update(raw.subarray(28)), d.final()]).toString('utf8');
+  } catch (e) { console.error('Token decrypt failed:', e.message); return null; }
+}
+
 // ----- Database -----
 const isLocalDb = /localhost|127\.0\.0\.1/.test(process.env.DATABASE_URL);
 const pool = new Pool({
@@ -539,6 +568,21 @@ app.set('trust proxy', 1); // behind Render/most PaaS proxies, for secure cookie
 app.use(express.json());
 app.use(cookieParser());
 
+// Baseline security headers (hand-rolled to avoid a helmet/CSP dependency that
+// would fight the Tailwind/lucide/xlsx CDNs + inline styles this app relies on).
+//  - frame-ancestors/X-Frame-Options: block clickjacking (app is never embedded)
+//  - nosniff: stop MIME-type sniffing
+//  - Referrer-Policy: don't leak full URLs to third parties
+//  - HSTS: force HTTPS for a year (prod only, where TLS is terminated)
+app.use((req, res, next) => {
+  res.set('X-Frame-Options', 'SAMEORIGIN');
+  res.set('X-Content-Type-Options', 'nosniff');
+  res.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.set('Cross-Origin-Opener-Policy', 'same-origin');
+  if (IS_PROD) res.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  next();
+});
+
 // API responses must never be cached by the browser — otherwise stale data (e.g.
 // a cached /api/me still flagged "must change password", or an old chat thread)
 // reappears until a hard refresh.
@@ -598,29 +642,31 @@ async function saveGoogleTokens(userId, email, accessToken, refreshToken, expire
       access_token = EXCLUDED.access_token,
       refresh_token = COALESCE(EXCLUDED.refresh_token, google_accounts.refresh_token),
       expires_at = EXCLUDED.expires_at
-  `, [userId, email, accessToken, refreshToken || null, expiresAt]);
+  `, [userId, email, encToken(accessToken), refreshToken ? encToken(refreshToken) : null, expiresAt]);
 }
 
 // Returns a valid access token for the user, refreshing if needed. null if not connected.
 async function getGoogleToken(userId) {
   const row = await one('SELECT * FROM google_accounts WHERE user_id = $1', [userId]);
   if (!row) return null;
+  const accessToken = decToken(row.access_token);
+  const refreshToken = decToken(row.refresh_token);
   const exp = Number(row.expires_at);
-  if (exp && exp > Date.now() + 60000) return row.access_token;
-  if (!row.refresh_token) return row.access_token;
+  if (exp && exp > Date.now() + 60000) return accessToken;
+  if (!refreshToken) return accessToken;
   const r = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
       client_id: GOOGLE.clientId, client_secret: GOOGLE.clientSecret,
-      refresh_token: row.refresh_token, grant_type: 'refresh_token'
+      refresh_token: refreshToken, grant_type: 'refresh_token'
     })
   });
   const tok = await r.json();
   if (!r.ok) { console.error('Google token refresh failed:', tok); return null; }
   const expiresAt = Date.now() + (tok.expires_in || 3600) * 1000;
   await q('UPDATE google_accounts SET access_token = $1, expires_at = $2 WHERE user_id = $3',
-    [tok.access_token, expiresAt, userId]);
+    [encToken(tok.access_token), expiresAt, userId]);
   return tok.access_token;
 }
 
@@ -647,7 +693,26 @@ app.post('/api/register', safe(async (req, res) => {
 }));
 
 const MAX_LOGIN_ATTEMPTS = 3;
+// A constant bcrypt hash to compare against when an email isn't found, so a
+// missing account takes the same time as a wrong password (no timing oracle).
+const DUMMY_HASH = bcrypt.hashSync('lf-timing-equalizer', 10);
+
+// In-memory per-IP rate limiter (single instance — fine for this deployment).
+// Caps login bursts so an attacker can't password-spray or lock victims at scale.
+const rateBuckets = new Map();
+function rateLimit(key, max, windowMs) {
+  const now = Date.now();
+  const b = rateBuckets.get(key);
+  if (!b || b.reset <= now) { rateBuckets.set(key, { count: 1, reset: now + windowMs }); return true; }
+  b.count++;
+  return b.count <= max;
+}
+setInterval(() => { const now = Date.now(); for (const [k, b] of rateBuckets) if (b.reset <= now) rateBuckets.delete(k); }, 10 * 60 * 1000).unref();
+
 app.post('/api/login', safe(async (req, res) => {
+  if (!rateLimit('login:' + req.ip, 15, 15 * 60 * 1000)) {
+    return res.status(429).json({ error: 'Too many attempts. Please wait a few minutes and try again.' });
+  }
   const { email, password } = req.body || {};
   if (!email || !password) return res.status(400).json({ error: 'Email and password are required.' });
 
@@ -659,17 +724,20 @@ app.post('/api/login', safe(async (req, res) => {
     return res.status(403).json({ error: `Too many failed attempts — this account is locked. Try again in about ${hrs} hour${hrs === 1 ? '' : 's'}.` });
   }
 
-  if (!user || !bcrypt.compareSync(password, user.password_hash)) {
-    // Count the failure against a real account (can't lock one that doesn't exist).
+  // Always run a bcrypt compare (a dummy hash when the account doesn't exist) so
+  // the response time can't reveal whether an email is registered.
+  const ok = bcrypt.compareSync(password, user ? user.password_hash : DUMMY_HASH);
+  if (!user || !ok) {
+    // Count the failure against a real account and lock after the limit — but the
+    // response is always the same generic message, never disclosing whether the
+    // email exists or how many attempts remain.
     if (user) {
       const attempts = (user.failed_attempts || 0) + 1;
       if (attempts >= MAX_LOGIN_ATTEMPTS) {
         await q("UPDATE users SET failed_attempts = 0, locked_until = now() + interval '24 hours' WHERE id = $1", [user.id]);
-        return res.status(403).json({ error: 'Too many failed attempts — this account is now locked for 24 hours.' });
+      } else {
+        await q('UPDATE users SET failed_attempts = $1 WHERE id = $2', [attempts, user.id]);
       }
-      await q('UPDATE users SET failed_attempts = $1 WHERE id = $2', [attempts, user.id]);
-      const left = MAX_LOGIN_ATTEMPTS - attempts;
-      return res.status(401).json({ error: `Invalid email or password. ${left} attempt${left === 1 ? '' : 's'} left before this account is locked for 24 hours.` });
     }
     return res.status(401).json({ error: 'Invalid email or password.' });
   }
@@ -4705,6 +4773,27 @@ async function backfillLeadRealtorsOnce() {
   console.log(`Added ${created} lead-attached realtor(s) to Contacts.`);
 }
 
+// One-time: encrypt any legacy plaintext Gmail tokens, once TOKEN_ENC_KEY is set.
+// Skips (without marking done) until the key is configured, so it runs on the
+// first boot where encryption is enabled — no re-connect needed.
+async function encryptExistingTokensOnce() {
+  if (!TOKEN_KEY) return;
+  const done = await one("SELECT 1 AS x FROM app_flags WHERE flag = 'token_encrypt_v1'");
+  if (done) return;
+  const rows = await q('SELECT user_id, access_token, refresh_token FROM google_accounts');
+  let n = 0;
+  for (const r of rows) {
+    const needA = typeof r.access_token === 'string' && r.access_token && !r.access_token.startsWith('enc:v1:');
+    const needR = typeof r.refresh_token === 'string' && r.refresh_token && !r.refresh_token.startsWith('enc:v1:');
+    if (!needA && !needR) continue;
+    await q('UPDATE google_accounts SET access_token = $1, refresh_token = $2 WHERE user_id = $3',
+      [needA ? encToken(r.access_token) : r.access_token, needR ? encToken(r.refresh_token) : r.refresh_token, r.user_id]);
+    n++;
+  }
+  await q("INSERT INTO app_flags (flag) VALUES ('token_encrypt_v1') ON CONFLICT DO NOTHING");
+  console.log(`Encrypted Gmail tokens for ${n} account(s).`);
+}
+
 pool.query(SCHEMA)
   // If no admin exists yet (e.g. a database created before roles), promote the
   // earliest account to Admin so there's always a superuser.
@@ -4718,5 +4807,6 @@ pool.query(SCHEMA)
   .then(() => formatPhonesOnce())
   .then(() => formatClosedPhonesOnce())
   .then(() => backfillLeadRealtorsOnce())
+  .then(() => encryptExistingTokensOnce())
   .then(() => app.listen(PORT, () => console.log(`LeadFlow running on port ${PORT}`)))
   .catch(err => { console.error('Database init failed:', err); process.exit(1); });
