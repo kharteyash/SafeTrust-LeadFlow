@@ -409,6 +409,25 @@ html.dark [class*="#F5F5FA"] { background-color: var(--surface-3) !important; }
   table.lf-cards td[data-col="owner"], table.lf-cards td[data-col="agent"] { display: none; }
   table.lf-cards td[colspan] { padding: 30px 0; text-align: center; }
 
+  /* ---- Modals → bottom sheets on phones. Every modal centers its card with an
+     inline transform:translate(-50%,-50%); we match that inline style directly
+     and re-anchor the card to the bottom edge, full-width, with rounded top
+     corners and its own scroll. Works for all 40+ modals without touching each
+     page's markup. ---- */
+  [style*="translate(-50%,-50%)"] {
+    top: auto !important; bottom: 0 !important;
+    left: 0 !important; right: 0 !important;
+    transform: none !important;
+    width: 100% !important; max-width: none !important;
+    padding: 0 !important;
+  }
+  [style*="translate(-50%,-50%)"] > div {
+    border-radius: 16px 16px 0 0 !important;
+    max-height: 92vh; overflow-y: auto;
+    width: 100% !important;
+    animation: lf-sheet-up .22s ease-out;
+  }
+
   /* Admin "All users" table: too wide for a phone (the Role column got clipped).
      Restack each row as a card — user on top, role + actions below, the mostly
      "—" Team leader column dropped. */
@@ -468,3 +487,6 @@ html.dark [class*="#F5F5FA"] { background-color: var(--surface-3) !important; }
   .lf-more-item.active { background: var(--surface-2); color: var(--accent); }
   .lf-more-item.active svg { color: var(--accent); }
 }
+
+/* Bottom-sheet slide-up (used by the mobile modal rule above). */
+@keyframes lf-sheet-up { from { transform: translateY(100%); } to { transform: translateY(0); } }
