@@ -464,7 +464,7 @@
     const users = res.ok ? await res.json() : [];
     const rows = users.map(u => `
       <tr>
-        <td>
+        <td data-col="user">
           <div class="flex items-center gap-2">
             <div class="avatar avatar-sm">${(u.name || '?').trim().split(/\s+/).map(s => s[0]).slice(0,2).join('').toUpperCase()}</div>
             <div>
@@ -479,8 +479,8 @@
             </div>
           </div>
         </td>
-        <td>${u.leaderName ? escAttr(u.leaderName) : '<span class="text-soft">—</span>'}</td>
-        <td>
+        <td data-col="leader" data-label="Team leader">${u.leaderName ? escAttr(u.leaderName) : '<span class="text-soft">—</span>'}</td>
+        <td data-col="role" data-label="Role">
           ${u.role === 'admin'
             ? roleBadge('admin')
             : `<select data-role-user="${u.id}" class="input" style="padding:5px 10px;font-size:12.5px;width:auto;cursor:pointer;">
@@ -488,7 +488,7 @@
                  <option value="team_leader" ${u.role === 'team_leader' ? 'selected' : ''}>Team Leader</option>
                </select>`}
         </td>
-        <td style="text-align:right;">
+        <td data-col="actions" style="text-align:right;">
           ${u.role === 'admin'
             ? ((D.user && D.user.email && u.email && u.email.toLowerCase() === D.user.email.toLowerCase())
                 ? '<span class="text-soft" title="This is you">—</span>'
@@ -525,7 +525,7 @@
       <p class="text-[12px] text-soft mb-3">Click a team leader to see who's on their team. Deleting a user removes their account and all their data.</p>
       ${createBox}
       <div class="rounded-xl overflow-hidden" style="border:1px solid var(--border);">
-        <table class="lf-table">
+        <table class="lf-table users-table">
           <thead><tr><th>User</th><th>Team leader</th><th>Role</th><th></th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
