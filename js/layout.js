@@ -430,17 +430,18 @@ async function loadNotifications() {
       text: `${notifEsc(o.memberName)} ${acc ? 'accepted' : 'declined'} the lead: ${notifEsc(o.leadName)}`, sub: '' });
   });
 
-  // 1) Call queue — overdue + due soon (date-aware; future-dated calls are skipped).
+  // 1) Call queue — only nudge about calls due TODAY. A call scheduled for a
+  // future day waits; one from a past day stays in the Calls queue page but
+  // stops nagging the bell, so an old un-actioned call can't re-fire every day.
   if (notifPref('bell.calls')) queue.forEach(c => {
     const t = notifLabelMin(c.time);
     if (t == null) return;
     const d = (c.date && c.date.trim()) || todayKey;
-    if (d > todayKey) return; // scheduled for a future day
-    const overdue = d < todayKey || t < nowMin;
-    if (overdue) {
+    if (d !== todayKey) return; // not due today
+    if (t < nowMin) {
       items.push({ key: `call-overdue-${c.id}`, sort: 0, icon: 'phone-missed', color: '#D63333',
-        text: `Overdue call: ${notifEsc(c.name)}`, sub: `Was due ${notifEsc(c.time)}${d < todayKey ? ' · ' + d : ''}`, href: 'calls.html' });
-    } else if (d === todayKey && t - nowMin <= NOTIF_SOON_MIN) {
+        text: `Overdue call: ${notifEsc(c.name)}`, sub: `Was due ${notifEsc(c.time)}`, href: 'calls.html' });
+    } else if (t - nowMin <= NOTIF_SOON_MIN) {
       items.push({ key: `call-soon-${c.id}`, sort: 2, icon: 'phone', color: '#2255a3',
         text: `Call ${notifEsc(c.name)} soon`, sub: `${notifEsc(c.time)} · in ${t - nowMin} min`, href: 'calls.html' });
     }

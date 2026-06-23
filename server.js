@@ -4871,6 +4871,19 @@ async function refinanceNoTimelineOnce() {
   if (leads.length) console.log(`Cleared refinance timelines and re-scored ${leads.length} lead(s).`);
 }
 
+// One-time: older call-queue rows have no call_date, which the notification bell
+// treats as "due today" every day — so an un-actioned call nags forever. Anchor
+// those rows to the date they were created so they stop perpetually resurfacing.
+async function backfillCallQueueDatesOnce() {
+  const done = await one("SELECT 1 AS x FROM app_flags WHERE flag = 'call_queue_date_v1'");
+  if (done) return;
+  const r = await pool.query(
+    "UPDATE call_queue SET call_date = to_char(created_at, 'YYYY-MM-DD') WHERE coalesce(btrim(call_date), '') = ''"
+  );
+  await q("INSERT INTO app_flags (flag) VALUES ('call_queue_date_v1') ON CONFLICT DO NOTHING");
+  if (r.rowCount) console.log(`Backfilled call_date for ${r.rowCount} queue row(s).`);
+}
+
 // One-time: turn OFF automatic emails for every existing user so the whole
 // system becomes opt-in. Flag-guarded so it runs exactly once — anyone who
 // later switches it back on in Settings keeps it on across restarts/deploys
@@ -4989,6 +5002,7 @@ pool.query(SCHEMA)
   `))
   .then(() => recomputeLeadScoresOnce())
   .then(() => refinanceNoTimelineOnce())
+  .then(() => backfillCallQueueDatesOnce())
   .then(() => disableAutoEmailsOnce())
   .then(() => formatPhonesOnce())
   .then(() => formatClosedPhonesOnce())
