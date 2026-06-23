@@ -58,23 +58,29 @@
     const hot = leads.filter(l => l.stars === 5);
     const first = ((window.LF_DATA && LF_DATA.user && LF_DATA.user.name) || '').trim().split(/\s+/)[0] || 'there';
 
+    // Each section is its own bordered, theme-tinted card (so the three read as
+    // distinct), with a prominent colored "View" button pinned to the bottom.
     const col = (icon, color, tint, title, count, items, href, empty) => `
       <div class="col-span-12 md:col-span-4">
-        <div class="flex items-center justify-between mb-2">
-          <div class="flex items-center gap-2">
-            <span class="stat-icon" style="background:${tint};width:30px;height:30px;border-radius:8px;">
+        <div style="display:flex;flex-direction:column;height:100%;border:1px solid var(--border);border-top:3px solid ${color};border-radius:12px;padding:14px;background:var(--surface);">
+          <div class="flex items-center gap-2 mb-3" style="min-width:0;">
+            <span class="stat-icon" style="background:${tint};width:30px;height:30px;border-radius:8px;flex-shrink:0;">
               <i data-lucide="${icon}" style="width:15px;height:15px;color:${color};"></i>
             </span>
-            <h4 class="text-[13.5px] font-semibold">${title}</h4>
-            <span class="pill pill-gray" style="font-size:11px;">${count}</span>
+            <h4 class="text-[13.5px] font-semibold truncate">${title}</h4>
+            <span class="pill" style="font-size:11px;font-weight:700;background:${tint};color:${color};">${count}</span>
           </div>
-          <a href="${href}" class="text-[12px] font-semibold" style="color:#2255a3;">View</a>
+          <div style="flex:1 1 auto;">
+            ${items.length
+              ? `<div class="flex flex-col gap-1">${items.slice(0, 5).map(t => `
+                  <div class="text-[12.5px] truncate" style="padding:3px 0;border-bottom:1px solid var(--border-soft);">${esc(t)}</div>`).join('')}
+                  ${items.length > 5 ? `<div class="text-[11.5px] text-soft mt-1">+ ${items.length - 5} more</div>` : ''}</div>`
+              : `<div class="text-[12.5px] text-soft py-2">${empty}</div>`}
+          </div>
+          <a href="${href}" class="btn-secondary" style="margin-top:12px;justify-content:center;font-weight:700;color:${color};background:${tint};border-color:${color}40;">
+            View <i data-lucide="arrow-right" style="width:14px;height:14px;"></i>
+          </a>
         </div>
-        ${items.length
-          ? `<div class="flex flex-col gap-1">${items.slice(0, 5).map(t => `
-              <div class="text-[12.5px] truncate" style="padding:3px 0;border-bottom:1px solid var(--border-soft);">${esc(t)}</div>`).join('')}
-              ${items.length > 5 ? `<div class="text-[11.5px] text-soft mt-1">+ ${items.length - 5} more</div>` : ''}</div>`
-          : `<div class="text-[12.5px] text-soft py-2">${empty}</div>`}
       </div>`;
 
     host.innerHTML = `
