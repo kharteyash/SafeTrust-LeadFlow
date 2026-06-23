@@ -223,6 +223,10 @@
       el.addEventListener('click', () => { state.aiType = el.dataset.ai; renderAI(); });
     });
     document.getElementById('ai-generate').addEventListener('click', generateAI);
+    // Convert the freshly-inserted <i data-lucide> placeholders into SVGs. Needed
+    // because chip clicks call renderAI() directly (not render()), so without this
+    // the button icons would render blank when switching generate types.
+    if (window.lucide) lucide.createIcons();
   }
 
   // Render an AI suggestion card (with copy/regenerate) into #ai-output.
