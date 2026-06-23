@@ -4030,22 +4030,10 @@ app.post('/api/ai/generate', safe(async (req, res) => {
     'gemini-2.0-flash-lite'
   ].filter(Boolean).filter((m, i, a) => a.indexOf(m) === i);
 
-  // Build the request per-model: the 2.5 family burns output tokens on hidden
-  // "thinking", which can starve a short reply and truncate it mid-text —
-  // dropping the trailing emoji (or leaving a broken half). A 2-4 sentence
-  // message needs no reasoning, so turn thinking off for 2.5 and give the
-  // output generous headroom so it never gets cut off.
-  const bodyFor = (model) => {
-    const generationConfig = { temperature: 0.9, maxOutputTokens: 1024 };
-    if (model.startsWith('gemini-2.5')) generationConfig.thinkingConfig = { thinkingBudget: 0 };
-    return JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig });
-  };
-
-  // Drop unpaired UTF-16 surrogate halves so a truncated/garbled emoji can't
-  // render as an invisible/replacement character.
-  const stripLoneSurrogates = (s) => String(s)
-    .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/g, '')
-    .replace(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '');
+  const body = JSON.stringify({
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: { temperature: 0.9, maxOutputTokens: 400 }
+  });
 
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   let lastStatus = 0, lastDetail = '';
@@ -4054,11 +4042,11 @@ app.post('/api/ai/generate', safe(async (req, res) => {
     for (const model of models) {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
       try {
-        const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: bodyFor(model) });
+        const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
         if (r.ok) {
           const data = await r.json();
           const parts = (((data.candidates || [])[0] || {}).content || {}).parts || [];
-          const text = stripLoneSurrogates(parts.map(p => p.text || '').join('')).trim();
+          const text = parts.map(p => p.text || '').join('').trim();
           if (text) return res.json({ text, model });
           lastStatus = 502; lastDetail = 'empty response';
           continue;
