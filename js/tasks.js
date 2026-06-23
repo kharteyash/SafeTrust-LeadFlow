@@ -95,14 +95,15 @@
     const dueToday = tasks.filter(t => t.status !== 'done' && isDueToday(t.due)).length;
     const overdue = tasks.filter(isOverdueTask).length;
     const done = tasks.filter(t => t.status === 'done').length;
+    // Each card jumps to the matching tab in the task table below.
     const cards = [
-      { label: 'Open',      value: open,     icon: 'list-checks',    tint: '#EFEAFF', color: '#2255a3' },
-      { label: 'Due Today', value: dueToday, icon: 'alarm-clock',    tint: '#FFF4D6', color: '#B07A00' },
-      { label: 'Overdue',   value: overdue,  icon: 'alert-triangle', tint: '#FEECEC', color: '#D63333' },
-      { label: 'Completed', value: done,     icon: 'check-circle-2', tint: '#E6F8EC', color: '#138A4B' }
+      { label: 'Open',      value: open,     tab: 'open',      icon: 'list-checks',    tint: '#EFEAFF', color: '#2255a3' },
+      { label: 'Due Today', value: dueToday, tab: 'today',     icon: 'alarm-clock',    tint: '#FFF4D6', color: '#B07A00' },
+      { label: 'Overdue',   value: overdue,  tab: 'overdue',   icon: 'alert-triangle', tint: '#FEECEC', color: '#D63333' },
+      { label: 'Completed', value: done,     tab: 'completed', icon: 'check-circle-2', tint: '#E6F8EC', color: '#138A4B' }
     ];
     document.getElementById('task-stats').innerHTML = cards.map(c => `
-      <div class="stat-card">
+      <div class="stat-card" data-stat-tab="${c.tab}" role="button" tabindex="0" title="View ${c.label.toLowerCase()} tasks" style="cursor:pointer;">
         <div class="flex items-center gap-3 mb-3">
           <div class="stat-icon" style="background:${c.tint};">
             <i data-lucide="${c.icon}" style="width:18px;height:18px;color:${c.color};"></i>
@@ -111,6 +112,21 @@
         </div>
         <div class="text-[26px] font-bold tracking-tight leading-tight">${c.value}</div>
       </div>`).join('');
+    document.querySelectorAll('#task-stats [data-stat-tab]').forEach(el => {
+      const go = () => selectTab(el.getAttribute('data-stat-tab'));
+      el.addEventListener('click', go);
+      el.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
+    });
+  }
+
+  // Switch the task table to a tab and bring it into view (used by the stat cards).
+  function selectTab(id) {
+    if (!visibleTabs().some(t => t.id === id)) return;
+    state.tab = id;
+    renderTabs(); renderList();
+    if (window.lucide) lucide.createIcons();
+    const panel = document.getElementById('task-tabs');
+    if (panel && panel.scrollIntoView) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   // ----- Calls to make (derived live from the queue + uncalled leads) -----
