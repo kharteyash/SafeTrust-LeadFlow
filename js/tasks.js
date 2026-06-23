@@ -141,10 +141,13 @@
     });
 
     // Leads with no call logged yet and not already in the queue, hottest first.
+    // Only the viewer's own leads — an admin's /api/leads returns every officer's
+    // leads, so without this the admin would be told to call other LOs' leads.
     const calledNames = new Set(callLog.map(c => (c.name || '').toLowerCase()));
     const queuedNames = new Set(queue.map(c => (c.name || '').toLowerCase()));
     const lList = leads
       .filter(l => {
+        if (!l.mine) return false;
         const n = (l.name || '').toLowerCase();
         return !calledNames.has(n) && !queuedNames.has(n) && !queuedLeadIds.has(l.id);
       })
