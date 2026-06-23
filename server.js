@@ -3571,6 +3571,8 @@ function normalizeLeadType(b) {
   const out = { leadType, refiType: null, realtorStatus: null, realtorName: '', realtorEmail: '', realtorPhone: '' };
   if (leadType === 'Refinance') {
     out.refiType = REFI_TYPES.includes(b.refiType) ? b.refiType : 'Rate & Term';
+  } else {
+    // A realtor is a Purchase concept (the form only offers it for purchases).
     out.realtorStatus = REALTOR_STATUSES.includes(b.realtorStatus) ? b.realtorStatus : 'none';
     if (hasRealtor(out.realtorStatus)) {
       out.realtorName = String(b.realtorName || '').trim();
