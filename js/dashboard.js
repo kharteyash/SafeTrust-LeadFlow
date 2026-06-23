@@ -266,11 +266,11 @@
           const d = r.data || {};
           return `
           <tr>
-            <td><a href="clients.html" class="font-semibold" style="color:var(--accent);" title="Open in Past Clients">${esc(closedName(d)) || '(no name)'}</a></td>
-            <td class="text-muted">${esc(closedEmail(d))}</td>
-            <td>${esc(closedPhone(d))}</td>
-            <td class="text-muted">${esc(closedField(d, [/loan purpose|^purpose$/i]))}</td>
-            <td class="text-muted">${esc(closedField(d, [/subject state|^state$/i]))}</td>
+            <td data-col="name"><a href="clients.html" class="font-semibold" style="color:var(--accent);" title="Open in Past Clients">${esc(closedName(d)) || '(no name)'}</a></td>
+            <td class="text-muted" data-label="Email">${esc(closedEmail(d))}</td>
+            <td data-label="Phone">${esc(closedPhone(d))}</td>
+            <td class="text-muted" data-label="Loan purpose">${esc(closedField(d, [/loan purpose|^purpose$/i]))}</td>
+            <td class="text-muted" data-label="State">${esc(closedField(d, [/subject state|^state$/i]))}</td>
           </tr>`;
         }).join('')}
       </tbody>`;
@@ -300,12 +300,12 @@
       <tbody>
         ${pageRows.map(l => `
           <tr>
-            <td><span class="font-semibold" data-detail-uid="${l._uid}" style="cursor:pointer;color:var(--accent);">${esc(l.name)}</span></td>
-            <td class="text-muted">${esc(l.email)}</td>
-            <td>${esc(l.phone)}</td>
-            <td>${l.leadType === 'Refinance' ? '<span class="pill pill-blue">Refinance</span>' : `<span class="pill ${timelinePill(l.timeline)}">${esc(l.timeline)}</span>`}</td>
-            <td>${LF.scoreStarsHTML(l, 13)}</td>
-            <td>
+            <td data-col="name"><span class="font-semibold" data-detail-uid="${l._uid}" style="cursor:pointer;color:var(--accent);">${esc(l.name)}</span></td>
+            <td class="text-muted" data-label="Email">${esc(l.email)}</td>
+            <td data-label="Phone">${esc(l.phone)}</td>
+            <td data-label="Timeline">${l.leadType === 'Refinance' ? '<span class="pill pill-blue">Refinance</span>' : `<span class="pill ${timelinePill(l.timeline)}">${esc(l.timeline)}</span>`}</td>
+            <td data-label="Score">${LF.scoreStarsHTML(l, 13)}</td>
+            <td data-col="owner" data-label="Owner">
               <div class="flex items-center gap-2">
                 <div class="avatar avatar-sm">${initials(l.owner)}</div>
                 <span class="text-[13px]">${esc(l.owner) || '—'}</span>
