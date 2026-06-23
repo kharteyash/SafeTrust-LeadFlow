@@ -3715,6 +3715,28 @@ app.get('/api/leads', safe(async (req, res) => {
 // Add a contact for someone (realtor, loan officer, etc.) unless one with the
 // same email (or, lacking an email, the same name) already exists. Returns
 // { created } or { skipped } so callers can report counts.
+// Mirror a lead's attached realtor into Contacts (tag 'Realtor') and keep it in
+// sync. Unlike ensureContact (insert-or-skip), this UPDATES the matched realtor
+// contact's details — so renaming/rephoning a lead's realtor is reflected on the
+// Realtors page instead of being silently ignored when the email already exists.
+// Matches by email, or by name when the realtor has no email.
+async function upsertLeadRealtorContact(userId, c) {
+  const name = String(c.name || '').trim();
+  const email = String(c.email || '').trim();
+  const phone = formatPhone(c.phone);
+  if (!name && !email) return; // nothing identifiable
+  const existing = email
+    ? await one(`SELECT id FROM contacts WHERE user_id = $1 AND lower(email) = lower($2) AND tag = 'Realtor' LIMIT 1`, [userId, email])
+    : await one(`SELECT id FROM contacts WHERE user_id = $1 AND lower(name) = lower($2) AND tag = 'Realtor' LIMIT 1`, [userId, name]);
+  if (existing) {
+    await q(`UPDATE contacts SET name = $1, email = $2, phone = $3 WHERE id = $4`,
+      [name || email, email, phone, existing.id]);
+  } else {
+    await q(`INSERT INTO contacts (user_id, name, email, phone, tag, relationship)
+       VALUES ($1, $2, $3, $4, 'Realtor', 'unknown')`, [userId, name || email, email, phone]);
+  }
+}
+
 async function ensureContact(userId, c) {
   const name = String(c.name || '').trim();
   const email = String(c.email || '').trim();
@@ -3762,8 +3784,8 @@ app.post('/api/leads', safe(async (req, res) => {
   // A new lead with a realtor attached → surface that realtor in Contacts.
   if (hasRealtor(f.realtorStatus)) {
     try {
-      await ensureContact(req.user.id, { name: f.realtorName, email: f.realtorEmail, phone: f.realtorPhone, tag: 'Realtor', relationship: 'unknown' });
-    } catch (e) { console.error('ensureContact (lead realtor):', e); }
+      await upsertLeadRealtorContact(req.user.id, { name: f.realtorName, email: f.realtorEmail, phone: f.realtorPhone });
+    } catch (e) { console.error('upsert lead realtor:', e); }
   }
 
   // Automation: every new lead gets a "first contact" task due today.
@@ -3862,8 +3884,8 @@ app.patch('/api/leads/:id', safe(async (req, res) => {
   // in Contacts so it shows on the Realtors page, exactly like lead creation does.
   if (hasRealtor(f.realtorStatus)) {
     try {
-      await ensureContact(req.user.id, { name: f.realtorName, email: f.realtorEmail, phone: f.realtorPhone, tag: 'Realtor', relationship: 'unknown' });
-    } catch (e) { console.error('ensureContact (lead edit realtor):', e); }
+      await upsertLeadRealtorContact(req.user.id, { name: f.realtorName, email: f.realtorEmail, phone: f.realtorPhone });
+    } catch (e) { console.error('upsert lead edit realtor:', e); }
   }
 
   res.json(leadRowToJson({
@@ -4973,6 +4995,27 @@ async function backfillLeadRealtorsOnce() {
   console.log(`Added ${created} lead-attached realtor(s) to Contacts.`);
 }
 
+// One-time: re-sync every lead's attached realtor into Contacts using the upsert
+// (which UPDATES matched realtor contacts). Catches realtors that the old
+// insert-only path skipped — e.g. a renamed realtor whose email already existed.
+async function syncLeadRealtorsOnce() {
+  const done = await one("SELECT 1 AS x FROM app_flags WHERE flag = 'lead_realtor_sync_v2'");
+  if (done) return;
+  const rows = await q(`
+    SELECT user_id, realtor_name, realtor_email, realtor_phone
+    FROM leads
+    WHERE realtor_status LIKE 'has%'
+      AND (btrim(coalesce(realtor_name, '')) <> '' OR btrim(coalesce(realtor_email, '')) <> '')
+    ORDER BY id`);
+  for (const r of rows) {
+    try {
+      await upsertLeadRealtorContact(r.user_id, { name: r.realtor_name, email: r.realtor_email, phone: r.realtor_phone });
+    } catch (e) { console.error('sync lead realtor:', e); }
+  }
+  await q("INSERT INTO app_flags (flag) VALUES ('lead_realtor_sync_v2') ON CONFLICT DO NOTHING");
+  if (rows.length) console.log(`Re-synced ${rows.length} lead-attached realtor(s) to Contacts.`);
+}
+
 // One-time: encrypt any legacy plaintext Gmail tokens, once TOKEN_ENC_KEY is set.
 // Skips (without marking done) until the key is configured, so it runs on the
 // first boot where encryption is enabled — no re-connect needed.
@@ -5009,6 +5052,7 @@ pool.query(SCHEMA)
   .then(() => formatPhonesOnce())
   .then(() => formatClosedPhonesOnce())
   .then(() => backfillLeadRealtorsOnce())
+  .then(() => syncLeadRealtorsOnce())
   .then(() => encryptExistingTokensOnce())
   .then(() => app.listen(PORT, () => console.log(`LeadFlow running on port ${PORT}`)))
   .catch(err => { console.error('Database init failed:', err); process.exit(1); });
