@@ -467,10 +467,12 @@ async function loadNotifications() {
       text: notifEsc(ev.title), sub: `${notifFmtMin(s)} · in ${s - nowMin} min`, href: 'calendar.html' });
   });
 
-  // 4) Hot leads (5 stars) with no call logged yet.
+  // 4) Hot leads (5 stars) with no call logged yet. Only the viewer's own leads —
+  // an admin's /api/leads returns every user's leads, so without this filter the
+  // admin would be nagged to contact leads that belong to other loan officers.
   if (notifPref('bell.hot_leads')) {
     const calledNames = new Set(calls.map(c => (c.name || '').toLowerCase()));
-    leads.filter(l => LF.scoreStars(l.score) === 5 && !calledNames.has((l.name || '').toLowerCase()))
+    leads.filter(l => l.mine && LF.scoreStars(l.score) === 5 && !calledNames.has((l.name || '').toLowerCase()))
       .slice(0, 5)
       .forEach(l => {
         items.push({ key: `lead-hot-${l.id}`, sort: 5, icon: 'flame', color: '#E0721B',
