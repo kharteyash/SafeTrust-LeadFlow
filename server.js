@@ -3715,22 +3715,25 @@ app.get('/api/leads', safe(async (req, res) => {
 // Add a contact for someone (realtor, loan officer, etc.) unless one with the
 // same email (or, lacking an email, the same name) already exists. Returns
 // { created } or { skipped } so callers can report counts.
-// Mirror a lead's attached realtor into Contacts (tag 'Realtor') and keep it in
-// sync. Unlike ensureContact (insert-or-skip), this UPDATES the matched realtor
-// contact's details — so renaming/rephoning a lead's realtor is reflected on the
-// Realtors page instead of being silently ignored when the email already exists.
-// Matches by email, or by name when the realtor has no email.
+// Mirror a lead's attached realtor into Contacts (tag 'Realtor'). A realtor is
+// identified by name + email TOGETHER, so every distinct realtor across leads
+// stays visible: two different realtors that happen to share an email each get
+// their own entry, while the same realtor (same name + email) on multiple leads
+// collapses to one and just has its phone kept in sync.
 async function upsertLeadRealtorContact(userId, c) {
   const name = String(c.name || '').trim();
   const email = String(c.email || '').trim();
   const phone = formatPhone(c.phone);
   if (!name && !email) return; // nothing identifiable
-  const existing = email
-    ? await one(`SELECT id FROM contacts WHERE user_id = $1 AND lower(email) = lower($2) AND tag = 'Realtor' LIMIT 1`, [userId, email])
-    : await one(`SELECT id FROM contacts WHERE user_id = $1 AND lower(name) = lower($2) AND tag = 'Realtor' LIMIT 1`, [userId, name]);
+  const existing = await one(
+    `SELECT id FROM contacts
+       WHERE user_id = $1 AND tag = 'Realtor'
+         AND lower(btrim(coalesce(name, ''))) = lower($2)
+         AND lower(btrim(coalesce(email, ''))) = lower($3)
+       LIMIT 1`,
+    [userId, name, email]);
   if (existing) {
-    await q(`UPDATE contacts SET name = $1, email = $2, phone = $3 WHERE id = $4`,
-      [name || email, email, phone, existing.id]);
+    await q(`UPDATE contacts SET phone = $1 WHERE id = $2`, [phone, existing.id]);
   } else {
     await q(`INSERT INTO contacts (user_id, name, email, phone, tag, relationship)
        VALUES ($1, $2, $3, $4, 'Realtor', 'unknown')`, [userId, name || email, email, phone]);
@@ -4999,7 +5002,7 @@ async function backfillLeadRealtorsOnce() {
 // (which UPDATES matched realtor contacts). Catches realtors that the old
 // insert-only path skipped — e.g. a renamed realtor whose email already existed.
 async function syncLeadRealtorsOnce() {
-  const done = await one("SELECT 1 AS x FROM app_flags WHERE flag = 'lead_realtor_sync_v2'");
+  const done = await one("SELECT 1 AS x FROM app_flags WHERE flag = 'lead_realtor_sync_v3'");
   if (done) return;
   const rows = await q(`
     SELECT user_id, realtor_name, realtor_email, realtor_phone
@@ -5012,7 +5015,7 @@ async function syncLeadRealtorsOnce() {
       await upsertLeadRealtorContact(r.user_id, { name: r.realtor_name, email: r.realtor_email, phone: r.realtor_phone });
     } catch (e) { console.error('sync lead realtor:', e); }
   }
-  await q("INSERT INTO app_flags (flag) VALUES ('lead_realtor_sync_v2') ON CONFLICT DO NOTHING");
+  await q("INSERT INTO app_flags (flag) VALUES ('lead_realtor_sync_v3') ON CONFLICT DO NOTHING");
   if (rows.length) console.log(`Re-synced ${rows.length} lead-attached realtor(s) to Contacts.`);
 }
 
