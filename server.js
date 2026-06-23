@@ -3507,48 +3507,53 @@ const hasRealtor = (s) => String(s || '').indexOf('has') === 0;
 
 // Weighted 0–100 model (shown to users as a 1–5 star rating). Each factor
 // contributes a capped share, and the parts sum to 100 only for an ideal lead —
-// so a top score is earned, not the default.
-//   Buying intent (timeline) ...... up to 45   (the dominant signal)
-//   Pre-approved .................. 25          (readiness to transact)
-//   Reachable by phone ............ 10
-//   Loan profile .................. up to 20    (refi subtype, or purchase w/ realtor)
+// so a top score is earned, not the default. The factor mix differs by lead type:
+//
+//   Purchase:                          Refinance (not "buying", so no timeline):
+//     Buying intent (timeline) up to 45   Refinance type ...... up to 70 (cash-out hottest)
+//     Pre-approved ............... 25      Reachable by phone .. 30
+//     Reachable by phone ......... 10
+//     Loan profile ........... up to 20
+//
 // Returns the factor breakdown so the UI can explain how to improve the score.
 function leadScoreParts(timeline, phone, leadType, refiType, preapproved, realtorStatus) {
+  const hasPhone = !!(phone && String(phone).trim());
+
+  // Refinances aren't buying a home, so the buying timeline and pre-approval
+  // don't apply. They're scored purely on refinance-relevant signals, rebalanced
+  // so a strong refinance can still reach the top of the 0–100 / 5-star scale.
+  if (leadType === 'Refinance') {
+    const refiPoints = refiType === 'Cash Out' ? 70 : 45;
+    const phonePoints = hasPhone ? 30 : 0;
+    return [
+      { label: 'Refinance type', value: `Refinance — ${refiType || 'Rate & Term'}`, points: refiPoints, max: 70,
+        tip: refiType === 'Cash Out' ? '' : 'Cash-out refinances score highest.' },
+      { label: 'Reachable by phone', value: phonePoints ? 'Yes' : 'No', points: phonePoints, max: 30,
+        tip: phonePoints ? '' : 'Add a phone number so the lead is reachable.' }
+    ];
+  }
+
+  // Purchase: buying intent dominates, then pre-approval, reachability, and
+  // whether a realtor is already attached (further along the funnel).
   const timelinePoints = {
     'Buying Immediately': 45, '1-3 Months': 30, '3-6 Months': 17, '6+ Months': 8
   }[timeline] || 17;
-  const phonePoints = (phone && String(phone).trim()) ? 10 : 0;
+  const phonePoints = hasPhone ? 10 : 0;
   const preapprovedPoints = preapproved ? 25 : 0;
+  const attached = hasRealtor(realtorStatus);
+  const loanPoints = attached ? 20 : 10;
+  const loanValue = attached ? 'Purchase — realtor attached' : 'Purchase — no realtor yet';
+  const loanTip = attached ? '' : 'A lead with a realtor attached scores higher.';
 
-  // Loan profile: refinances scored by subtype (cash-out is hottest); purchases
-  // by whether a realtor is already attached (further along the funnel).
-  let loanPoints, loanValue, loanTip;
-  if (leadType === 'Refinance') {
-    loanPoints = refiType === 'Cash Out' ? 20 : 12;
-    loanValue = `Refinance — ${refiType || 'Rate & Term'}`;
-    loanTip = refiType === 'Cash Out' ? '' : 'Cash-out refinances score highest.';
-  } else {
-    const attached = hasRealtor(realtorStatus);
-    loanPoints = attached ? 20 : 10;
-    loanValue = attached ? 'Purchase — realtor attached' : 'Purchase — no realtor yet';
-    loanTip = attached ? '' : 'A lead with a realtor attached scores higher.';
-  }
-
-  const parts = [
+  return [
     { label: 'Buying intent', value: timeline || 'Unknown', points: timelinePoints, max: 45,
-      tip: timelinePoints >= 45 ? '' : 'Sooner buyers score higher — “Buying Immediately” is best.' }
-  ];
-  // Pre-approval only applies to purchases — it's not a factor for refinances.
-  if (leadType !== 'Refinance') {
-    parts.push({ label: 'Pre-approved', value: preapproved ? 'Yes' : 'No', points: preapprovedPoints, max: 25,
-      tip: preapproved ? '' : 'Getting the lead pre-approved adds the most points.' });
-  }
-  parts.push(
+      tip: timelinePoints >= 45 ? '' : 'Sooner buyers score higher — “Buying Immediately” is best.' },
+    { label: 'Pre-approved', value: preapproved ? 'Yes' : 'No', points: preapprovedPoints, max: 25,
+      tip: preapproved ? '' : 'Getting the lead pre-approved adds the most points.' },
     { label: 'Reachable by phone', value: phonePoints ? 'Yes' : 'No', points: phonePoints, max: 10,
       tip: phonePoints ? '' : 'Add a phone number so the lead is reachable.' },
     { label: 'Loan profile', value: loanValue, points: loanPoints, max: 20, tip: loanTip }
-  );
-  return parts;
+  ];
 }
 function computeLeadScore(timeline, phone, leadType, refiType, preapproved, realtorStatus) {
   const parts = leadScoreParts(timeline, phone, leadType, refiType, preapproved, realtorStatus);
@@ -3730,12 +3735,18 @@ async function ensureContact(userId, c) {
 
 app.post('/api/leads', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
-  const { name, email, phone, timeline, owner, notes } = req.body || {};
+  const { name, email, owner, notes } = req.body || {};
+  const phone = (req.body || {}).phone;
   if (!name || !name.trim())   return res.status(400).json({ error: 'Name is required.' });
   if (!email || !email.trim()) return res.status(400).json({ error: 'Email is required.' });
-  if (!LEAD_TIMELINES.includes(timeline)) return res.status(400).json({ error: 'Invalid buying timeline.' });
 
   const f = normalizeLeadType(req.body || {});
+  // Refinances aren't buying a home, so they carry no buying timeline. Purchases
+  // still require a valid one.
+  const timeline = f.leadType === 'Refinance' ? '' : (req.body || {}).timeline;
+  if (f.leadType !== 'Refinance' && !LEAD_TIMELINES.includes(timeline)) {
+    return res.status(400).json({ error: 'Invalid buying timeline.' });
+  }
   const state = normalizeState((req.body || {}).state);
   const birthday = normalizeBirthday((req.body || {}).birthday);
   const score = computeLeadScore(timeline, phone, f.leadType, f.refiType, f.preapproved, f.realtorStatus);
@@ -3814,14 +3825,12 @@ app.patch('/api/leads/:id', safe(async (req, res) => {
   const name     = b.name     != null ? String(b.name).trim()  : cur.name;
   const email    = b.email    != null ? String(b.email).trim() : (cur.email || '');
   const phone    = b.phone    != null ? formatPhone(b.phone) : (cur.phone || '');
-  const timeline = b.timeline != null ? b.timeline             : cur.timeline;
   const owner    = b.owner    != null ? String(b.owner).trim() : (cur.owner || '');
   const notes    = b.notes    != null ? String(b.notes).trim() : (cur.notes || '');
   const state    = b.state    != null ? normalizeState(b.state) : (cur.state || '');
   const birthday = b.birthday != null ? normalizeBirthday(b.birthday) : (cur.birthday || '');
   if (!name)  return res.status(400).json({ error: 'Name is required.' });
   if (!email) return res.status(400).json({ error: 'Email is required.' });
-  if (!LEAD_TIMELINES.includes(timeline)) return res.status(400).json({ error: 'Invalid buying timeline.' });
 
   // Merge type fields with current values, then normalize + rescore.
   const f = normalizeLeadType({
@@ -3833,6 +3842,13 @@ app.patch('/api/leads/:id', safe(async (req, res) => {
     realtorPhone:  b.realtorPhone  != null ? formatPhone(b.realtorPhone) : cur.realtor_phone,
     preapproved:   b.preapproved   != null ? b.preapproved   : cur.preapproved
   });
+  // Refinances carry no buying timeline; purchases require a valid one.
+  const timeline = f.leadType === 'Refinance'
+    ? ''
+    : (b.timeline != null ? b.timeline : cur.timeline);
+  if (f.leadType !== 'Refinance' && !LEAD_TIMELINES.includes(timeline)) {
+    return res.status(400).json({ error: 'Invalid buying timeline.' });
+  }
   const score = computeLeadScore(timeline, phone, f.leadType, f.refiType, f.preapproved, f.realtorStatus);
   await pool.query(`UPDATE leads SET name=$1, email=$2, phone=$3, timeline=$4, owner=$5, notes=$6, score=$7, state=$8,
       preapproved=$9, lead_type=$10, refi_type=$11, realtor_status=$12, realtor_name=$13, realtor_email=$14, realtor_phone=$15, birthday=$18
@@ -4838,6 +4854,23 @@ async function recomputeLeadScoresOnce() {
   if (leads.length) console.log(`Re-scored ${leads.length} lead(s) with the new model.`);
 }
 
+// One-time: refinances no longer carry a buying timeline. Clear any stored
+// timeline on existing refinance leads, then rescore all leads under the
+// rebalanced refinance model. Flag-guarded so it runs exactly once.
+async function refinanceNoTimelineOnce() {
+  const done = await one("SELECT 1 AS x FROM app_flags WHERE flag = 'refi_no_timeline_v1'");
+  if (done) return;
+  await q("UPDATE leads SET timeline = '' WHERE lead_type = 'Refinance' AND coalesce(timeline, '') <> ''");
+  const leads = await q('SELECT id, timeline, phone, lead_type, refi_type, preapproved, realtor_status, assigned_by FROM leads');
+  for (const l of leads) {
+    let score = computeLeadScore(l.timeline, l.phone, l.lead_type, l.refi_type, l.preapproved, l.realtor_status);
+    if (l.assigned_by != null) score = Math.max(score, 90);
+    await q('UPDATE leads SET score = $1 WHERE id = $2', [score, l.id]);
+  }
+  await q("INSERT INTO app_flags (flag) VALUES ('refi_no_timeline_v1') ON CONFLICT DO NOTHING");
+  if (leads.length) console.log(`Cleared refinance timelines and re-scored ${leads.length} lead(s).`);
+}
+
 // One-time: turn OFF automatic emails for every existing user so the whole
 // system becomes opt-in. Flag-guarded so it runs exactly once — anyone who
 // later switches it back on in Settings keeps it on across restarts/deploys
@@ -4955,6 +4988,7 @@ pool.query(SCHEMA)
       AND NOT EXISTS (SELECT 1 FROM users WHERE role = 'admin')
   `))
   .then(() => recomputeLeadScoresOnce())
+  .then(() => refinanceNoTimelineOnce())
   .then(() => disableAutoEmailsOnce())
   .then(() => formatPhonesOnce())
   .then(() => formatClosedPhonesOnce())

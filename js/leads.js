@@ -182,7 +182,7 @@
               <td data-col="name"><span class="font-semibold" data-view-uid="${l._uid}" style="cursor:pointer;color:var(--accent);">${l.name}</span>${l.preapproved ? ' <span class="pill pill-green" style="font-size:10px;">Pre-approved</span>' : ''}${l.assignedByName ? ` <span class="pill pill-blue" style="font-size:10px;">From ${esc(l.assignedByName)}</span>` : ''}${isAdmin && l.ownerUserName ? ` <span class="pill pill-purple" style="font-size:10px;">${esc(l.ownerUserName)}</span>` : ''}</td>
               <td class="text-muted" data-label="Email">${l.email}</td>
               <td data-label="Phone">${l.phone}</td>
-              <td data-label="Timeline"><span class="pill ${LF.timelinePill(l.timeline)}">${l.timeline}</span></td>
+              <td data-label="Timeline">${l.leadType === 'Refinance' ? '<span class="pill pill-blue">Refinance</span>' : `<span class="pill ${LF.timelinePill(l.timeline)}">${l.timeline}</span>`}</td>
               <td data-label="Score">${LF.scoreStarsHTML(l)}</td>
               <td class="text-muted" data-label="Last called">${fmtLastCall(l.lastCall)}</td>
               <td data-col="owner" data-label="Owner">
@@ -502,8 +502,9 @@
     const type = form.elements['lead_type'].value;
     document.getElementById('refi-section').style.display = type === 'Refinance' ? '' : 'none';
     document.getElementById('purchase-section').style.display = type === 'Purchase' ? '' : 'none';
-    // Pre-approval doesn't apply to a refinance — hide it there.
+    // Pre-approval and the buying timeline don't apply to a refinance — hide them.
     document.getElementById('preapproved-field').style.display = type === 'Refinance' ? 'none' : '';
+    document.getElementById('timeline-field').style.display = type === 'Refinance' ? 'none' : '';
     const rs = form.elements['realtor_status'].value;
     // Capture the realtor's details for either "has a realtor" option.
     document.getElementById('realtor-fields').style.display = (type === 'Purchase' && rs.indexOf('has') === 0) ? '' : 'none';
@@ -567,7 +568,10 @@
     const rows = [];
     rows.push(detailRow('Email', esc(lead.email) || '—'));
     rows.push(detailRow('Phone', esc(lead.phone) || '—'));
-    rows.push(detailRow('Buying timeline', `<span class="pill ${LF.timelinePill(lead.timeline)}">${esc(lead.timeline)}</span>`));
+    // Refinances aren't buying, so they carry no buying timeline.
+    if (type !== 'Refinance') {
+      rows.push(detailRow('Buying timeline', `<span class="pill ${LF.timelinePill(lead.timeline)}">${esc(lead.timeline)}</span>`));
+    }
     const scoreCell = isAdmin
       ? `<span class="inline-flex items-center gap-2 justify-end">
            ${LF.scoreStarsHTML(lead, 13)}
@@ -984,12 +988,15 @@
   }
 
   // ----- Export to CSV -----
-  const EXPORT_TIMELINES = ['Buying Immediately', '1-3 Months', '3-6 Months', '6+ Months'];
+  // Buying-timeline categories plus a Refinance bucket (refinances carry no
+  // timeline, so they'd otherwise be un-exportable).
+  const EXPORT_TIMELINES = ['Buying Immediately', '1-3 Months', '3-6 Months', '6+ Months', 'Refinance'];
+  const inExportCat = (l, cat) => cat === 'Refinance' ? l.leadType === 'Refinance' : l.timeline === cat;
 
   function openExportModal() {
     document.getElementById('export-msg').textContent = '';
     document.getElementById('export-options').innerHTML = EXPORT_TIMELINES.map(t => {
-      const count = leads.filter(l => l.timeline === t).length;
+      const count = leads.filter(l => inExportCat(l, t)).length;
       return `
         <label class="flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer" style="border:1px solid var(--border);">
           <input type="checkbox" value="${t}" checked style="width:15px;height:15px;accent-color:#2255a3;cursor:pointer;" />
@@ -1011,13 +1018,13 @@
     const msg = document.getElementById('export-msg');
     if (!checked.length) { msg.textContent = 'Select at least one category.'; return; }
 
-    const rows = leads.filter(l => checked.includes(l.timeline));
+    const rows = leads.filter(l => checked.some(c => inExportCat(l, c)));
     if (!rows.length) { msg.textContent = 'No leads to export for the selected categories.'; return; }
 
     const headers = ['Name', 'Email', 'Phone', 'Buying Timeline', 'Lead Score', 'Last Called', 'Owner'];
     const lines = [headers.join(',')];
     rows.forEach(l => lines.push(
-      [l.name, l.email, l.phone, l.timeline, `${l.stars || LF.scoreStars(l.score)}/5`, l.lastCall ? new Date(l.lastCall).toLocaleDateString() : '', l.owner].map(csvEscape).join(',')
+      [l.name, l.email, l.phone, l.leadType === 'Refinance' ? 'Refinance' : l.timeline, `${l.stars || LF.scoreStars(l.score)}/5`, l.lastCall ? new Date(l.lastCall).toLocaleDateString() : '', l.owner].map(csvEscape).join(',')
     ));
     // BOM so Excel reads UTF-8 correctly.
     const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });

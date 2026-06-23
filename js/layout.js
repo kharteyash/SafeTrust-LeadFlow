@@ -485,15 +485,25 @@ async function loadNotifications() {
   let read = notifReadSet();
   read = new Set([...read].filter(k => currentKeys.has(k)));
 
-  // Auto-clear on a new day: computed alerts (overdue calls/tasks, due-soon,
-  // hot leads) carried over from a previous day are marked read so they don't
-  // keep nagging. Genuinely-pending actions (invites/assignments/outcomes) stay.
-  let lastDay = null;
-  try { lastDay = localStorage.getItem('lf-notifs-day'); } catch (e) {}
-  if (lastDay !== todayKey) {
-    items.forEach(i => { if (!i.persist && !['invite', 'assignment', 'outcome'].includes(i.type)) read.add(i.key); });
-    try { localStorage.setItem('lf-notifs-day', todayKey); } catch (e) {}
-  }
+  // Carry-over auto-clear: remember the first calendar day each computed alert
+  // (overdue calls/tasks, due-soon, hot leads) was actually surfaced. Anything
+  // whose first-seen day is before today is a carry-over the user has already
+  // been shown, so we mark it read — the bell nags about a due item on its day,
+  // then stays quiet instead of re-firing every day (e.g. a dateless overdue
+  // call that goes "overdue" again every afternoon). This is reliable no matter
+  // what time of day the item becomes overdue, unlike a once-per-day clear that
+  // only catches items already overdue at the morning's first page load.
+  // Genuinely-pending actions (invites/assignments/outcomes) are never cleared.
+  let firstSeen = {};
+  try { firstSeen = JSON.parse(localStorage.getItem('lf-notifs-seen') || '{}') || {}; } catch (e) {}
+  const seenNext = {};
+  items.forEach(i => {
+    if (i.persist || ['invite', 'assignment', 'outcome'].includes(i.type)) return;
+    const day = firstSeen[i.key] || todayKey;   // first day this key ever surfaced
+    seenNext[i.key] = day;                       // keep only current keys (auto-prune)
+    if (day < todayKey) read.add(i.key);         // surfaced on an earlier day → stop nagging
+  });
+  try { localStorage.setItem('lf-notifs-seen', JSON.stringify(seenNext)); } catch (e) {}
 
   notifSaveRead(read);
   renderNotifications(items, read);

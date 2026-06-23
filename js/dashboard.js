@@ -303,7 +303,7 @@
             <td><span class="font-semibold" data-detail-uid="${l._uid}" style="cursor:pointer;color:var(--accent);">${esc(l.name)}</span></td>
             <td class="text-muted">${esc(l.email)}</td>
             <td>${esc(l.phone)}</td>
-            <td><span class="pill ${timelinePill(l.timeline)}">${esc(l.timeline)}</span></td>
+            <td>${l.leadType === 'Refinance' ? '<span class="pill pill-blue">Refinance</span>' : `<span class="pill ${timelinePill(l.timeline)}">${esc(l.timeline)}</span>`}</td>
             <td>${LF.scoreStarsHTML(l, 13)}</td>
             <td>
               <div class="flex items-center gap-2">
@@ -353,9 +353,12 @@
     const rows = [];
     rows.push(detailRow('Email', lead.email ? `<a href="mailto:${escAttr(lead.email)}" style="color:var(--accent);">${esc(lead.email)}</a>` : '—'));
     rows.push(detailRow('Phone', (lead.phone && tel) ? `<a href="${tel}" style="color:var(--accent);font-weight:600;">${esc(lead.phone)}</a>` : (esc(lead.phone) || '—')));
-    rows.push(detailRow('Buying timeline', `<span class="pill ${timelinePill(lead.timeline)}">${esc(lead.timeline)}</span>`));
+    // Refinances aren't buying, so no buying timeline or pre-approval applies.
+    if (type !== 'Refinance') {
+      rows.push(detailRow('Buying timeline', `<span class="pill ${timelinePill(lead.timeline)}">${esc(lead.timeline)}</span>`));
+    }
     rows.push(detailRow('Lead score', LF.scoreStarsHTML(lead, 13)));
-    rows.push(detailRow('Pre-approved', lead.preapproved ? 'Yes' : 'No'));
+    if (type !== 'Refinance') rows.push(detailRow('Pre-approved', lead.preapproved ? 'Yes' : 'No'));
     rows.push(detailRow('Lead type', esc(type)));
     if (type === 'Refinance') {
       rows.push(detailRow('Refinance type', esc(lead.refiType) || '—'));
