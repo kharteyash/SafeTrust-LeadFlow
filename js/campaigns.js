@@ -123,7 +123,19 @@
       form.elements['subject'].value = campaign.subject || '';
       form.elements['body'].value = campaign.body || '';
       form.elements['note'].value = campaign.note || '';
-      if (form.elements['recurDays']) form.elements['recurDays'].value = String(campaign.recurDays || 0);
+      if (form.elements['recurDays']) {
+        const sel = form.elements['recurDays'];
+        const want = String(campaign.recurDays || 0);
+        // The preset list only has 0/7/14/30/90; if this campaign carries any
+        // other cadence, add it as an option so the edit doesn't silently snap
+        // back to "One-time" and downgrade the campaign on save.
+        if (!Array.from(sel.options).some(o => o.value === want)) {
+          const opt = document.createElement('option');
+          opt.value = want; opt.textContent = `Every ${want} days`;
+          sel.appendChild(opt);
+        }
+        sel.value = want;
+      }
     } else {
       // New campaigns start with a personalized greeting, ready to edit.
       form.elements['body'].value = 'Hi {{first_name}},\n\n';
@@ -139,7 +151,7 @@
     if (!c) return;
     if (!c.subject || !c.body) { window.alert('Add a subject and message to this campaign first (delete and recreate it with content).'); return; }
     const aud = audiences.find(a => a.key === c.audience);
-    const count = aud ? aud.count : c.recipients;
+    const count = (aud && aud.count != null) ? aud.count : (c.recipients || 0);
     if (!window.confirm(`Send "${c.name}" to ${count} recipient(s) in "${c.audienceLabel}"?\n\nEach email is sent from your connected Google account.`)) return;
     try {
       const res = await fetch('/api/campaigns/' + id + '/send', { method: 'POST', credentials: 'same-origin' });
