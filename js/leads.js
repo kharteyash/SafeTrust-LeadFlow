@@ -462,7 +462,7 @@
       if (action === 'Call & log') {
         LF.callTimer.start(); // time the call from the moment it starts
         const tel = LF.telLink(l.phone); if (tel) window.location.href = tel;
-        openCallLogModal(l.name, l.phone, false); // dial + log into Call History
+        openCallLogModal(l.name, l.phone, false, l.id); // dial + log into Call History
       } else if (action === 'Text (SMS)') {
         const sms = LF.smsLink(l.phone); if (sms) window.location.href = sms;
       } else if (action === 'WhatsApp') {
@@ -653,7 +653,7 @@
   function closeLeadDetail() { document.getElementById('lead-detail-modal').classList.add('hidden'); }
 
   // ----- Log a call (dial + log into Call History). Works for a lead or a realtor. -----
-  let callLogName = '', callLogPhone = '', callIsRealtor = false;
+  let callLogName = '', callLogPhone = '', callIsRealtor = false, callLogLeadId = null;
   let stopLeadCallTimer = null;
   // Voicemail / no answer = no conversation, so blank + disable the duration.
   function syncCallDuration(form) {
@@ -662,8 +662,9 @@
     if (o === 'No Answer' || o === 'Voicemail') { dur.value = ''; dur.disabled = true; }
     else { dur.disabled = false; if (!dur.value) dur.value = '0:00'; }
   }
-  function openCallLogModal(name, phone, isRealtor) {
+  function openCallLogModal(name, phone, isRealtor, leadId) {
     callIsRealtor = !!isRealtor;
+    callLogLeadId = leadId || null;
     callLogName = name || (isRealtor ? 'Realtor' : 'Lead');
     callLogPhone = phone || '';
     document.getElementById('realtor-call-title').textContent = isRealtor ? 'Log realtor call' : 'Log call';
@@ -741,7 +742,7 @@
         const res = await fetch('/api/call-log', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
           body: JSON.stringify({
-            name: callLogName, phone: callLogPhone,
+            name: callLogName, phone: callLogPhone, leadId: callLogLeadId,
             outcome: data.outcome, duration: data.duration || '0:00', notes: data.notes || '', isRealtor: callIsRealtor
           })
         });

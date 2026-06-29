@@ -142,6 +142,23 @@ const addDaysStr = (ymd, n) => {
   d.setDate(d.getDate() + n);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
+// Today's date (YYYY-MM-DD) as it reads on the wall clock in the given IANA tz.
+// Falls back to server-local time if the tz is unknown. This matters because the
+// app runs in UTC on Render: without it, call queues, task due dates, and cadence
+// math would roll over at UTC midnight instead of the user's local midnight.
+const todayInTz = (tz) => {
+  try {
+    const map = {};
+    for (const p of new Intl.DateTimeFormat('en-CA',
+      { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date())) {
+      map[p.type] = p.value;
+    }
+    if (map.year && map.month && map.day) return `${map.year}-${map.month}-${map.day}`;
+  } catch (e) { /* invalid tz → fall back below */ }
+  return serverToday();
+};
+// Today for a specific user, honoring their configured timezone.
+async function userToday(userId) { return todayInTz(await gcalTimezone(userId)); }
 // Display phone numbers as (xxx) xxx-xxxx. Standard US 10-digit numbers (or
 // 11-digit starting with a 1) are reformatted; anything else (international,
 // extensions, partials) is returned trimmed but otherwise untouched.
@@ -271,6 +288,7 @@ const SCHEMA = `
     created_at  TIMESTAMPTZ DEFAULT now()
   );
   ALTER TABLE call_log ADD COLUMN IF NOT EXISTS is_realtor BOOLEAN DEFAULT false;
+  ALTER TABLE call_log ADD COLUMN IF NOT EXISTS lead_id INTEGER;
 
   CREATE TABLE IF NOT EXISTS scheduled_messages (
     id          SERIAL PRIMARY KEY,
@@ -1313,7 +1331,7 @@ app.get('/api/realtor/home', safe(async (req, res) => {
   }
 
   // Follow-ups due today or overdue (open tasks).
-  const today = serverToday();
+  const today = await userToday(rid);
   const dueRows = await q(`
     SELECT t.*, l.name AS lead_name
     FROM realtor_tasks t LEFT JOIN realtor_leads l ON l.id = t.lead_id
@@ -1584,7 +1602,7 @@ const REALTOR_MISS_OUTCOMES = ['Voicemail', 'No Answer', 'Missed'];
 async function ensureRealtorFollowups(userId) {
   const u = await one('SELECT auto_tasks_enabled FROM users WHERE id = $1', [userId]);
   if (u && u.auto_tasks_enabled === false) return;
-  const today = serverToday();
+  const today = await userToday(userId);
 
   const leads = await q('SELECT * FROM realtor_leads WHERE realtor_id = $1', [userId]);
   if (!leads.length) return;
@@ -1926,7 +1944,7 @@ async function insertRealtorClient(realtorId, f) {
   return one(
     `INSERT INTO realtor_clients (realtor_id, name, phone, email, intent, budget, property_type, area, deal_type, address, price, closed_date, notes, zipcode)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
-    [realtorId, f.name, f.phone, f.email, f.intent, f.budget, f.propertyType, f.area, f.dealType, f.address, f.price, f.closedDate || serverToday(), f.notes, f.zipcode]
+    [realtorId, f.name, f.phone, f.email, f.intent, f.budget, f.propertyType, f.area, f.dealType, f.address, f.price, f.closedDate || await userToday(realtorId), f.notes, f.zipcode]
   );
 }
 
@@ -1940,7 +1958,7 @@ app.post('/api/realtor/leads/:id/close', safe(async (req, res) => {
   const b = req.body || {};
   const s = (v, n) => String(v == null ? '' : v).trim().slice(0, n);
   const dealType = REALTOR_DEAL_TYPES.includes(s(b.dealType, 20)) ? s(b.dealType, 20) : '';
-  const closedDate = /^\d{4}-\d{2}-\d{2}$/.test(s(b.closedDate, 10)) ? s(b.closedDate, 10) : serverToday();
+  const closedDate = /^\d{4}-\d{2}-\d{2}$/.test(s(b.closedDate, 10)) ? s(b.closedDate, 10) : await userToday(req.user.id);
   const row = await one(
     `INSERT INTO realtor_clients (realtor_id, name, phone, email, intent, budget, property_type, area, deal_type, address, price, closed_date, notes, zipcode)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
@@ -2332,7 +2350,7 @@ async function maybeCreateRecap(user, { callId, name, isRealtor, notes, dur }) {
     `INSERT INTO scheduled_messages (user_id, recipient, channel, type, send_date, send_time, send_at, status, body, auto_kind, auto_key)
      VALUES ($1, $2, 'Email', $3, $4, $5, now(), 'draft', $6, 'recap', $7)
      ON CONFLICT (auto_key) DO NOTHING`,
-    [user.id, rec.email, subject, serverToday(), hhmm, body, `recap:call:${callId}`]
+    [user.id, rec.email, subject, await userToday(user.id), hhmm, body, `recap:call:${callId}`]
   );
 }
 
@@ -2352,17 +2370,35 @@ app.post('/api/call-log', safe(async (req, res) => {
   const note = (notes || '').trim() || '—';
   const isRealtor = (req.body || {}).isRealtor === true;
 
+  // Pin the call to a specific lead so automations (drip / nurture / cadence)
+  // can suppress it by id and stay correct even if the lead is later renamed.
+  // Prefer the explicit leadId the client sends when logging from a lead row;
+  // otherwise fall back to a name match. Realtor calls aren't leads.
+  let leadId = null;
+  if (!isRealtor) {
+    const bid = Number((req.body || {}).leadId);
+    if (Number.isInteger(bid) && bid > 0) {
+      const owned = await one('SELECT id FROM leads WHERE id = $1 AND user_id = $2', [bid, req.user.id]);
+      if (owned) leadId = owned.id;
+    }
+    if (!leadId) {
+      const m = await one('SELECT id FROM leads WHERE user_id = $1 AND lower(name) = lower($2) ORDER BY id LIMIT 1', [req.user.id, name.trim()]);
+      if (m) leadId = m.id;
+    }
+  }
+
   const row = await one(`
-    INSERT INTO call_log (user_id, name, phone, direction, duration, outcome, notes, agent, is_realtor, logged_at)
-    VALUES ($1, $2, $3, 'outbound', $4, $5, $6, $7, $8, $9) RETURNING id
-  `, [req.user.id, name.trim(), formatPhone(phone), dur, outcome, note, agent, isRealtor, loggedAt]);
+    INSERT INTO call_log (user_id, name, phone, direction, duration, outcome, notes, agent, is_realtor, lead_id, logged_at)
+    VALUES ($1, $2, $3, 'outbound', $4, $5, $6, $7, $8, $9, $10) RETURNING id
+  `, [req.user.id, name.trim(), formatPhone(phone), dur, outcome, note, agent, isRealtor, leadId, loggedAt]);
 
   // Automations for a missed / voicemail / no-answer call (skipped when the user
   // has turned off automatic tasks & call queue).
   if (noTalk && req.user.autoTasks !== false) {
+    const uToday = await userToday(req.user.id);
     // #5: re-add the call to the queue in 3 days (deduped on name+date+reason).
     try {
-      const retryDate = addDaysStr(serverToday(), 3);
+      const retryDate = addDaysStr(uToday, 3);
       const RETRY_REASON = 'Retry — last call missed';
       const exists = await one(`SELECT id FROM call_queue WHERE user_id = $1 AND lower(name) = lower($2) AND call_date = $3 AND reason = $4`,
         [req.user.id, name.trim(), retryDate, RETRY_REASON]);
@@ -2372,10 +2408,9 @@ app.post('/api/call-log', safe(async (req, res) => {
     // #2: a follow-up task in 2 days (leads only — realtors get touch-base tasks).
     if (!isRealtor) {
       try {
-        const lead = await one(`SELECT id FROM leads WHERE user_id = $1 AND lower(name) = lower($2) LIMIT 1`, [req.user.id, name.trim()]);
         await createTaskOnce(req.user.id, {
-          title: `Follow up with ${name.trim()}`, due: addDaysStr(serverToday(), 2),
-          priority: 'Medium', leadId: lead ? lead.id : null
+          title: `Follow up with ${name.trim()}`, due: addDaysStr(uToday, 2),
+          priority: 'Medium', leadId: leadId
         });
       } catch (e) { console.error('follow-up task:', e); }
     }
@@ -2403,7 +2438,7 @@ const CALL_PRIORITIES = ['High', 'Medium', 'Low'];
 const REALTOR_CADENCES = { established: 14, developing: 7, dormant: 30, past: 60 };
 async function ensureRealtorTouchbases(userId) {
   if (!(await autoEnabled(userId, 'tasks'))) return;
-  const today = serverToday();
+  const today = await userToday(userId);
   for (const [rel, days] of Object.entries(REALTOR_CADENCES)) {
     // `days` is a trusted constant, so it's safe to inline in the interval.
     const due = await q(`UPDATE contacts SET next_touch_at = $2::date + ${days}
@@ -2427,11 +2462,11 @@ async function ensureRealtorTouchbases(userId) {
 // and logging a call removes them from the pool). Race-safe atomic claim.
 async function ensureHotLeadQueue(userId) {
   if (!(await autoEnabled(userId, 'tasks'))) return;
-  const today = serverToday();
+  const today = await userToday(userId);
   const claimed = await q(`UPDATE leads SET hot_queued_at = $2::date
      WHERE user_id = $1 AND score >= 81 AND hot_queued_at IS NULL
        AND NOT EXISTS (SELECT 1 FROM call_log cl WHERE cl.user_id = $1
-         AND (lower(cl.name) = lower(leads.name) OR (cl.phone <> '' AND cl.phone = leads.phone)))
+         AND ((cl.lead_id IS NOT NULL AND cl.lead_id = leads.id) OR (cl.lead_id IS NULL AND (lower(cl.name) = lower(leads.name) OR (cl.phone <> '' AND cl.phone = leads.phone)))))
      RETURNING name, phone`, [userId, today]);
   for (const l of claimed) {
     await q(`INSERT INTO call_queue (user_id, name, phone, priority, call_time, call_date, reason)
@@ -2445,7 +2480,7 @@ async function ensureHotLeadQueue(userId) {
 const LEAD_CALL_CADENCES = { 'Buying Immediately': 2, '1-3 Months': 7, '3-6 Months': 14, '6+ Months': 30 };
 async function ensureLeadCallCadence(userId) {
   if (!(await autoEnabled(userId, 'tasks'))) return;
-  const today = serverToday();
+  const today = await userToday(userId);
   for (const [timeline, days] of Object.entries(LEAD_CALL_CADENCES)) {
     const due = await q(`UPDATE leads SET next_call_at = $2::date + ${days}
        WHERE user_id = $1 AND timeline = $3 AND (next_call_at IS NULL OR next_call_at <= $2::date)
@@ -2481,7 +2516,7 @@ app.post('/api/call-queue', safe(async (req, res) => {
   const priority = CALL_PRIORITIES.includes(req.body && req.body.priority) ? req.body.priority : 'Medium';
   if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required.' });
   // Default to today (caller's date if sent, else the server's) so the queue is per-day.
-  const callDate = (date && String(date).trim()) || serverToday();
+  const callDate = (date && String(date).trim()) || await userToday(req.user.id);
 
   const row = await one(`
     INSERT INTO call_queue (user_id, name, phone, priority, call_time, call_date, reason)
@@ -2669,7 +2704,7 @@ app.post('/api/campaigns', safe(async (req, res) => {
   const audience = audienceByKey(b.audience) ? b.audience : 'all';
   if (!name) return res.status(400).json({ error: 'Campaign name is required.' });
   const recurDays = normalizeRecur(b.recurDays);
-  const nextRun = recurDays ? addDaysStr(serverToday(), recurDays) : null;
+  const nextRun = recurDays ? addDaysStr(await userToday(req.user.id), recurDays) : null;
 
   const row = await one(`
     INSERT INTO campaigns (user_id, name, channel, status, subject, body, note, audience, recur_days, next_run_at)
@@ -2699,7 +2734,7 @@ app.patch('/api/campaigns/:id', safe(async (req, res) => {
   const recurDays = b.recurDays !== undefined ? normalizeRecur(b.recurDays) : (cur.recur_days || null);
   let nextRun = cur.next_run_at;
   if (b.recurDays !== undefined) {
-    nextRun = recurDays ? (cur.recur_days === recurDays && cur.next_run_at ? cur.next_run_at : addDaysStr(serverToday(), recurDays)) : null;
+    nextRun = recurDays ? (cur.recur_days === recurDays && cur.next_run_at ? cur.next_run_at : addDaysStr(await userToday(req.user.id), recurDays)) : null;
   }
 
   const row = await one(`
@@ -3324,9 +3359,15 @@ async function sendEmailAsUser(userId, opts) {
 async function dispatchScheduled(req, res) {
   const secret = process.env.CRON_SECRET;
   if (!secret) return res.status(503).json({ error: 'Dispatch disabled (CRON_SECRET not set).' });
-  const provided = (req.query && req.query.key) ||
-    (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
-  if (provided !== secret) return res.status(401).json({ error: 'Unauthorized.' });
+  // ?key= can arrive as an array if repeated; coerce to a single string first.
+  const rawKey = req.query && req.query.key;
+  const provided = String((Array.isArray(rawKey) ? rawKey[0] : rawKey) ||
+    (req.headers.authorization || '').replace(/^Bearer\s+/i, ''));
+  // Constant-time compare so the secret can't be recovered via response timing.
+  const a = Buffer.from(provided), b = Buffer.from(secret);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+    return res.status(401).json({ error: 'Unauthorized.' });
+  }
 
   // Materialize any newly-due automatic emails before sending — per user, so each
   // person's "Automatic emails" switch is respected. Only users who have it on AND
@@ -3620,14 +3661,14 @@ async function ensureNurtureMessages(userId) {
   if (!(await autoEnabled(userId, 'emails'))) return;  // user turned auto emails off
   const conn = await one('SELECT 1 AS x FROM google_accounts WHERE user_id = $1', [userId]);
   if (!conn) return; // no connected email → don't schedule anything
-  const today = serverToday();
+  const today = await userToday(userId);
   const claimed = await q(`UPDATE leads SET last_nurture_at = $2::date
      WHERE user_id = $1 AND email IS NOT NULL AND btrim(email) <> ''
        AND created_at <= now() - interval '15 days'
        AND (last_nurture_at IS NULL OR last_nurture_at <= $2::date - 15)
        AND NOT EXISTS (
          SELECT 1 FROM call_log cl WHERE cl.user_id = $1
-           AND (lower(cl.name) = lower(leads.name) OR (cl.phone <> '' AND cl.phone = leads.phone))
+           AND ((cl.lead_id IS NOT NULL AND cl.lead_id = leads.id) OR (cl.lead_id IS NULL AND (lower(cl.name) = lower(leads.name) OR (cl.phone <> '' AND cl.phone = leads.phone))))
            AND cl.logged_at ~ '^\\d{4}-\\d{2}-\\d{2}T' AND cl.logged_at::timestamptz > now() - interval '15 days')
      RETURNING id, name, email`, [userId, today]);
   if (!claimed.length) return;
@@ -3666,7 +3707,7 @@ async function ensureLeadDripMessages(userId) {
       AND created_at > now() - interval '8 days'
       AND NOT EXISTS (
         SELECT 1 FROM call_log cl WHERE cl.user_id = $1
-          AND (lower(cl.name) = lower(leads.name) OR (cl.phone <> '' AND cl.phone = leads.phone)))`, [userId]);
+          AND ((cl.lead_id IS NOT NULL AND cl.lead_id = leads.id) OR (cl.lead_id IS NULL AND (lower(cl.name) = lower(leads.name) OR (cl.phone <> '' AND cl.phone = leads.phone)))))`, [userId]);
   if (!leads.length) return;
   const settings = await autoSettingsFor(userId);
   const now = Date.now();
@@ -3800,7 +3841,7 @@ app.post('/api/leads', safe(async (req, res) => {
   // Automation: every new lead gets a "first contact" task due today.
   if (req.user.autoTasks !== false) {
     try {
-      await createTaskOnce(req.user.id, { title: `First contact: ${name.trim()}`, due: serverToday(), priority: 'Medium', leadId: row.id });
+      await createTaskOnce(req.user.id, { title: `First contact: ${name.trim()}`, due: await userToday(req.user.id), priority: 'Medium', leadId: row.id });
     } catch (e) { console.error('first-contact task:', e); }
   }
 
@@ -4135,7 +4176,7 @@ app.post('/api/leads/:id/close', safe(async (req, res) => {
     'Lead Score': lead.score != null ? `${scoreToStars(lead.score)}/5` : '',
     'Owner': lead.owner || '',
     'Lead Notes': lead.notes || '',
-    'Closed Date': serverToday()
+    'Closed Date': await userToday(req.user.id)
   };
   const fdata = formatPhonesInData(data);
   const key = closedDedupeKey(fdata);
@@ -4553,13 +4594,13 @@ const TASK_PRIORITIES = ['High', 'Medium', 'Low'];
 // makes it race-safe and dedupe-proof.
 async function ensureStaleLeadTasks(userId) {
   if (!(await autoEnabled(userId, 'tasks'))) return;
-  const today = serverToday();
+  const today = await userToday(userId);
   const claimed = await q(`UPDATE leads SET last_nudge_at = $2::date
      WHERE user_id = $1
        AND created_at < (now() - interval '7 days')
        AND (last_nudge_at IS NULL OR last_nudge_at <= $2::date - 7)
        AND NOT EXISTS (SELECT 1 FROM call_log cl WHERE cl.user_id = $1
-         AND (lower(cl.name) = lower(leads.name) OR (cl.phone <> '' AND cl.phone = leads.phone)))
+         AND ((cl.lead_id IS NOT NULL AND cl.lead_id = leads.id) OR (cl.lead_id IS NULL AND (lower(cl.name) = lower(leads.name) OR (cl.phone <> '' AND cl.phone = leads.phone)))))
      RETURNING id, name`, [userId, today]);
   for (const l of claimed) {
     await createTaskOnce(userId, { title: `Reach out to ${l.name} (no contact yet)`, due: today, priority: 'Medium', leadId: l.id });
@@ -4570,7 +4611,7 @@ app.get('/api/tasks', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
   try { await ensureRealtorTouchbases(req.user.id); } catch (e) { console.error('touchbase (tasks):', e); }
   try { await ensureStaleLeadTasks(req.user.id); } catch (e) { console.error('stale-lead tasks:', e); }
-  const today = serverToday();
+  const today = await userToday(req.user.id);
   const rows = await q(`
     SELECT t.id, t.title, t.due_date, t.priority, t.status, t.lead_id,
            ab.name AS assigned_by_name, le.score AS lead_score
