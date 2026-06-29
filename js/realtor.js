@@ -1766,7 +1766,8 @@
     let res;
     try { res = await api('/api/me', { cache: 'no-store' }); } catch (e) { window.location.href = '/login.html'; return; }
     if (!res.ok) { window.location.href = '/login.html'; return; }
-    me = await res.json();
+    me = await res.json().catch(() => null);
+    if (!me) { window.location.href = '/login.html'; return; }
     if (me.role !== 'realtor') { window.location.href = '/index.html'; return; }
     // No blocking gate — realtors go straight in and can change their temporary
     // password anytime under Settings (like every other member).

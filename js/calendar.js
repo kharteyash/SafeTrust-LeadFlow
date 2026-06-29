@@ -369,7 +369,7 @@
               <i data-lucide="clock" style="width:12px;height:12px;"></i>${fmtRange(e.start, e.end)}
             </div>
             <div class="flex items-center gap-1.5 text-[12px] text-muted mt-1">
-              <i data-lucide="user" style="width:12px;height:12px;"></i>${e.with}
+              <i data-lucide="user" style="width:12px;height:12px;"></i>${esc(e.with)}
             </div>
           </div>`;
       }).join('') : `<div class="text-[12.5px] text-soft py-4 text-center">Nothing scheduled.</div>`;

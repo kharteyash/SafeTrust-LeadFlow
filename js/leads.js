@@ -131,10 +131,10 @@
       if (!tab.match(l)) return false;
       if (!q) return true;
       return (
-        l.name.toLowerCase().includes(q) ||
-        l.email.toLowerCase().includes(q) ||
-        l.phone.toLowerCase().includes(q) ||
-        l.owner.toLowerCase().includes(q) ||
+        (l.name || '').toLowerCase().includes(q) ||
+        (l.email || '').toLowerCase().includes(q) ||
+        (l.phone || '').toLowerCase().includes(q) ||
+        (l.owner || '').toLowerCase().includes(q) ||
         (l.ownerUserName || '').toLowerCase().includes(q)
       );
     });
@@ -179,16 +179,16 @@
           ${pageRows.map(l => `
             <tr>
               <td data-col="sel"><input type="checkbox" data-select-uid="${l._uid}" style="accent-color:#2255a3;cursor:pointer;" ${selectedLeads.has(String(l._uid)) ? 'checked' : ''} /></td>
-              <td data-col="name"><span class="font-semibold" data-view-uid="${l._uid}" style="cursor:pointer;color:var(--accent);">${l.name}</span>${l.preapproved ? ' <span class="pill pill-green" style="font-size:10px;">Pre-approved</span>' : ''}${l.assignedByName ? ` <span class="pill pill-blue" style="font-size:10px;">From ${esc(l.assignedByName)}</span>` : ''}${isAdmin && l.ownerUserName ? ` <span class="pill pill-purple" style="font-size:10px;">${esc(l.ownerUserName)}</span>` : ''}</td>
-              <td class="text-muted" data-label="Email">${l.email}</td>
-              <td data-label="Phone">${l.phone}</td>
+              <td data-col="name"><span class="font-semibold" data-view-uid="${l._uid}" style="cursor:pointer;color:var(--accent);">${esc(l.name)}</span>${l.preapproved ? ' <span class="pill pill-green" style="font-size:10px;">Pre-approved</span>' : ''}${l.assignedByName ? ` <span class="pill pill-blue" style="font-size:10px;">From ${esc(l.assignedByName)}</span>` : ''}${isAdmin && l.ownerUserName ? ` <span class="pill pill-purple" style="font-size:10px;">${esc(l.ownerUserName)}</span>` : ''}</td>
+              <td class="text-muted" data-label="Email">${esc(l.email)}</td>
+              <td data-label="Phone">${esc(l.phone)}</td>
               <td data-label="Timeline">${l.leadType === 'Refinance' ? '<span class="pill pill-blue">Refinance</span>' : `<span class="pill ${LF.timelinePill(l.timeline)}">${l.timeline}</span>`}</td>
               <td data-label="Score">${LF.scoreStarsHTML(l)}</td>
               <td class="text-muted" data-label="Last called">${fmtLastCall(l.lastCall)}</td>
               <td data-col="owner" data-label="Owner">
                 <div class="flex items-center gap-2">
-                  <div class="avatar avatar-sm">${l.owner.split(' ').map(s => s[0]).join('')}</div>
-                  <span class="text-[13px]">${l.owner}</span>
+                  <div class="avatar avatar-sm">${esc((l.owner || '').split(' ').map(s => s[0] || '').join(''))}</div>
+                  <span class="text-[13px]">${esc(l.owner)}</span>
                 </div>
               </td>
               <td data-col="actions">
