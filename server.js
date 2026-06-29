@@ -715,7 +715,10 @@ async function getGoogleToken(userId) {
   const refreshToken = decToken(row.refresh_token);
   const exp = Number(row.expires_at);
   if (exp && exp > Date.now() + 60000) return accessToken;
-  if (!refreshToken) return accessToken;
+  // Token is expired (or near it). Without a refresh token we can't renew it —
+  // return null so callers surface a clean "reconnect your email" path instead
+  // of firing a doomed Gmail/Calendar call that 401s.
+  if (!refreshToken) return exp ? null : accessToken;
   const r = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -2427,7 +2430,8 @@ async function ensureHotLeadQueue(userId) {
   const today = serverToday();
   const claimed = await q(`UPDATE leads SET hot_queued_at = $2::date
      WHERE user_id = $1 AND score >= 81 AND hot_queued_at IS NULL
-       AND NOT EXISTS (SELECT 1 FROM call_log cl WHERE cl.user_id = $1 AND lower(cl.name) = lower(leads.name))
+       AND NOT EXISTS (SELECT 1 FROM call_log cl WHERE cl.user_id = $1
+         AND (lower(cl.name) = lower(leads.name) OR (cl.phone <> '' AND cl.phone = leads.phone)))
      RETURNING name, phone`, [userId, today]);
   for (const l of claimed) {
     await q(`INSERT INTO call_queue (user_id, name, phone, priority, call_time, call_date, reason)
@@ -3622,7 +3626,8 @@ async function ensureNurtureMessages(userId) {
        AND created_at <= now() - interval '15 days'
        AND (last_nurture_at IS NULL OR last_nurture_at <= $2::date - 15)
        AND NOT EXISTS (
-         SELECT 1 FROM call_log cl WHERE cl.user_id = $1 AND lower(cl.name) = lower(leads.name)
+         SELECT 1 FROM call_log cl WHERE cl.user_id = $1
+           AND (lower(cl.name) = lower(leads.name) OR (cl.phone <> '' AND cl.phone = leads.phone))
            AND cl.logged_at ~ '^\\d{4}-\\d{2}-\\d{2}T' AND cl.logged_at::timestamptz > now() - interval '15 days')
      RETURNING id, name, email`, [userId, today]);
   if (!claimed.length) return;
@@ -3660,7 +3665,8 @@ async function ensureLeadDripMessages(userId) {
     WHERE user_id = $1 AND email IS NOT NULL AND btrim(email) <> ''
       AND created_at > now() - interval '8 days'
       AND NOT EXISTS (
-        SELECT 1 FROM call_log cl WHERE cl.user_id = $1 AND lower(cl.name) = lower(leads.name))`, [userId]);
+        SELECT 1 FROM call_log cl WHERE cl.user_id = $1
+          AND (lower(cl.name) = lower(leads.name) OR (cl.phone <> '' AND cl.phone = leads.phone)))`, [userId]);
   if (!leads.length) return;
   const settings = await autoSettingsFor(userId);
   const now = Date.now();
@@ -4552,7 +4558,8 @@ async function ensureStaleLeadTasks(userId) {
      WHERE user_id = $1
        AND created_at < (now() - interval '7 days')
        AND (last_nudge_at IS NULL OR last_nudge_at <= $2::date - 7)
-       AND NOT EXISTS (SELECT 1 FROM call_log cl WHERE cl.user_id = $1 AND lower(cl.name) = lower(leads.name))
+       AND NOT EXISTS (SELECT 1 FROM call_log cl WHERE cl.user_id = $1
+         AND (lower(cl.name) = lower(leads.name) OR (cl.phone <> '' AND cl.phone = leads.phone)))
      RETURNING id, name`, [userId, today]);
   for (const l of claimed) {
     await createTaskOnce(userId, { title: `Reach out to ${l.name} (no contact yet)`, due: today, priority: 'Medium', leadId: l.id });
