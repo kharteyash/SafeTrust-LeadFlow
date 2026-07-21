@@ -3647,6 +3647,7 @@ function leadRowToJson(r) {
     realtorStatus: r.realtor_status || 'none', realtorName: r.realtor_name || '',
     realtorEmail: r.realtor_email || '', realtorPhone: r.realtor_phone || '',
     assignedByName: r.assigned_by_name || '',
+    ownerUserId: r.owner_user_id || null,
     ownerUserName: r.owner_user_name || '',
     mine: !!r.mine,
     lastCall: r.last_call || '', created: r.created_at
@@ -3742,7 +3743,7 @@ app.get('/api/leads', safe(async (req, res) => {
   const rows = await q(`
     SELECT le.id, le.name, le.email, le.phone, le.timeline, le.score, le.owner, le.notes, le.state, le.birthday,
            le.preapproved, le.lead_type, le.refi_type, le.realtor_status, le.realtor_name, le.realtor_email, le.realtor_phone,
-           le.created_at, ab.name AS assigned_by_name, ou.name AS owner_user_name,
+           le.created_at, le.user_id AS owner_user_id, ab.name AS assigned_by_name, ou.name AS owner_user_name,
            (SELECT cl.logged_at FROM call_log cl
               WHERE cl.user_id = le.user_id AND lower(cl.name) = lower(le.name)
               ORDER BY cl.created_at DESC LIMIT 1) AS last_call,
@@ -4251,14 +4252,18 @@ app.get('/api/leads/:id/forwards', safe(async (req, res) => {
 }));
 
 // Assign/forward one of my leads to a teammate or everyone on the team.
+// The admin can forward any lead, whoever owns it, to anyone.
 app.post('/api/leads/:id/assign', safe(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' });
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid lead id.' });
-  const lead = await one('SELECT id FROM leads WHERE id = $1 AND user_id = $2', [id, req.user.id]);
+  const lead = req.user.role === 'admin'
+    ? await one('SELECT id, user_id FROM leads WHERE id = $1', [id])
+    : await one('SELECT id, user_id FROM leads WHERE id = $1 AND user_id = $2', [id, req.user.id]);
   if (!lead) return res.status(404).json({ error: 'Lead not found.' });
 
-  const roster = await assignTargetIds(req.user);
+  // The current owner is never a valid target (forwarding it to them is a no-op).
+  const roster = (await assignTargetIds(req.user)).filter(uid => uid !== lead.user_id);
   if (roster.length === 0) return res.status(400).json({ error: 'You have no teammates to assign to.' });
 
   const target = (req.body || {}).target;
@@ -4266,7 +4271,7 @@ app.post('/api/leads/:id/assign', safe(async (req, res) => {
   if (target === 'all') targetIds = roster;
   else {
     const tid = Number(target);
-    if (!roster.includes(tid)) return res.status(400).json({ error: 'That user is not on your team.' });
+    if (!roster.includes(tid)) return res.status(400).json({ error: 'You can\'t assign this lead to that user.' });
     targetIds = [tid];
   }
 

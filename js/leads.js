@@ -197,7 +197,7 @@
                     <i data-lucide="message-circle" style="width:13px;height:13px;pointer-events:none;"></i> Contact
                     <i data-lucide="chevron-down" style="width:12px;height:12px;pointer-events:none;opacity:.7;"></i>
                   </button>` : ''}
-                  ${(canAssign && (!isAdmin || l.mine)) ? `<button class="btn-icon" title="Assign / forward" data-assign-uid="${l._uid}" style="width:30px;height:30px;">
+                  ${canAssign ? `<button class="btn-icon" title="Assign / forward" data-assign-uid="${l._uid}" style="width:30px;height:30px;">
                     <i data-lucide="forward" style="width:13px;height:13px;color:#2B57D9;pointer-events:none;"></i>
                   </button>` : ''}
                   <button class="btn-icon" title="Edit lead" data-edit-uid="${l._uid}" style="width:30px;height:30px;">
@@ -1045,11 +1045,14 @@
     assigningLeadId = lead.id;
     document.getElementById('assign-lead-name').textContent = lead.name;
     const sel = document.getElementById('assign-target');
-    if (assignTargets.length === 0) {
+    // The current owner isn't a valid target (matters when the admin forwards
+    // a lead owned by another user).
+    const targets = assignTargets.filter(m => String(m.id) !== String(lead.ownerUserId || ''));
+    if (targets.length === 0) {
       sel.innerHTML = '<option value="">No one available</option>';
     } else {
       sel.innerHTML = `<option value="all">${isAdmin ? 'Everyone' : 'Everyone on my team'}</option>` +
-        assignTargets.map(m => `<option value="${m.id}">${esc(m.name)}${m.isLeader ? ' (team leader)' : ''}</option>`).join('');
+        targets.map(m => `<option value="${m.id}">${esc(m.name)}${m.isLeader ? ' (team leader)' : ''}</option>`).join('');
     }
     document.getElementById('assign-msg').textContent = '';
     document.getElementById('assign-modal').classList.remove('hidden');
